@@ -1,5 +1,7 @@
 //! XHarness' embeddable, provider-independent agent loop.
 
+#![cfg_attr(not(test), forbid(clippy::print_stderr))]
+
 mod checkpoint;
 mod compaction;
 mod context_composition;
@@ -13,7 +15,7 @@ mod session;
 mod tool;
 mod types;
 
-pub use engine::{LoopEngine, LoopEventStream, LoopRun};
+pub use engine::{LoopControlHandle, LoopEngine, LoopEventStream, LoopRun};
 pub use session::{MemorySessionStore, SessionStore};
 pub use tool::{tool_result_for_model, MIN_TOOL_RESULT_LIMIT_BYTES};
 pub use types::*;

@@ -35,10 +35,13 @@ class Fixture:
                 else:
                     html = f'''<!doctype html><style>body{{margin:0;font:16px sans-serif}}#marker{{position:absolute;left:1100px;top:20px;width:120px;height:80px;background:rgb(220,30,40)}}button{{position:absolute;left:20px;top:70px;width:160px;height:44px}}input{{position:absolute;left:220px;top:70px;width:220px;height:40px}}#state{{position:absolute;left:20px;top:130px}}iframe{{position:absolute;left:20px;top:220px;width:200px;height:80px;border:0}}</style>
                     <h1>Ready</h1><div id="marker"></div><div style="position:absolute;left:1100px;top:800px;width:120px;height:80px;background:rgb(230,200,20)"></div><button id="apply">Apply</button><input aria-label="Command"><div id="state">Count:0 Child:0 Enter:0</div><iframe src="http://127.0.0.1:{self.server.server_port if self.server is outer.child else outer.child.server_port}/child"></iframe>
+                    <button id="cancel" style="left:440px">Cancel fixture</button><button id="edge" style="position:fixed;left:auto;top:auto;right:0;bottom:0;width:32px;height:32px;z-index:10">Edge</button>
                     <div style="position:absolute;top:400px;height:2000px">{'Synthetic document ' * 300}</div>
                     <script>let count=0,child=0,enter=0;const colors=['rgb(220,30,40)','rgb(20,170,60)','rgb(30,80,220)'];
                     function record(kind,trusted){{document.querySelector('#state').textContent='Count:'+count+' Child:'+child+' Enter:'+enter;document.querySelector('#marker').style.background=colors[count%3];fetch('/event',{{method:'POST',body:JSON.stringify({{kind,trusted,count,child,enter}})}})}}
                     document.querySelector('#apply').onclick=e=>{{count++;record('click',e.isTrusted)}};document.querySelector('input').onkeydown=e=>{{if(e.key==='Enter'){{enter++;record('enter',e.isTrusted)}}}};
+                    document.querySelector('#cancel').onmousedown=e=>{{count++;record('cancel-press',e.isTrusted);const deadline=Date.now()+750;while(Date.now()<deadline){{}}}};
+                    document.querySelector('#edge').onclick=e=>{{count++;record('edge',e.isTrusted)}};
                     addEventListener('message',e=>{{if(e.origin==='http://127.0.0.1:{outer.child.server_port}'&&e.data.child){{child++;record('child',e.data.trusted)}}}});</script>'''
                 data = html.encode(); self.send_response(200); self.send_header('Content-Type','text/html'); self.send_header('Content-Length',str(len(data))); self.end_headers(); self.wfile.write(data)
         self.child = ThreadingHTTPServer(('127.0.0.1',0),Handler)
@@ -153,6 +156,27 @@ def main():
         (args.output/'scrolled.png').write_bytes(data)
         frame=call('observe');assert call('perform',{'action':'scroll','frame_id':frame['frame_id'],'delta_y':-780})['ok']
         cases.append('scrolled viewport PNG uses page offsets rather than document origin')
+
+        # Cancel the actual control connection after a trusted native press is
+        # already executing. Reconnect must restore CSS geometry before read,
+        # screenshot and input, without replaying that uncertain press.
+        frame=observe_state(f'Count:{count} ')
+        assert frame['viewport']=={'width':1280,'height':720},frame['viewport']
+        assert call('cancel_input',{'action':'click','frame_id':frame['frame_id'],'x':520,'y':92})['cancelled']
+        count+=1
+        restored=observe_state(f'Count:{count} ')
+        assert restored['viewport']=={'width':1280,'height':720},restored['viewport']
+        capture(count,'reconnected.png')
+        edge=next(node for node in restored['nodes'] if node['label']=='Edge')['bounds']
+        point=(edge['x']+edge['width']/2,edge['y']+edge['height']/2)
+        assert point[0]>1200 and point[1]>680,point
+        assert click(*point)['effect']=='applied'
+        count+=1;observe_state(f'Count:{count} ')
+        capture(count,'reconnected-edge-input.png')
+        assert sum(event['kind']=='cancel-press' for event in fixture.events)==1,fixture.events
+        assert sum(event['kind']=='edge' for event in fixture.events)==1,fixture.events
+        cases.append('cancelled control reconnect restores 1280x720 CSS/PNG/bottom-edge input without replay')
+
 
         preview=preview_until(tab);assert preview['mime']=='image/jpeg';observe_state(f'Count:{count} ');cases.append('reopen preview preserves target state')
         opened_b=call('control',{'action':'open','url':fixture.url},owner='other-chat');assert opened_b['tab_id']!=tab

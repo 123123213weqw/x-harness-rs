@@ -13,6 +13,7 @@ pub mod goal;
 mod goal_validation;
 pub use checkpoint::*;
 mod event;
+mod inbox_validation;
 mod job_continuation;
 pub use job_continuation::*;
 mod message;

@@ -3,8 +3,8 @@ use std::{collections::HashMap, sync::Arc, time::SystemTime};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CompactionEndOutcome, EventData, InboxMessage, InboxTarget, LoggedEvent, Message, MessageRole,
-    Revision, Sequence, SessionEvent,
+    CompactionEndOutcome, EventData, LoggedEvent, Message, MessageRole, Revision, Sequence,
+    SessionEvent,
 };
 use xharness_interaction::{
     AskUserQuestionRequest, QuestionAnswer, QuestionInteraction, QuestionStateError,
@@ -580,8 +580,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
     let mut last_turn = 0u32;
     let mut open_step = None::<StepState>;
     let mut last_step = 0u32;
-    let mut next_turn_inbox = Vec::<InboxMessage>::new();
-    let mut next_step_inbox = Vec::<InboxMessage>::new();
+    let mut inbox = crate::inbox_validation::InboxValidation::default();
     let mut current_goal = None::<(crate::GoalSnapshot, u64, u64, u64)>;
     let mut has_goal_execution_events = false;
     let mut seen_goal_ids = std::collections::HashSet::<String>::new();
@@ -706,60 +705,14 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                 inserted,
                 outcome,
             } => {
-                let (target_inbox, other_inbox) = match target {
-                    InboxTarget::NextTurn => (&mut next_turn_inbox, &next_step_inbox),
-                    InboxTarget::NextStep => (&mut next_step_inbox, &next_turn_inbox),
-                };
-                let end = start.checked_add(*removed_count).ok_or_else(|| {
-                    SessionError::InvalidInboxSplice {
-                        seq: logged.seq,
-                        message: "splice range overflow".to_owned(),
-                    }
-                })?;
-                if *start > target_inbox.len() || end > target_inbox.len() {
-                    return Err(SessionError::InvalidInboxSplice {
-                        seq: logged.seq,
-                        message: format!(
-                            "range {start}..{end} exceeds {} pending items",
-                            target_inbox.len()
-                        ),
-                    });
-                }
-                if outcome.is_some() && *removed_count == 0 {
-                    return Err(SessionError::InvalidInboxSplice {
-                        seq: logged.seq,
-                        message: "discard outcome requires at least one removed message".to_owned(),
-                    });
-                }
-                for message in inserted {
-                    if message.id.is_empty() {
-                        return Err(SessionError::EmptyInboxMessageId { seq: logged.seq });
-                    }
-                    if message.message.role != MessageRole::User {
-                        return Err(SessionError::InvalidInboxMessageRole {
-                            seq: logged.seq,
-                            message_id: message.id.clone(),
-                        });
-                    }
-                    if message.message.id.as_deref() != Some(message.id.as_str()) {
-                        return Err(SessionError::InboxMessageIdMismatch {
-                            seq: logged.seq,
-                            message_id: message.id.clone(),
-                        });
-                    }
-                }
-                let mut candidate = target_inbox.clone();
-                candidate.splice(*start..end, inserted.iter().cloned());
-                let mut ids = std::collections::HashSet::new();
-                for message in candidate.iter().chain(other_inbox) {
-                    if !ids.insert(message.id.as_str()) {
-                        return Err(SessionError::DuplicateInboxMessage {
-                            seq: logged.seq,
-                            message_id: message.id.clone(),
-                        });
-                    }
-                }
-                *target_inbox = candidate;
+                inbox.apply(
+                    logged.seq,
+                    *target,
+                    *start,
+                    *removed_count,
+                    inserted,
+                    *outcome,
+                )?;
             }
             EventData::TurnStart { turn } => {
                 if open_turn.is_some() || open_step.is_some() {

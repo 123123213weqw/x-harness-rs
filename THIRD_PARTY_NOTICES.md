@@ -1,5 +1,18 @@
 # Third-party notices
 
+## Wry macOS nullable-URL compatibility patch
+
+`apps/desktop/src-tauri/vendor/wry` vendors Wry 0.55.1 under its original
+Apache-2.0 OR MIT license. The only upstream source change makes a nullable
+`WKWebView.URL` / `NSURL.absoluteString` return an error instead of panicking
+on the desktop main thread. This is not a Tauri API or dependency-version upgrade.
+
+- Source: https://github.com/tauri-apps/wry/tree/wry-v0.55.1
+- Original archive and per-file hashes:
+  `apps/desktop/src-tauri/vendor/wry/XHARNESS-PROVENANCE.json`
+- License texts: `apps/desktop/src-tauri/vendor/wry/LICENSE-APACHE`,
+  `apps/desktop/src-tauri/vendor/wry/LICENSE-MIT`
+
 ## DeepSeek Harness web UI
 
 The initial web UI in `ui/` is derived from DeepSeek Harness:

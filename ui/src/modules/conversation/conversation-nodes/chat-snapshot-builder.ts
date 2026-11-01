@@ -18,7 +18,14 @@ function sameReferences<T>(left: readonly T[], right: readonly T[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index])
 }
 
+function sameStructure(a: ChatConversationViewNode | undefined, b: ChatConversationViewNode): boolean {
+  if (a === undefined || a.kind !== b.kind || a.visibility !== b.visibility || a.anchorSeq !== b.anchorSeq) return false
+  const left = locationCoordinates(a.location), right = locationCoordinates(b.location)
+  return left.turn === right.turn && left.step === right.step
+}
+
 class MutableChatNodeStore implements ChatNodeStore {
+  structureVersion = 0
   private readonly byKey = new Map<string, ChatConversationViewNode>()
   private valuesCache: readonly ChatConversationViewNode[] = EMPTY_LIST
   private valuesDirty = false
@@ -36,6 +43,7 @@ class MutableChatNodeStore implements ChatNodeStore {
   }
 
   replace(nodes: readonly ChatConversationViewNode[]): void {
+    this.structureVersion++
     this.byKey.clear()
     for (const node of nodes) this.byKey.set(node.key, node)
     this.valuesCache = [...this.byKey.values()]
@@ -46,6 +54,7 @@ class MutableChatNodeStore implements ChatNodeStore {
     let changed = false
     for (const node of nodes) {
       if (this.byKey.get(node.key) === node) continue
+      if (!sameStructure(this.byKey.get(node.key), node)) this.structureVersion++
       this.byKey.set(node.key, node)
       changed = true
     }

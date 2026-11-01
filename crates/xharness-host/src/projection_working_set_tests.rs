@@ -414,3 +414,195 @@ async fn concurrent_prefix_eviction_can_rebase_a_prepared_final_message() {
     assert_eq!(record.event_cache_bytes, expected.bytes);
     assert_eq!(record.event_cache_weights, expected.event_bytes);
 }
+
+#[tokio::test]
+async fn queue_and_new_turn_deltas_match_the_canonical_bounded_tail() {
+    use xharness_session::{InboxMessage, InboxTarget};
+    for capacity in [16, 64, 2048] {
+        let (host, store) = limited_fixture(capacity, 1024 * 1024, usize::MAX).await;
+        host.sync_authoritative_session(ID).await.unwrap();
+        for turn in 1..=12 {
+            let input = InboxMessage::user(format!("queue-{turn}"), "unchanged body Δ");
+            let mut events = vec![
+                vec![EventData::AgentInboxSpliced {
+                    target: InboxTarget::NextTurn,
+                    start: 0,
+                    removed_count: 0,
+                    inserted: vec![input.clone()],
+                    outcome: None,
+                }
+                .into()],
+                vec![EventData::AgentDispatchPaused { paused: false }.into()],
+                vec![EventData::TurnStart { turn }.into()],
+                vec![
+                    EventData::AgentInboxSpliced {
+                        target: InboxTarget::NextTurn,
+                        start: 0,
+                        removed_count: 1,
+                        inserted: vec![],
+                        outcome: None,
+                    }
+                    .into(),
+                    EventData::UserMessage {
+                        message: input.message,
+                        surface_replace: None,
+                    }
+                    .into(),
+                ],
+                vec![EventData::StepStart { turn, step: 1 }.into()],
+                vec![EventData::RequestHeader {
+                    header: RequestHeader::new("test", "test"),
+                }
+                .into()],
+                vec![EventData::AssistantChunk {
+                    turn,
+                    step: 1,
+                    chunk: AssistantChunk::TextDelta("partial".into()),
+                }
+                .into()],
+                vec![EventData::AssistantMessage {
+                    turn,
+                    step: 1,
+                    message: Message::assistant("complete"),
+                    usage: None,
+                }
+                .into()],
+                vec![EventData::StepEnd { turn, step: 1 }.into()],
+                vec![EventData::TurnEnd {
+                    turn,
+                    reason: TurnEndReason::Completed,
+                }
+                .into()],
+            ];
+            for batch in events.drain(..) {
+                let inputs = ProjectionInputs::capture(&host.state.read().await.sessions[ID]);
+                let current = store.load(ID).await.unwrap().unwrap();
+                store.append(ID, current.revision(), batch).await.unwrap();
+                let current = store.load(ID).await.unwrap().unwrap();
+                let update = prepare_session_tail_update(
+                    &current,
+                    &inputs.route,
+                    inputs.cache_base_seq,
+                    inputs.cursor,
+                    true,
+                    capacity,
+                    1024 * 1024,
+                );
+                assert!(
+                    matches!(
+                        update,
+                        xharness_projection::ProjectedTailUpdate::Append { .. }
+                    ),
+                    "local input/start/header delta must not reserialize the resident prefix"
+                );
+                let expected = project_session_event_tail_from(
+                    &current,
+                    &inputs.route,
+                    inputs.cache_base_seq,
+                    capacity,
+                    1024 * 1024,
+                );
+                host.sync_authoritative_session(ID).await.unwrap();
+                let state = host.state.read().await;
+                let record = &state.sessions[ID];
+                assert_eq!(record.events, expected.events);
+                assert_eq!(record.event_cache_weights, expected.event_bytes);
+                assert_eq!(record.event_cache_bytes, expected.bytes);
+                assert_eq!(
+                    record.event_cache_resident_weights,
+                    expected.event_resident_bytes
+                );
+                assert_eq!(record.event_cache_resident_bytes, expected.resident_bytes);
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn reused_consumed_input_metadata_still_forces_canonical_replacement() {
+    use xharness_session::{InboxMessage, InboxTarget};
+    let (host, store) = limited_fixture(2048, 1024 * 1024, usize::MAX).await;
+    let old = InboxMessage::user("legacy-reuse", "original source");
+    let current = store.load(ID).await.unwrap().unwrap();
+    store
+        .append(
+            ID,
+            current.revision(),
+            vec![
+                EventData::AgentInboxSpliced {
+                    target: InboxTarget::NextTurn,
+                    start: 0,
+                    removed_count: 0,
+                    inserted: vec![old.clone()],
+                    outcome: None,
+                }
+                .into(),
+                EventData::TurnStart { turn: 1 }.into(),
+                EventData::AgentInboxSpliced {
+                    target: InboxTarget::NextTurn,
+                    start: 0,
+                    removed_count: 1,
+                    inserted: vec![],
+                    outcome: None,
+                }
+                .into(),
+                EventData::UserMessage {
+                    message: old.message,
+                    surface_replace: None,
+                }
+                .into(),
+                EventData::TurnEnd {
+                    turn: 1,
+                    reason: TurnEndReason::Completed,
+                }
+                .into(),
+            ],
+        )
+        .await
+        .unwrap();
+    host.sync_authoritative_session(ID).await.unwrap();
+    let inputs = ProjectionInputs::capture(&host.state.read().await.sessions[ID]);
+    let mut reused = InboxMessage::user("legacy-reuse", "changed legacy source");
+    reused.source = Some(
+        json!({"content":[{"type":"text","text":"new display"}], "source":{"kind":"agent-settlement"}}),
+    );
+    let current = store.load(ID).await.unwrap().unwrap();
+    store
+        .append(
+            ID,
+            current.revision(),
+            vec![EventData::AgentInboxSpliced {
+                target: InboxTarget::NextTurn,
+                start: 0,
+                removed_count: 0,
+                inserted: vec![reused],
+                outcome: None,
+            }
+            .into()],
+        )
+        .await
+        .unwrap();
+    let current = store.load(ID).await.unwrap().unwrap();
+    let update = prepare_session_tail_update(
+        &current,
+        &inputs.route,
+        inputs.cache_base_seq,
+        inputs.cursor,
+        true,
+        2048,
+        1024 * 1024,
+    );
+    assert!(matches!(
+        update,
+        xharness_projection::ProjectedTailUpdate::Replace(_)
+    ));
+    host.sync_authoritative_session(ID).await.unwrap();
+    let expected = project_session_event_tail_from(
+        &current,
+        &inputs.route,
+        inputs.cache_base_seq,
+        2048,
+        1024 * 1024,
+    );
+    assert_eq!(host.state.read().await.sessions[ID].events, expected.events);
+}

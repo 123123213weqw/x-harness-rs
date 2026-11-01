@@ -73,11 +73,12 @@ export interface WorkspaceApi {
 
   /**
    * Removes one Workspace registration. The directory, every user file, and
-   * every session log remain untouched; those Sessions consequently become
-   * ungrouped. An unknown id fails with `workspace-not-found`.
+   * every session log remain untouched. Associated Sessions are archived in
+   * the same commit, without stopping work. Older Hosts omit archive membership.
+   * An unknown id fails with `workspace-not-found`.
    */
   delete(request: RpcRequest<{ workspaceId: WorkspaceId }>):
-  Promise<RpcResponse<{ deleted: true }>>
+  Promise<RpcResponse<{ deleted: true; archivedSessionIds?: SessionId[] | undefined }>>
 
   /**
    * Moves one Workspace within the registry display order,

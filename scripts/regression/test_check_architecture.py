@@ -22,6 +22,7 @@ class ManagedHostPolicyTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        (self.root / ".clippy.toml").write_text("allow-expect-in-tests = true\nallow-unwrap-in-tests = true\nallow-expect-in-consts = false\nallow-unwrap-in-consts = false\n")
         self.host = self.root / "crates" / "xharness-host" / "src"
         (self.host / "rpc").mkdir(parents=True)
         (self.host / "lib.rs").write_text("mod example_processor;\n")
@@ -107,10 +108,11 @@ class RemoteInteractionSeamPolicyTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        for relative in set(CHECKER.SOURCE_BOUNDARIES) | set(CHECKER.FORBIDDEN_SOURCE_FRAGMENTS):
+        (self.root / ".clippy.toml").write_text("allow-expect-in-tests = true\nallow-unwrap-in-tests = true\nallow-expect-in-consts = false\nallow-unwrap-in-consts = false\n")
+        for relative in set(CHECKER.SOURCE_BOUNDARIES) | set(CHECKER.FORBIDDEN_SOURCE_FRAGMENTS) | CHECKER.ERROR_BOUNDARIES:
             file = self.root / relative
             file.parent.mkdir(parents=True, exist_ok=True)
-            file.write_text("")
+            file.write_text(CHECKER.BUSINESS_ERROR_GUARD)
         (self.root / "crates/xharness-host/src/lib.rs").write_text("")
         self.baseline = self.root / "baseline.json"
         self.baseline.write_text("{}")
@@ -139,7 +141,7 @@ class RemoteInteractionSeamPolicyTests(unittest.TestCase):
                     result, output = self.run_checker()
                     self.assertEqual(result, 1)
                     self.assertIn(relative + ": forbidden coupling", output)
-                    file.write_text("")
+                    file.write_text(CHECKER.BUSINESS_ERROR_GUARD)
 
     def test_platform_observer_cannot_import_api_host_agent_or_core(self) -> None:
         relative = "crates/xharness-channel-telegram/src/commands.rs"
@@ -147,6 +149,60 @@ class RemoteInteractionSeamPolicyTests(unittest.TestCase):
             with self.subTest(token=token):
                 (self.root / relative).write_text(token)
                 self.assertEqual(self.run_checker()[0], 1)
+
+
+class BusinessErrorGuardTests(unittest.TestCase):
+    def test_all_required_lints_need_unconditional_deny_and_production_forbid(self):
+        lints = sorted(CHECKER.BUSINESS_ERROR_LINTS)
+        good = CHECKER.BUSINESS_ERROR_GUARD
+        self.assertTrue(CHECKER.has_business_error_guards("//! docs\n/* nested /* x */ */\n#![forbid(unsafe_code)]\n" + good))
+        for source in ["", good.replace("forbid", "deny"), good.replace("forbid", "warn"),
+                       "// " + good, "/* " + good + " */", "const S: &str = " + json.dumps(good) + ";",
+                       "#![cfg_attr(not(test), forbid(" + ",".join(lints) + "))]",
+                       "mod child { " + good + " }", "fn first() {}\n" + good]:
+            with self.subTest(source=source):
+                self.assertFalse(CHECKER.has_business_error_guards(source))
+        for missing in lints:
+            self.assertFalse(CHECKER.has_business_error_guards(good.replace(missing, "different_lint")))
+        for bypass in [good.replace("not(test)", "test"), good.replace("not(test)", "not(debug_assertions)"), good.split("\n",1)[1]]:
+            self.assertFalse(CHECKER.has_business_error_guards(bypass))
+
+    def test_scope_automatically_includes_new_managed_processors(self):
+        paths = CHECKER.business_error_sources({"managedModules":[{"source":"new_processor.rs"}]})
+        self.assertIn("crates/xharness-host/src/new_processor.rs", paths)
+        self.assertTrue(set(CHECKER.SOURCE_BOUNDARIES) <= paths)
+        self.assertTrue(CHECKER.ERROR_BOUNDARIES <= paths)
+
+    def test_production_type_exemption_or_disabled_test_policy_cannot_bypass_guard(self):
+        good = "allow-expect-in-tests = true\nallow-unwrap-in-tests = true\nallow-expect-in-consts = false\nallow-unwrap-in-consts = false\n"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for config in ["", good + 'allow-unwrap-types = ["Result"]',
+                           good.replace("allow-expect-in-tests = true", "allow-expect-in-tests = false"),
+                           good.replace("allow-unwrap-in-tests = true", "allow-unwrap-in-tests = false"),
+                           good.replace("allow-expect-in-consts = false", "allow-expect-in-consts = true"),
+                           good.replace("allow-unwrap-in-consts = false", "allow-unwrap-in-consts = true")]:
+                with self.subTest(config=config):
+                    (root/".clippy.toml").write_text(config)
+                    self.assertIn(".clippy.toml", CHECKER.check_business_error_guards(root,{"managedModules":[]})[0])
+
+    def test_deleted_guard_or_file_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".clippy.toml").write_text("allow-expect-in-tests = true\nallow-unwrap-in-tests = true\nallow-expect-in-consts = false\nallow-unwrap-in-consts = false\n")
+            policy = {"managedModules":[]}
+            paths = CHECKER.business_error_sources(policy)
+            guard = CHECKER.BUSINESS_ERROR_GUARD
+            for name in paths:
+                path = root/name
+                path.parent.mkdir(parents=True,exist_ok=True)
+                path.write_text(guard)
+            self.assertEqual(CHECKER.check_business_error_guards(root,policy),[])
+            path = root/sorted(paths)[0]
+            path.write_text("")
+            self.assertEqual(len(CHECKER.check_business_error_guards(root,policy)),1)
+            path.unlink()
+            self.assertEqual(len(CHECKER.check_business_error_guards(root,policy)),1)
 
 
 if __name__ == "__main__":

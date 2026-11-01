@@ -1,4 +1,49 @@
 #[tokio::test]
+async fn panicked_executor_closes_event_stream_and_reports_unknown_without_replay() {
+    struct PanicProvider(std::sync::atomic::AtomicUsize);
+    #[async_trait]
+    impl ModelProvider for PanicProvider {
+        async fn stream(
+            &self,
+            _: ProviderRequest,
+            _: CancellationToken,
+        ) -> Result<ProviderStream, ProviderError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            panic!("synthetic private panic payload");
+        }
+    }
+    let provider = Arc::new(PanicProvider(std::sync::atomic::AtomicUsize::new(0)));
+    let store = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("fixture")]);
+    request.session_id = Some("executor-panic".into());
+    request.journal_store = Some(store.clone());
+    let mut run = LoopEngine.start(request);
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while run.next().await.is_some() {}
+        run.result().await
+    })
+    .await
+    .expect("executor loss must not strand the event cursor");
+    assert_eq!(result.status, LoopStatus::Failed);
+    let message = result.error.unwrap();
+    assert!(message.contains("outcome unknown"));
+    assert!(!message.contains("synthetic private panic payload"));
+    assert_eq!(provider.0.load(Ordering::SeqCst), 1);
+    let journal = store.load("executor-panic").await.unwrap().unwrap();
+    assert!(journal
+        .events()
+        .iter()
+        .any(|e| matches!(e.data(), SessionEventData::TurnStart { .. })));
+    assert!(
+        !journal
+            .events()
+            .iter()
+            .any(|e| matches!(e.data(), SessionEventData::TurnEnd { .. })),
+        "a monitor must not invent a durable terminal receipt after unknown execution"
+    );
+}
+
+#[tokio::test]
 async fn durable_large_result_has_recoverable_original_and_exact_call() {
     let original = format!(
         "{}MIDDLE-EVIDENCE{}",
@@ -184,8 +229,10 @@ async fn fresh_tool_observation_still_obeys_whole_request_budget() {
     .await;
     let (_, result) = collect(LoopEngine.start(request)).await;
     assert_eq!(result.status, LoopStatus::Failed);
-    assert!(result.error.unwrap().contains("token budget rejected"));
-    assert_eq!(provider.attempts(), 1, "no oversized second model request");
+    // This fixture has no native counter: the byte ceiling cannot prove
+    // actual overflow, but it still must not authorize the next request.
+    assert!(result.error.unwrap().contains("measurement unavailable"));
+    assert_eq!(provider.attempts(), 1, "no unadmitted second model request");
 }
 
 #[derive(Default)]
@@ -1678,14 +1725,9 @@ async fn accumulated_images_do_not_block_a_later_text_turn() {
         sent[0].content_blocks[0],
         xharness_session::ContentBlock::Text { .. }
     ));
-    assert!(matches!(
-        sent[1].content_blocks[0],
-        xharness_session::ContentBlock::Image { .. }
-    ));
-    assert!(matches!(
-        sent[2].content_blocks[0],
-        xharness_session::ContentBlock::Image { .. }
-    ));
+    for index in 1..3 {
+        assert_eq!(sent[index], history[index]);
+    }
     assert_eq!(sent[3].content, "continue in text");
 }
 
@@ -2946,7 +2988,7 @@ async fn invalid_request_fails_before_the_provider_is_called() {
 
 #[tokio::test]
 async fn hard_token_budget_rejects_64196_before_a_53248_provider_attempt() {
-    let provider = Arc::new(ScriptProvider::new([vec![Ok(completed())]]));
+    let provider = Arc::new(ExactCountingProvider::new(64_196, [vec![Ok(completed())]]));
     let guard = TokenGuard::new(
         Arc::new(FixedTokenMeter { total: 64_196 }),
         TokenBudget {
@@ -2963,7 +3005,8 @@ async fn hard_token_budget_rejects_64196_before_a_53248_provider_attempt() {
 
     let (_, result) = collect(LoopEngine.start(request)).await;
     assert_eq!(result.status, LoopStatus::Failed);
-    assert_eq!(provider.attempts(), 0);
+    assert_eq!(provider.inner.attempts(), 0);
+    assert_eq!(provider.count_attempts.load(Ordering::SeqCst), 1);
     let error = result.error.unwrap();
     assert!(error.contains("64196"), "{error}");
     assert!(error.contains("context=53248"), "{error}");
@@ -6781,7 +6824,7 @@ async fn oversized_candidate_is_not_committed_even_when_summary_is_smaller() {
         request.compaction = Some(CompactionConfig {
             retain_ratio: None,
             retain_tokens: Some(10),
-            max_tokens: 64,
+            max_tokens: 1,
             ..CompactionConfig::default()
         });
         let (_, result) = collect(LoopEngine.start(request)).await;
@@ -6808,7 +6851,7 @@ async fn oversized_candidate_is_not_committed_even_when_summary_is_smaller() {
             session.events().iter().any(|e| matches!(
                 e.data(),
                 SessionEventData::CompactionEnd {
-                    outcome: Some(xharness_session::CompactionEndOutcome::NoBenefit),
+                    outcome: Some(xharness_session::CompactionEndOutcome::Failed),
                     ..
                 }
             )),
@@ -6828,11 +6871,7 @@ async fn oversized_candidate_is_not_committed_even_when_summary_is_smaller() {
                 .iter()
                 .any(|m| m.content.contains("SMALL-CANDIDATE")));
         } else {
-            assert!(result
-                .error
-                .as_deref()
-                .unwrap()
-                .contains("does not reduce the complete request"));
+            assert!(result.error.as_deref().unwrap().contains("capacity"));
         }
     }
 }
@@ -6998,12 +7037,15 @@ async fn pinned_raw_user_is_not_summarized_and_hard_overflow_sends_nothing() {
             "USER-EVIDENCE:{}; scope=read-only; do not publish",
             "x".repeat(6_000)
         );
-        let provider = Arc::new(ScriptProvider::new([vec![
-            Ok(ProviderEvent::TextDelta(
-                "read-only observation complete".into(),
-            )),
-            Ok(completed()),
-        ]]));
+        let provider = Arc::new(ExactCountingProvider::new(
+            input,
+            [vec![
+                Ok(ProviderEvent::TextDelta(
+                    "read-only observation complete".into(),
+                )),
+                Ok(completed()),
+            ]],
+        ));
         let journal = Arc::new(EventMemorySessionStore::default());
         let mut request =
             LoopRequest::new(provider.clone(), vec![AgentMessage::user(original.clone())]);
@@ -7039,7 +7081,7 @@ async fn pinned_raw_user_is_not_summarized_and_hard_overflow_sends_nothing() {
             result.error
         );
         assert_eq!(
-            provider.attempts(),
+            provider.inner.attempts(),
             usize::from(input == 900),
             "no auxiliary or unsafe main request can be sent for protected source"
         );
@@ -7064,7 +7106,7 @@ async fn pinned_raw_user_is_not_summarized_and_hard_overflow_sends_nothing() {
                 )),
                 "soft no-eligible must close explicitly without rewriting the user instruction"
             );
-            assert!(provider.requests()[0]
+            assert!(provider.inner.requests()[0]
                 .messages
                 .iter()
                 .any(|message| message.content == original));
@@ -10325,4 +10367,215 @@ async fn stable_working_set_fresh_pressure_rebalances_without_resurrecting_old_r
         .messages
         .iter()
         .any(|m| m.role == Role::Tool && m.content.contains("CALIBRATION_RAW_")));
+}
+
+include!("cases/multimodal_metering.rs");
+
+include!("cases/budget_verification.rs");
+
+include!("cases/compaction_recovery.rs");
+
+#[tokio::test]
+async fn body_413_shrinks_only_tool_observations_without_replaying_effects() {
+    for stream_error in [false, true] {
+        let rejected = ProviderError::http(413, "<html>Request Entity Too Large</html>");
+        assert!(!rejected.is_context_overflow());
+        let provider = Arc::new(ScriptProvider::with_attempts([
+            Ok(vec![
+                Ok(tool_delta(0, "observe", "capture", "{}")),
+                Ok(completed_for_calls()),
+            ]),
+            if stream_error {
+                Ok(vec![Err(rejected)])
+            } else {
+                Err(rejected)
+            },
+            Ok(vec![
+                Ok(ProviderEvent::TextDelta("recovered".into())),
+                Ok(completed()),
+            ]),
+        ]));
+        let store = Arc::new(EventMemorySessionStore::default());
+        let image = xharness_session::ContentBlock::Image {
+            attachment: xharness_session::AttachmentRef {
+                id: "a".repeat(64),
+                session_id: "body-admission".into(),
+                media_type: "image/png".into(),
+                bytes: 10_000,
+                width: 64,
+                height: 64,
+            },
+        };
+        let metadata = json!({"xharnessContentBlocks":[image.clone()]});
+        let executed = Arc::new(AtomicUsize::new(0));
+        let calls = executed.clone();
+        let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("inspect")]);
+        request.session_id = Some("body-admission".into());
+        request.journal_store = Some(store.clone());
+        install_tools(
+            &mut request,
+            vec![TestToolSpec::new(
+                "capture",
+                "fixture",
+                json!({}),
+                move |_, _| {
+                    let metadata = metadata.clone();
+                    let calls = calls.clone();
+                    async move {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        let mut result = ToolResult::success("observation caption");
+                        result.metadata = Some(metadata);
+                        result
+                    }
+                },
+            )],
+        )
+        .await;
+        let (_, result) = collect(LoopEngine.start(request)).await;
+        assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+        assert_eq!(provider.attempts(), 3);
+        assert_eq!(executed.load(Ordering::SeqCst), 1);
+        let requests = provider.requests();
+        let observed = |r: &ProviderRequest| {
+            r.messages
+                .iter()
+                .find(|m| m.role == Role::Tool)
+                .unwrap()
+                .clone()
+        };
+        assert!(matches!(
+            observed(&requests[1]).content_blocks[0],
+            xharness_session::ContentBlock::Image { .. }
+        ));
+        let shrunk = observed(&requests[2]);
+        assert!(matches!(
+            shrunk.content_blocks[0],
+            xharness_session::ContentBlock::Text { .. }
+        ));
+        assert!(shrunk.content.contains("observation caption"));
+        let session = store.load("body-admission").await.unwrap().unwrap();
+        assert!(session
+            .derive_messages()
+            .iter()
+            .any(|m| m.content_blocks.contains(&image)));
+        assert!(
+            !session
+                .events()
+                .iter()
+                .any(|e| matches!(e.data(), SessionEventData::CompactionStart { .. })),
+            "byte overflow must not manufacture token pressure"
+        );
+    }
+}
+
+#[tokio::test]
+async fn body_413_without_safe_shrink_or_after_output_never_retries() {
+    for partial in [false, true] {
+        let error = ProviderError::http(413, "too large");
+        let provider = Arc::new(ScriptProvider::with_attempts([if partial {
+            Ok(vec![
+                Ok(ProviderEvent::TextDelta("partial".into())),
+                Err(error),
+            ])
+        } else {
+            Err(error)
+        }]));
+        let request = LoopRequest::new(
+            provider.clone(),
+            vec![AgentMessage::user("explicit request")],
+        );
+        let (_, result) = collect(LoopEngine.start(request)).await;
+        assert_eq!(result.status, LoopStatus::Failed);
+        assert_eq!(provider.attempts(), 1);
+        assert!(result
+            .error
+            .as_ref()
+            .is_some_and(|e| e.contains("too large")));
+        if partial {
+            assert_eq!(result.final_text, "partial");
+        }
+    }
+}
+
+#[tokio::test]
+async fn counter_413_rebuilds_old_images_but_never_drops_current_user_attachments() {
+    struct BodyCounter {
+        counts: Mutex<Vec<ProviderRequest>>,
+        inner: ScriptProvider,
+    }
+    #[async_trait]
+    impl ModelProvider for BodyCounter {
+        async fn count_input_tokens(
+            &self,
+            request: &ProviderRequest,
+            _: CancellationToken,
+        ) -> Result<Option<ProviderInputTokenCount>, ProviderError> {
+            self.counts.lock().unwrap().push(request.clone());
+            if request.messages.iter().any(|m| {
+                m.content_blocks
+                    .iter()
+                    .any(|b| matches!(b, xharness_session::ContentBlock::Image { .. }))
+            }) {
+                Err(ProviderError::http(413, "counter body too large"))
+            } else {
+                Ok(Some(ProviderInputTokenCount::exact_request("counter", 1)))
+            }
+        }
+        async fn stream(
+            &self,
+            request: ProviderRequest,
+            cancellation: CancellationToken,
+        ) -> Result<ProviderStream, ProviderError> {
+            self.inner.stream(request, cancellation).await
+        }
+    }
+    for current in [false, true] {
+        let provider = Arc::new(BodyCounter {
+            counts: Mutex::new(Vec::new()),
+            inner: ScriptProvider::new([vec![Ok(completed())]]),
+        });
+        let image = xharness_session::ContentBlock::Image {
+            attachment: xharness_session::AttachmentRef {
+                id: "b".repeat(64),
+                session_id: "counter-body".into(),
+                media_type: "image/png".into(),
+                bytes: 10_000,
+                width: 64,
+                height: 64,
+            },
+        };
+        let mut messages = vec![AgentMessage::user("attached").with_content_blocks(vec![image])];
+        if !current {
+            messages.push(AgentMessage::user("continue in text"));
+        }
+        let mut request = LoopRequest::new(provider.clone(), messages.clone());
+        request.token_guard = Some(
+            TokenGuard::new(
+                Arc::new(FixedTokenMeter { total: 1 }),
+                TokenBudget::new(1_000_000, 100),
+            )
+            .unwrap(),
+        );
+        let (_, result) = collect(LoopEngine.start(request)).await;
+        assert_eq!(result.messages[..messages.len()], messages);
+        assert_eq!(
+            result.status,
+            if current {
+                LoopStatus::Failed
+            } else {
+                LoopStatus::Completed
+            }
+        );
+        assert_eq!(provider.inner.attempts(), usize::from(!current));
+        assert_eq!(
+            provider.counts.lock().unwrap().len(),
+            if current { 1 } else { 2 }
+        );
+        if !current {
+            assert!(matches!(
+                provider.inner.requests()[0].messages[0].content_blocks[0],
+                xharness_session::ContentBlock::Text { .. }
+            ));
+        }
+    }
 }

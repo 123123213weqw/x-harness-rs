@@ -419,3 +419,30 @@ Fresh exact-head full CI, including **actual Mac and Windows** acceptance, is
 still required. The original Windows counter increment remains unattributed
 unless new evidence establishes it; a fresh green run alone is not that proof.
 No installed software or running task was modified.
+
+
+## 2026-11-01 control-reconnect correction
+
+The control CDP connection now restores its fixed 1280×720 emulation before
+sending any observation or effect on a fresh socket. The initialization and
+requested command share the existing bounded operation deadline. Failed
+initialization closes the socket without dispatching the requested effect;
+preview connections remain independent and do not set emulation. Cancelled
+commands are not replayed. Mock regressions cover restore-before-read and
+rejected bootstrap without effect dispatch.
+
+Native acceptance now cancels the actual production manager during a trusted
+mouse press in an isolated loopback fixture. It verifies the production
+observation's actual `innerWidth`/`innerHeight`, full PNG dimensions and a
+subsequent bottom-edge trusted click, plus an exact one-effect counter. Page
+resize-event text is not used as geometry evidence because those events can lag
+an acknowledged emulation change. The fixture's edge button has explicit
+stacking so the synthetic long document cannot occlude the input target.
+
+WZU_Server validation: 111 desktop tests, strict all-target desktop Clippy and
+15 installed-Chrome acceptance cases (including 20 hidden cycles) passed.
+An ablation keeps initial emulation but disables reconnect restoration: the
+same native gate rejects actual height 633. Original source bytes were restored,
+rebuilt, and the positive native gate passed again. No local Rust compilation,
+installed app/Host changes, model calls, or existing user browser/profile access.
+Exact-head macOS/Windows/Linux CI remains a separate merge requirement.

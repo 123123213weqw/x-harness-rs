@@ -67,6 +67,19 @@ const SUPPORTED_METHODS: &[&str] = &[
 ];
 
 #[test]
+fn workspace_removal_response_preserves_optional_atomic_archive_membership() {
+    use xharness_api::protocol::WorkspaceDeletedResponse;
+    for value in [
+        json!({"deleted":true}),
+        json!({"deleted":true,"archivedSessionIds":["one","two"]}),
+    ] {
+        let response: WorkspaceDeletedResponse = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&response).unwrap(), value);
+        assert!(TypedRpcResponse::decode(RpcMethod::WorkspaceDelete, &value).is_ok());
+    }
+}
+
+#[test]
 fn method_directory_matches_upstream_plus_session_lifecycle_extensions() {
     assert_eq!(UPSTREAM_CONTRACT_REVISION, "deepseek-harness@141eb6fef8");
     let actual = RpcMethod::ALL

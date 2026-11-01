@@ -75,6 +75,7 @@ pub struct Cdp {
     endpoint: String,
     socket: Option<Socket>,
     sequence: u64,
+    fixed_viewport: bool,
 }
 impl Cdp {
     pub fn new(endpoint: String) -> Self {
@@ -82,13 +83,24 @@ impl Cdp {
             endpoint,
             socket: None,
             sequence: 0,
+            fixed_viewport: false,
+        }
+    }
+    fn control(endpoint: String) -> Self {
+        Self {
+            fixed_viewport: true,
+            ..Self::new(endpoint)
         }
     }
     pub async fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
-        self.sequence += 1;
+        self.sequence = self
+            .sequence
+            .checked_add(1)
+            .ok_or("browser command sequence exhausted")?;
         let id = self.sequence;
         // Take ownership while awaiting: cancellation closes this connection.
         // A later read reconnects; an abandoned modifying command is never replayed.
+        let restore_viewport = self.fixed_viewport && self.socket.is_none();
         let mut socket = match self.socket.take() {
             Some(socket) => socket,
             None => {
@@ -106,44 +118,22 @@ impl Cdp {
             }
         };
         let operation = async {
-            socket
-                .send(Message::Text(
-                    json!({"id":id,"method":method,"params":params})
-                        .to_string()
-                        .into(),
-                ))
-                .await
-                .map_err(|_| "browser command send failed")?;
-            let mut notifications = 0;
-            while let Some(packet) = socket.next().await {
-                let packet =
-                    packet.map_err(|_| "browser connection lost; effect may be unknown")?;
-                if let Message::Ping(data) = packet {
-                    socket
-                        .send(Message::Pong(data))
-                        .await
-                        .map_err(|_| "browser connection lost")?;
-                    continue;
-                }
-                if let Message::Text(text) = packet {
-                    let value: Value =
-                        serde_json::from_str(&text).map_err(|_| "invalid browser response")?;
-                    if value["id"].as_u64() == Some(id) {
-                        if value.get("error").is_some() {
-                            return Err("browser command rejected; observe before deciding".into());
-                        }
-                        return value
-                            .get("result")
-                            .cloned()
-                            .ok_or_else(|| "missing browser result".into());
-                    }
-                }
-                notifications += 1;
-                if notifications > 256 {
-                    return Err("browser notification budget exceeded".into());
-                }
+            if restore_viewport {
+                // Emulation belongs to this CDP connection, not the page. A
+                // fresh control session must restore it before any observation
+                // or effect; never replay the abandoned user command.
+                exchange(
+                    &mut socket,
+                    0,
+                    "Emulation.setDeviceMetricsOverride",
+                    json!({
+                        "width":1280,"height":720,"deviceScaleFactor":1,
+                        "mobile":false,"dontSetVisibleSize":false,
+                    }),
+                )
+                .await?;
             }
-            Err("browser connection closed".into())
+            exchange(&mut socket, id, method, params).await
         };
         let result = tokio::time::timeout(Duration::from_secs(8), operation)
             .await
@@ -163,6 +153,51 @@ impl Cdp {
             .cloned()
             .ok_or_else(|| "page result unavailable".into())
     }
+}
+
+async fn exchange(
+    socket: &mut Socket,
+    id: u64,
+    method: &str,
+    params: Value,
+) -> Result<Value, String> {
+    socket
+        .send(Message::Text(
+            json!({"id":id,"method":method,"params":params})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .map_err(|_| "browser command send failed")?;
+    let mut notifications = 0;
+    while let Some(packet) = socket.next().await {
+        let packet = packet.map_err(|_| "browser connection lost; effect may be unknown")?;
+        if let Message::Ping(data) = packet {
+            socket
+                .send(Message::Pong(data))
+                .await
+                .map_err(|_| "browser connection lost")?;
+            continue;
+        }
+        if let Message::Text(text) = packet {
+            let value: Value =
+                serde_json::from_str(&text).map_err(|_| "invalid browser response")?;
+            if value["id"].as_u64() == Some(id) {
+                if value.get("error").is_some() {
+                    return Err("browser command rejected; observe before deciding".into());
+                }
+                return value
+                    .get("result")
+                    .cloned()
+                    .ok_or_else(|| "missing browser result".into());
+            }
+        }
+        notifications += 1;
+        if notifications > 256 {
+            return Err("browser notification budget exceeded".into());
+        }
+    }
+    Err("browser connection closed".into())
 }
 
 pub struct Process {
@@ -276,9 +311,8 @@ impl Process {
         let endpoint = tokio::time::timeout(Duration::from_secs(12), ready)
             .await
             .map_err(|_| "browser startup timed out")??;
-        process.cdp = Cdp::new(endpoint.clone());
+        process.cdp = Cdp::control(endpoint.clone());
         process.preview_cdp = std::sync::Arc::new(tokio::sync::Mutex::new(Cdp::new(endpoint)));
-        process.cdp.call("Emulation.setDeviceMetricsOverride", json!({"width":1280,"height":720,"deviceScaleFactor":1,"mobile":false,"dontSetVisibleSize":false})).await?;
         // No download tool is exposed: deny writes to the user's Downloads.
         process
             .cdp
@@ -363,6 +397,94 @@ pub(super) fn cleanup_profile(path: PathBuf) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn control_reconnect_restores_viewport_before_read_without_replaying_effect() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut client = Cdp::control(format!(
+            "ws://{}/devtools/page/test",
+            listener.local_addr().unwrap()
+        ));
+        let (admitted, started) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let mut admitted = Some(admitted);
+            for connection in 0..2 {
+                let (stream, _) = listener.accept().await.unwrap();
+                let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+                let packet = socket.next().await.unwrap().unwrap();
+                let init: Value = serde_json::from_str(packet.to_text().unwrap()).unwrap();
+                assert_eq!(init["id"], 0);
+                assert_eq!(init["method"], "Emulation.setDeviceMetricsOverride");
+                assert_eq!(init["params"]["width"], 1280);
+                assert_eq!(init["params"]["height"], 720);
+                socket
+                    .send(Message::Text(
+                        json!({"id":0,"result":{}}).to_string().into(),
+                    ))
+                    .await
+                    .unwrap();
+                let packet = socket.next().await.unwrap().unwrap();
+                let command: Value = serde_json::from_str(packet.to_text().unwrap()).unwrap();
+                if connection == 0 {
+                    assert_eq!(command["method"], "Input.dispatchMouseEvent");
+                    assert_eq!(command["id"], 1);
+                    admitted.take().unwrap().send(()).unwrap();
+                    let _ = socket.next().await;
+                } else {
+                    assert_eq!(command["method"], "Runtime.evaluate");
+                    assert_eq!(command["id"], 2, "the abandoned effect is never replayed");
+                    socket
+                        .send(Message::Text(
+                            json!({"id":2,"result":{"fresh":true}}).to_string().into(),
+                        ))
+                        .await
+                        .unwrap();
+                }
+            }
+        });
+        {
+            let effect = client.call("Input.dispatchMouseEvent", json!({"type":"mousePressed"}));
+            tokio::pin!(effect);
+            tokio::select! { _=started=>{}, result=&mut effect=>panic!("effect should await cancellation: {result:?}") }
+        }
+        assert!(client.socket.is_none());
+        assert_eq!(
+            client.call("Runtime.evaluate", json!({})).await.unwrap()["fresh"],
+            true
+        );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejected_viewport_bootstrap_never_dispatches_the_user_effect() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut client = Cdp::control(format!(
+            "ws://{}/devtools/page/test",
+            listener.local_addr().unwrap()
+        ));
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let packet = socket.next().await.unwrap().unwrap();
+            let init: Value = serde_json::from_str(packet.to_text().unwrap()).unwrap();
+            assert_eq!(init["method"], "Emulation.setDeviceMetricsOverride");
+            socket
+                .send(Message::Text(
+                    json!({"id":0,"error":{"code":-1}}).to_string().into(),
+                ))
+                .await
+                .unwrap();
+            if let Some(Ok(Message::Text(packet))) = socket.next().await {
+                panic!("an effect followed a rejected viewport bootstrap: {packet}");
+            }
+        });
+        assert!(client
+            .call("Input.dispatchMouseEvent", json!({"type":"mousePressed"}))
+            .await
+            .is_err());
+        assert!(client.socket.is_none());
+        server.await.unwrap();
+    }
+
     #[tokio::test]
     async fn cancelled_command_reconnects_without_replaying_an_effect() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

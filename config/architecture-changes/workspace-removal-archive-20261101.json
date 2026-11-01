@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Workspace removal must atomically archive associated sessions rather than strand retained chats under Ungrouped.",
+  "compatibility": "Keep journals, attachments and project files untouched; archive does not stop work. New archive membership in removal receipts is optional for legacy Hosts; no deletion or recovery safety fence is weakened.",
+  "paths": {
+    "crates/xharness-api/src/protocol.rs": {
+      "before": "7e8cd5d7a0f394776595fcf49bee7fa12f5183878fbb2dfff44d65cb96c432e2",
+      "after": "99027beb4eda6992281d2a7430e9e56a1ffbaf4c733a3e419295da5ff4b4e9e2"
+    },
+    "crates/xharness-api/tests/contract.rs": {
+      "before": "bc614e3040351f6129481d0d5acba93d75f8a00da1d95c3976eb7705cab4734e",
+      "after": "3bcb37fec65ff195bd936c103a62a57fae393a508c0fdd141120d496b55c648e"
+    }
+  },
+  "regressions": [
+    "native",
+    "windows",
+    "wire"
+  ]
+}

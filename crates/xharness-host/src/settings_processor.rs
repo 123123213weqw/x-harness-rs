@@ -5,6 +5,21 @@
 //! settings snapshot and calculates the next namespace state.
 
 #![forbid(unsafe_code)]
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::let_underscore_must_use,
+    unused_must_use
+)]
+#![cfg_attr(
+    not(test),
+    forbid(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        unused_must_use
+    )
+)]
 
 use std::collections::BTreeMap;
 
@@ -202,15 +217,15 @@ fn check_revision(namespace: &SettingsNamespace, expected: Option<u64>) -> Resul
 }
 
 fn set_json_path(target: &mut Value, path: &[String], value: Value) -> Result<(), RpcError> {
-    if path.is_empty() {
+    let Some((key, parents)) = path.split_last() else {
         *target = value;
         return Ok(());
-    }
+    };
     if !target.is_object() {
         *target = json!({});
     }
     let mut cursor = target;
-    for segment in &path[..path.len() - 1] {
+    for segment in parents {
         let object = cursor
             .as_object_mut()
             .ok_or_else(|| bad_request("settings path traverses a non-object"))?;
@@ -219,17 +234,17 @@ fn set_json_path(target: &mut Value, path: &[String], value: Value) -> Result<()
     cursor
         .as_object_mut()
         .ok_or_else(|| bad_request("settings path parent is not an object"))?
-        .insert(path.last().expect("non-empty path").clone(), value);
+        .insert(key.clone(), value);
     Ok(())
 }
 
 fn unset_json_path(target: &mut Value, path: &[String]) -> Result<(), RpcError> {
-    if path.is_empty() {
+    let Some((key, parents)) = path.split_last() else {
         *target = json!({});
         return Ok(());
-    }
+    };
     let mut cursor = target;
-    for segment in &path[..path.len() - 1] {
+    for segment in parents {
         let Some(next) = cursor
             .as_object_mut()
             .and_then(|object| object.get_mut(segment))
@@ -239,7 +254,7 @@ fn unset_json_path(target: &mut Value, path: &[String]) -> Result<(), RpcError> 
         cursor = next;
     }
     if let Some(object) = cursor.as_object_mut() {
-        object.remove(path.last().expect("non-empty path"));
+        object.remove(key);
     }
     Ok(())
 }
@@ -374,5 +389,35 @@ mod tests {
             )
             .unwrap_err();
         assert_eq!(error.code, RpcErrorCode::SettingsRejected);
+    }
+    #[test]
+    fn structural_path_errors_are_not_defaults_or_success_and_leave_snapshot_unchanged() {
+        let mut namespaces = BTreeMap::new();
+        let mut namespace = namespace("test", 1);
+        namespace.user = json!({"parent":7});
+        namespace.value = namespace.user.clone();
+        namespaces.insert("test".into(), namespace);
+        let processor = SettingsProcessor::new(SettingsStateView { namespaces });
+        let result = processor.mutate(
+            "test",
+            vec![json!({"op":"set","path":["parent","child"],"value":"not committed"})],
+            Some(1),
+        );
+        let error = result.unwrap_err();
+        assert_eq!(error.code, RpcErrorCode::BadRequest);
+        assert!(error.message.contains("not an object"));
+        assert_eq!(processor.state.namespaces["test"].revision, 1);
+        assert_eq!(processor.state.namespaces["test"].user, json!({"parent":7}));
+    }
+
+    #[test]
+    fn root_paths_remain_explicit_and_idempotent() {
+        let mut value = json!({"old":true});
+        set_json_path(&mut value, &[], json!({"new":true})).unwrap();
+        assert_eq!(value, json!({"new":true}));
+        unset_json_path(&mut value, &[]).unwrap();
+        assert_eq!(value, json!({}));
+        unset_json_path(&mut value, &["missing".into()]).unwrap();
+        assert_eq!(value, json!({}));
     }
 }

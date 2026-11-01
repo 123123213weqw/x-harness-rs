@@ -2803,9 +2803,13 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
             details: { workspaceId },
           })
         }
+        for (const id of workspaces[index]?.sessionIds ?? []) {
+          if (!archivedSessionIds.includes(id)) archivedSessionIds.push(id)
+        }
         workspaces.splice(index, 1)
+        emitHost({ type: 'host/archived-sessions-changed', archivedSessionIds: [...archivedSessionIds] })
         emitHost({ type: 'host/workspace-removed', workspaceId })
-        return ok(request, { deleted: true as const })
+        return ok(request, { deleted: true as const, archivedSessionIds: [...archivedSessionIds] })
       },
       insertBefore: (request) => {
         const { workspaceId, beforeWorkspaceId } = request.payload

@@ -83,3 +83,25 @@ for(const implementation of ['legacy','source']){
   await one.dispose();assert.equal(root.typert.lookups.get('item'),undefined);assert.equal(root.typert.contexts.getHost('session'),undefined);assert.equal(root.typert.lookups.definitions()[0].wire,'itemId');assert.ok(Core.Context.is(twoCtx));await root.fiber.dispose()
  })
 }
+
+test('source: slash reload acknowledges only its original session after successful history recovery',async()=>{
+ const root=new Core.Context(),d=domain(root),trace=[]
+ try{
+  let finish,fail=false,missing=false
+  d.sessions.binding=id=>missing?undefined:{session:{recoverHistory:async()=>{
+   trace.push(['history',id]);if(fail)throw Error('history unavailable');await new Promise(resolve=>finish=resolve)
+  }}}
+  const input=load('source','input-trigger'),command=load('source','commands')
+  await root.plugin(input.InputTriggerService);await root.plugin(command.CommandUiRuntime)
+  root.on('command/executed',(id,name)=>trace.push(['ack',id,name]))
+  // Execute is the real source service transaction also used by slash claims.
+  const work=root.commandUi.execute({sessionId:'one'},'/reload')
+  await tick();assert.deepEqual(trace,[['history','one']]);assert.equal(d.trace[0][1],'one')
+  finish();assert.deepEqual(normalize(await work),{kind:'success'})
+  assert.deepEqual(trace,[['history','one'],['ack','one','reload']])
+  fail=true;await assert.rejects(root.commandUi.execute({sessionId:'two'},'/reload'),/history unavailable/)
+  assert.deepEqual(trace.at(-1),['history','two']);assert.equal(trace.filter(row=>row[0]==='ack').length,1)
+  missing=true;await assert.rejects(root.commandUi.execute({sessionId:'two'},'/reload'),/history binding is unavailable/)
+  assert.equal(trace.filter(row=>row[0]==='ack').length,1)
+ }finally{await root.fiber.dispose()}
+})

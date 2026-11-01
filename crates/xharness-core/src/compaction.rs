@@ -22,17 +22,23 @@ pub(crate) enum SummaryError {
     Interrupted,
     #[error("compaction input budget exceeded: {0}")]
     Input(String),
+    #[error("compaction request-body admission failed: {0}")]
+    Body(ProviderError),
     #[error("compaction summary was incomplete: output token limit")]
     Output,
     #[error("compaction made no progress: {0}")]
     NoBenefit(String),
+    #[error("compaction input measurement temporarily unavailable; original history is unchanged")]
+    MeasurementUnavailable(Box<TokenBudgetReport>),
     #[error("{0}")]
     Provider(ProviderError),
     #[error("{0}")]
     Invalid(String),
 }
 fn provider_error(error: ProviderError) -> SummaryError {
-    if error.is_context_overflow() {
+    if error.is_request_body_too_large() {
+        SummaryError::Body(error)
+    } else if error.is_context_overflow() {
         SummaryError::Input(error.message)
     } else {
         SummaryError::Provider(error)
@@ -59,6 +65,7 @@ pub(crate) struct SummaryRunner {
     entropy: u64,
     max_output: u64,
     calls: usize,
+    call_limit: usize,
     splits: usize,
     usage: Option<TokenUsage>,
     max_output_used: u64,
@@ -104,6 +111,7 @@ impl SummaryRunner {
             entropy: 0,
             max_output,
             calls: 0,
+            call_limit: 64,
             splits: 0,
             usage: None,
             max_output_used: 0,
@@ -136,6 +144,13 @@ impl SummaryRunner {
             }
         }
         Ok(())
+    }
+    pub fn with_limits(mut self, calls: usize, output: Option<u64>) -> Self {
+        self.call_limit = calls.min(64);
+        if let Some(output) = output {
+            self.max_output = self.max_output.min(output);
+        }
+        self
     }
     pub fn with_debug(mut self, debug: DebugRecorder) -> Self {
         self.debug = debug;
@@ -182,7 +197,7 @@ impl SummaryRunner {
         if self.cancellation.is_cancelled() {
             return Err(SummaryError::Cancelled);
         }
-        if self.calls >= 64 && self.content_attempts < 64 {
+        if self.calls >= self.call_limit && self.content_attempts < 64 {
             return Err(SummaryError::Provider(ProviderError::retryable(
                 "auxiliary transaction call budget exhausted",
             )));
@@ -199,6 +214,7 @@ impl SummaryRunner {
             .min(self.max_output);
         let mut previous_truncated_output = 0;
         let mut recovery = RetryState::default();
+        let mut image_budget = MAX_REQUEST_IMAGE_BYTES;
         loop {
             self.report(CompactionStage::Preparing, None).await?;
             let mut request = self.template.clone();
@@ -215,7 +231,18 @@ impl SummaryRunner {
             // same disposable image projection before both admission and wire
             // encoding, otherwise large visual history can deadlock compaction.
             let mut surface = ContextSurface::identity(request.messages);
-            surface.defer_images_over_budget(MAX_REQUEST_IMAGE_BYTES);
+            surface
+                .defer_superseded_tool_images()
+                .map_err(|e| SummaryError::Invalid(e.to_string()))?;
+            surface.defer_images_over_budget(image_budget);
+            let can_defer_images = surface.messages.iter().any(|m| {
+                m.role == Role::Tool
+                    && !m.interrupted
+                    && m.provider_items.is_empty()
+                    && m.content_blocks
+                        .iter()
+                        .any(|b| matches!(b, xharness_session::ContentBlock::Image { .. }))
+            });
             request.messages = surface.messages;
             request.max_output_tokens = Some(output);
             let mut allocated_output = output;
@@ -261,12 +288,22 @@ impl SummaryRunner {
                     )
                     .await;
                 }
+                Err(SummaryError::Body(_)) if image_budget > 0 && can_defer_images => {
+                    // Retry once with explicit read references for tool images.
+                    // Explicit user images stay pinned. Subsequent 413s split
+                    // the raw span under the existing depth/call/deadline bound.
+                    image_budget = 0;
+                }
+                Err(SummaryError::Body(_)) => {
+                    self.trace("compaction.summary_split", json!({"reason":"request_body_too_large","status":413,"depth":depth,"sourceMessages":messages.len()})).await;
+                    break;
+                }
                 Err(error @ (SummaryError::Input(_) | SummaryError::Output)) => {
                     self.trace("compaction.summary_split",json!({"reason":error.to_string(),"depth":depth,"sourceMessages":messages.len()})).await;
                     break;
                 }
                 Err(SummaryError::Provider(mut error)) => {
-                    if self.calls >= 64 {
+                    if self.calls >= self.call_limit {
                         error.message = format!(
                             "auxiliary transaction call budget exhausted: {}",
                             error.message
@@ -308,7 +345,10 @@ impl SummaryRunner {
         Ok(notes)
     }
 
-    async fn admit(&self, request: &ProviderRequest) -> Result<TokenBudgetReport, SummaryError> {
+    async fn admit(
+        &mut self,
+        request: &ProviderRequest,
+    ) -> Result<TokenBudgetReport, SummaryError> {
         let mut budget = self.guard.budget().clone();
         budget.reserved_output_tokens = request.max_output_tokens.unwrap_or(8192);
         // A summary has its own dynamic output budget; this never changes
@@ -327,9 +367,23 @@ impl SummaryRunner {
                 value.unwrap_or_else(|_| Err(ProviderError::retryable("compaction input count deadline exceeded")))
             }
         };
+        let mut transient = false;
+        let mut retry_after = None;
+        let mut http_status = None;
+        let mut rechecks = 0;
+        let mut fallback_reason = None;
         let count = match count {
-            Ok(count) => count,
+            Ok(count) => {
+                if count.is_none() {
+                    fallback_reason = Some("counter_unavailable".to_owned());
+                }
+                count
+            }
             Err(error) if error.retryable && guard.allows_counter_fallback() => {
+                transient = true;
+                http_status = error.http_status;
+                fallback_reason = Some("transient_counter_failure".to_owned());
+                retry_after = error.retry_after_ms;
                 self.provider.input_counter_failed();
                 None
             }
@@ -341,7 +395,7 @@ impl SummaryRunner {
                 .then(|| self.provider.estimate_input_tokens(request))
                 .flatten()
         });
-        let checked = if let Some(count) = count {
+        let mut checked = if let Some(count) = count {
             guard.check_provider_count(&count)
         } else {
             let mut system_messages = Vec::new();
@@ -363,7 +417,73 @@ impl SummaryRunner {
                 tools: Vec::new(),
             })
         };
+        if retry_after.is_none_or(|delay| delay == 0)
+            && checked
+                .as_ref()
+                .err()
+                .and_then(TokenBudgetError::report)
+                .is_some_and(|r| !r.is_exact())
+        {
+            rechecks = 1;
+            let token = self.cancellation.child_token();
+            let _cancel_on_drop = token.clone().drop_guard();
+            let fresh = tokio::select! {
+                _ = self.cancellation.cancelled() => return Err(SummaryError::Cancelled),
+                result = tokio::time::timeout(guard.counter_timeout(), self.provider.recount_input_tokens(request, token)) => result,
+            };
+            match fresh {
+                Ok(Ok(Some(count))) => {
+                    checked = guard.check_provider_count(&count);
+                    transient = false;
+                    fallback_reason = None;
+                    http_status = None;
+                    retry_after = None;
+                }
+                Ok(Err(error)) if !error.retryable => return Err(provider_error(error)),
+                Ok(Err(error)) => {
+                    transient = true;
+                    http_status = error.http_status;
+                    retry_after = error.retry_after_ms;
+                }
+                Ok(Ok(None)) => {}
+                Err(_) => transient = true,
+            }
+        }
+        if transient {
+            fallback_reason = Some("transient_counter_failure".to_owned());
+        }
+        checked = checked
+            .map(|mut report| {
+                report.fallback_reason = fallback_reason.clone();
+                report.counter_http_status = http_status;
+                report.counter_retry_after_ms = retry_after;
+                report.counter_rechecks = rechecks;
+                report
+            })
+            .map_err(|error| {
+                let mut error = error
+                    .with_fallback_reason(fallback_reason)
+                    .with_counter_failure(http_status, retry_after);
+                if let TokenBudgetError::Exceeded { report, .. } = &mut error {
+                    report.counter_rechecks = rechecks;
+                }
+                error
+            });
+        let report = checked
+            .as_ref()
+            .ok()
+            .or_else(|| checked.as_ref().err().and_then(TokenBudgetError::report));
+        self.progress.summary_budget =
+            report.map(serde_json::to_value).transpose().map_err(|e| {
+                SummaryError::Invalid(format!("could not serialize summary budget: {e}"))
+            })?;
+        // Flush even a rejected auxiliary count; it must not vanish when no
+        // summary text was produced. Only closed numeric metadata is recorded.
+        self.report(CompactionStage::Preparing, None).await?;
         checked.map_err(|error| match error {
+            TokenBudgetError::Exceeded { report, .. } if !report.is_exact() => {
+                SummaryError::MeasurementUnavailable(report)
+            }
             TokenBudgetError::Exceeded { .. } => SummaryError::Input(error.to_string()),
             _ => SummaryError::Invalid(error.to_string()),
         })
@@ -374,7 +494,7 @@ impl SummaryRunner {
         merging: bool,
         deadline: Option<tokio::time::Instant>,
     ) -> Result<String, SummaryError> {
-        if self.calls >= 64 && self.content_attempts < 64 {
+        if self.calls >= self.call_limit && self.content_attempts < 64 {
             return Err(SummaryError::Provider(ProviderError::retryable(
                 "auxiliary transaction call budget exhausted",
             )));
@@ -570,6 +690,9 @@ mod tests {
             if self.mode == 6 {
                 return Err(ProviderError::http(401, "bad counter credential"));
             }
+            if self.mode == 18 && price(request) > 1000 {
+                return Err(ProviderError::http(413, "counter request too large"));
+            }
             // Deliberately inaccurate estimate to exercise provider 400 recovery.
             let tokens = if self.mode == 1 { 100 } else { price(request) };
             Ok(Some(ProviderInputTokenCount::exact_request(
@@ -587,6 +710,18 @@ mod tests {
             drop(requests);
             if self.mode == 1 && price(&request) > 2000 {
                 return Err(ProviderError::http(400, "exceed_context_size_error"));
+            }
+            if self.mode == 17 && price(&request) > 1000 {
+                return Err(ProviderError::http(413, "gateway request too large"));
+            }
+            if self.mode == 19
+                && request.messages.iter().any(|m| {
+                    m.content_blocks
+                        .iter()
+                        .any(|b| matches!(b, ContentBlock::Image { .. }))
+                })
+            {
+                return Err(ProviderError::http(413, "image request too large"));
             }
             if self.mode == 2 && n == 0 {
                 return Err(ProviderError::http(503, "temporary"));
@@ -697,6 +832,97 @@ mod tests {
             cancellation,
             1,
         )
+    }
+
+    #[tokio::test]
+    async fn byte_413_from_summary_stream_or_counter_splits_without_token_overflow() {
+        for mode in [17, 18] {
+            let fake = Arc::new(Fake {
+                mode,
+                ..Fake::default()
+            });
+            let raw = vec![
+                AgentMessage::user("a".repeat(600)),
+                AgentMessage::user("b".repeat(600)),
+            ];
+            let result = runner(fake.clone(), CancellationToken::new())
+                .run(raw)
+                .await
+                .unwrap();
+            assert_eq!(result.splits, 1);
+            assert_eq!(result.calls, if mode == 17 { 3 } else { 2 });
+            assert_eq!(fake.requests.lock().unwrap().len(), result.calls);
+        }
+    }
+
+    #[tokio::test]
+    async fn summary_byte_413_retires_tool_image_before_splitting() {
+        let fake = Arc::new(Fake {
+            mode: 19,
+            ..Fake::default()
+        });
+        let image = ContentBlock::Image {
+            attachment: AttachmentRef {
+                id: "a".repeat(64),
+                session_id: "summary-body".into(),
+                media_type: "image/png".into(),
+                bytes: 100,
+                width: 1,
+                height: 1,
+            },
+        };
+        let raw = vec![AgentMessage::tool("read", "caption").with_tool_blocks(vec![image])];
+        let result = runner(fake.clone(), CancellationToken::new())
+            .run(raw.clone())
+            .await
+            .unwrap();
+        assert_eq!(result.calls, 2);
+        assert_eq!(result.splits, 0);
+        let requests = fake.requests.lock().unwrap();
+        assert!(requests[1]
+            .messages
+            .iter()
+            .any(|m| m.content_blocks.iter().any(
+                |b| matches!(b, ContentBlock::Text { text } if text.contains("attachment://"))
+            )));
+        assert!(matches!(
+            raw[0].content_blocks[0],
+            ContentBlock::Image { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn shared_call_limit_is_a_retryable_failure_not_cached_no_benefit() {
+        for limit in [0, 1] {
+            let fake = Arc::new(Fake {
+                mode: 8,
+                ..Fake::default()
+            });
+            let error = runner(fake.clone(), CancellationToken::new())
+                .with_limits(limit, Some(32))
+                .run(vec![AgentMessage::user("raw evidence ".repeat(30))])
+                .await
+                .err()
+                .expect("bounded summary must stop");
+            assert!(matches!(error, SummaryError::Provider(ref e)
+                if e.retryable && e.message.contains("call budget exhausted")));
+            let requests = fake.requests.lock().unwrap();
+            assert_eq!(requests.len(), limit);
+            assert!(requests.iter().all(|r| r.max_output_tokens == Some(32)));
+        }
+    }
+
+    #[tokio::test]
+    async fn tighter_recovery_output_ceiling_never_grows_back() {
+        let fake = Arc::new(Fake::default());
+        let result = runner(fake.clone(), CancellationToken::new())
+            .with_limits(2, Some(32))
+            .run(vec![AgentMessage::user("original evidence")])
+            .await
+            .unwrap();
+        assert_eq!(result.calls, 1);
+        assert_eq!(result.max_output_tokens, 32);
+        assert_eq!(fake.requests.lock().unwrap()[0].max_output_tokens, Some(32));
     }
 
     #[tokio::test]

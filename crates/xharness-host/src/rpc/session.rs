@@ -40,6 +40,7 @@ pub(super) async fn call_read(
 
 async fn list(host: &BasicHost, payload: &Value) -> Result<Value, RpcError> {
     require_object(payload)?;
+    host.reconcile_closed_drivers(None).await;
     let state = host.state.read().await;
     Ok(SessionProcessor::list(
         state
@@ -120,6 +121,7 @@ fn check_search_cancelled(cancellation: &CancellationToken) -> Result<(), RpcErr
 
 pub(super) async fn history(host: &BasicHost, payload: &Value) -> Result<Value, RpcError> {
     let session_id = required_string(payload, "sessionId")?;
+    host.reconcile_closed_drivers(Some(&session_id)).await;
     let before_seq = optional_u64(payload, "beforeSeq")?;
     let max_messages = optional_u64(payload, "maxMessages")?
         .and_then(|value| usize::try_from(value).ok())

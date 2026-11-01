@@ -8,18 +8,16 @@ use xharness_token::TokenMeterError;
 /// 2026-10-18: https://api-docs.deepseek.com/guides/vision/#token-usage
 const DEEPSEEK_FLASH_IMAGE_BOUND: u64 = 1024;
 
-fn has_documented_bound(base_url: &str, model: &str) -> bool {
-    if !matches!(
-        model,
-        "deepseek-flash" | "deepseek-v4-flash" | "deepseek-v4-flash-vision-exp"
-    ) {
-        return false;
-    }
+/// The request-body cap applies to the official service, not a guessed model
+/// name on a proxy. See https://api-docs.deepseek.com/guides/vision/#limits.
+pub(crate) fn request_body_limit(base_url: &str) -> Option<usize> {
+    official_route(base_url).then_some(48 * 1024 * 1024)
+}
+
+fn official_route(base_url: &str) -> bool {
     let Ok(url) = Url::parse(base_url) else {
         return false;
     };
-    // A model name on a proxy, local server or unknown route is not evidence
-    // that its image preprocessing follows the official service's contract.
     url.scheme() == "https"
         && url.host_str() == Some("api.deepseek.com")
         && url.port_or_known_default() == Some(443)
@@ -28,6 +26,16 @@ fn has_documented_bound(base_url: &str, model: &str) -> bool {
         && url.query().is_none()
         && url.fragment().is_none()
         && matches!(url.path().trim_end_matches('/'), "" | "/v1" | "/beta")
+}
+
+fn has_documented_bound(base_url: &str, model: &str) -> bool {
+    if !matches!(
+        model,
+        "deepseek-flash" | "deepseek-v4-flash" | "deepseek-v4-flash-vision-exp"
+    ) {
+        return false;
+    }
+    official_route(base_url)
 }
 
 pub(crate) fn estimate(
@@ -135,6 +143,27 @@ mod tests {
             .unwrap(),
             u64::MAX
         );
+    }
+
+    #[test]
+    fn body_cap_is_route_scoped_not_model_name_scoped() {
+        for base in [
+            "https://api.deepseek.com",
+            "https://api.deepseek.com/v1/",
+            "https://API.DEEPSEEK.COM:443/beta",
+        ] {
+            assert_eq!(request_body_limit(base), Some(48 * 1024 * 1024));
+        }
+        for base in [
+            "http://api.deepseek.com",
+            "https://api.deepseek.com:8443",
+            "https://api.deepseek.com.evil.example",
+            "https://user:secret@api.deepseek.com",
+            "https://api.deepseek.com/v1?proxy=1",
+            "http://localhost:8080/v1",
+        ] {
+            assert_eq!(request_body_limit(base), None);
+        }
     }
 
     #[test]

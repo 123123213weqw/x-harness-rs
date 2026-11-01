@@ -4,6 +4,12 @@ const PLAN_NEXT_ACTION_EN = "describe your task to generate plan"
 
 export const NS = 'conversation'
 export const en = {
+  'session.recover': 'Recover task',
+  'session.recoverHint': 'Recover this idle task without resending input. Stop active work first. Other tasks and drafts are unchanged.',
+  'session.recovering': 'Recovering…',
+  'session.recovered': 'Recovered',
+  'session.recoverUnavailable': 'This Host does not support single-task recovery.',
+
 			"tool.arguments.generating": "Generating tool input",
 			"tool.arguments.received": "{size} received",
 			"tool.arguments.elapsed": "{seconds}s",
@@ -103,6 +109,7 @@ export const en = {
 			"todo.completed": "{done}/{total} completed",
 			"chat.loadingHistory": "Loading history…",
 			"chat.loadError": "Failed to load history: {message} ({code})",
+            "chat.agentError": "Background task reported a failure: {message}",
 			"chat.loadOlder": "Load earlier",
 			"chat.toBottom": "Back to bottom",
 			"chat.messageRail": "Messages in this chat",
@@ -229,6 +236,12 @@ export const en = {
 			"clock.ymd": "{y}-{m}-{d}"
 		}
 export const zh = {
+  'session.recover': '恢复任务',
+  'session.recoverHint': '恢复当前空闲任务，不重发输入。请先停止正在执行的工作；其他任务和草稿不变。',
+  'session.recovering': '恢复中…',
+  'session.recovered': '已恢复',
+  'session.recoverUnavailable': '当前 Host 不支持单任务恢复。',
+
 			"tool.arguments.generating": "正在生成工具参数",
 			"tool.arguments.received": "已接收 {size}",
 			"tool.arguments.elapsed": "{seconds} 秒",
@@ -328,6 +341,7 @@ export const zh = {
 			"todo.completed": "{done}/{total} 已完成",
 			"chat.loadingHistory": "载入历史…",
 			"chat.loadError": "历史加载失败：{message}（{code}）",
+            "chat.agentError": "后台任务报告异常：{message}",
 			"chat.loadOlder": "加载更早",
 			"chat.toBottom": "回到底部",
 			"chat.messageRail": "当前聊天中的消息",

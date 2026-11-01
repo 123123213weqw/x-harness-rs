@@ -56,101 +56,117 @@ impl ApiBackend for BasicHost {
         payload: Value,
         cancellation: CancellationToken,
     ) -> RpcResult {
-        // A catalogue entry is not a recovered Agent. Hydrate exactly once
-        // before mutations or runtime reads. Presentation-only reads own a
-        // source-validated fast path and fall back to this same recovery gate.
-        let target = if matches!(
-            method,
-            RpcMethod::SubagentHistory | RpcMethod::SubagentPrompt | RpcMethod::SubagentInterrupt
-        ) {
-            payload.get("childSessionId").and_then(Value::as_str)
-        } else {
-            payload.get("sessionId").and_then(Value::as_str)
-        };
-        // Permanent deletion verifies cold work read-only before recovery can
-        // activate it; its owner hydrates only the verified idle closure.
-        let display_read = matches!(method, RpcMethod::SessionHistory | RpcMethod::SkillList)
-            || (method == RpcMethod::SessionModels
-                && payload.get("refreshCapabilities").and_then(Value::as_bool) != Some(true));
-        if let Some(session_id) =
-            target.filter(|_| method != RpcMethod::SessionDelete && !display_read)
-        {
-            if let Err(error) = self.hydrate_session(session_id).await {
-                return RpcResult::failure(rpc_error(
-                    xharness_api::RpcErrorCode::Internal,
-                    format!("session recovery failed: {error}"),
-                    json!({"sessionId": session_id}),
-                ));
+        let observation = crate::error_boundary::RpcObservation::new(&rpc_id, method.as_str());
+        let result = async {
+            // A catalogue entry is not a recovered Agent. Hydrate exactly once
+            // before mutations or runtime reads. Presentation-only reads own a
+            // source-validated fast path and fall back to this same recovery gate.
+            let target = if matches!(
+                method,
+                RpcMethod::SubagentHistory
+                    | RpcMethod::SubagentPrompt
+                    | RpcMethod::SubagentInterrupt
+            ) {
+                payload.get("childSessionId").and_then(Value::as_str)
+            } else {
+                payload.get("sessionId").and_then(Value::as_str)
+            };
+            // Permanent deletion verifies cold work read-only before recovery can
+            // activate it; its owner hydrates only the verified idle closure.
+            let display_read = matches!(method, RpcMethod::SessionHistory | RpcMethod::SkillList)
+                || (method == RpcMethod::SessionModels
+                    && payload.get("refreshCapabilities").and_then(Value::as_bool) != Some(true));
+            if let Some(session_id) =
+                target.filter(|_| method != RpcMethod::SessionDelete && !display_read)
+            {
+                if let Err(error) = self.hydrate_session(session_id).await {
+                    return RpcResult::failure(rpc_error(
+                        xharness_api::RpcErrorCode::Internal,
+                        format!("session recovery failed: {error}"),
+                        json!({"sessionId": session_id}),
+                    ));
+                }
+            }
+            let result = match method {
+                method @ (RpcMethod::SessionList
+                | RpcMethod::SessionSearch
+                | RpcMethod::SessionHistory
+                | RpcMethod::SessionModels) => {
+                    session::call_read(self, method, &payload, &cancellation).await
+                }
+                RpcMethod::SessionImport => {
+                    session_import::import(self, &payload, &cancellation).await
+                }
+                RpcMethod::SessionCreate => session_lifecycle::create(self, &payload).await,
+                RpcMethod::SessionSelectModel => {
+                    session_lifecycle::select_model(self, rpc_id, &payload).await
+                }
+                RpcMethod::SessionRename => session_lifecycle::rename(self, rpc_id, &payload).await,
+                RpcMethod::SessionFork => session_lifecycle::fork(self, &payload).await,
+                RpcMethod::SessionPrompt => turn::prompt(self, rpc_id, &payload).await,
+                RpcMethod::SessionAttachment => turn::attachment(self, &payload).await,
+                RpcMethod::SessionUpdateQueue => turn::update_queue(self, &payload).await,
+                RpcMethod::SessionCancel => turn::cancel(self, &payload).await,
+                RpcMethod::SessionDelete => session_delete::delete(self, rpc_id, &payload).await,
+                method @ (RpcMethod::SubagentList
+                | RpcMethod::SubagentHistory
+                | RpcMethod::SubagentPrompt
+                | RpcMethod::SubagentInterrupt) => {
+                    subagent::call(self, rpc_id, method, &payload).await
+                }
+                RpcMethod::HostDescribe => host::describe(self, &payload).await,
+                RpcMethod::HostPickDirectory => host::pick_directory(self, &payload).await,
+                RpcMethod::HostListDirectory => host::list_directory(self, &payload).await,
+                RpcMethod::HostCreateDirectory => host::create_directory(self, &payload).await,
+                RpcMethod::HostOpenPath => host::open_path(self, &payload).await,
+                method @ (RpcMethod::WorkspaceList
+                | RpcMethod::WorkspaceCreate
+                | RpcMethod::WorkspaceRename
+                | RpcMethod::WorkspaceDelete
+                | RpcMethod::WorkspaceInsertBefore
+                | RpcMethod::WorkspaceInsertSessionBefore
+                | RpcMethod::WorkspaceArchiveSession
+                | RpcMethod::WorkspaceUnarchiveSession) => {
+                    workspace::call(self, rpc_id, method, &payload).await
+                }
+                RpcMethod::SkillList => host::skill_list(self, &payload).await,
+                method @ (RpcMethod::AgentPresetList
+                | RpcMethod::AgentPresetSelect
+                | RpcMethod::AgentPresetRead
+                | RpcMethod::AgentPresetCopy
+                | RpcMethod::AgentPresetOpenDocument
+                | RpcMethod::AgentPresetRemove) => {
+                    preset::call(self, rpc_id, method, &payload).await
+                }
+                method @ (RpcMethod::GoalUpdatePlan
+                | RpcMethod::GoalCreate
+                | RpcMethod::GoalEdit
+                | RpcMethod::GoalPause
+                | RpcMethod::GoalResume
+                | RpcMethod::GoalComplete
+                | RpcMethod::GoalClear) => goal::call(self, rpc_id, method, &payload).await,
+                method @ (RpcMethod::SettingsDescribe
+                | RpcMethod::SettingsOpenDocument
+                | RpcMethod::SettingsUpdate
+                | RpcMethod::SettingsReplace
+                | RpcMethod::SettingsMutate) => {
+                    settings::call(self, rpc_id, method, &payload).await
+                }
+                method @ (RpcMethod::CredentialsDescribe
+                | RpcMethod::CredentialsSet
+                | RpcMethod::CredentialsUnset) => credentials::call(self, method, &payload).await,
+                method @ (RpcMethod::LlmProviders
+                | RpcMethod::LlmModels
+                | RpcMethod::LlmDiscoverModels) => model::call(self, method, &payload).await,
+            };
+            match result {
+                Ok(value) => RpcResult::success(value),
+                Err(error) => RpcResult::failure(error),
             }
         }
-        let result = match method {
-            method @ (RpcMethod::SessionList
-            | RpcMethod::SessionSearch
-            | RpcMethod::SessionHistory
-            | RpcMethod::SessionModels) => {
-                session::call_read(self, method, &payload, &cancellation).await
-            }
-            RpcMethod::SessionImport => session_import::import(self, &payload, &cancellation).await,
-            RpcMethod::SessionCreate => session_lifecycle::create(self, &payload).await,
-            RpcMethod::SessionSelectModel => {
-                session_lifecycle::select_model(self, rpc_id, &payload).await
-            }
-            RpcMethod::SessionRename => session_lifecycle::rename(self, rpc_id, &payload).await,
-            RpcMethod::SessionFork => session_lifecycle::fork(self, &payload).await,
-            RpcMethod::SessionPrompt => turn::prompt(self, rpc_id, &payload).await,
-            RpcMethod::SessionAttachment => turn::attachment(self, &payload).await,
-            RpcMethod::SessionUpdateQueue => turn::update_queue(self, &payload).await,
-            RpcMethod::SessionCancel => turn::cancel(self, &payload).await,
-            RpcMethod::SessionDelete => session_delete::delete(self, rpc_id, &payload).await,
-            method @ (RpcMethod::SubagentList
-            | RpcMethod::SubagentHistory
-            | RpcMethod::SubagentPrompt
-            | RpcMethod::SubagentInterrupt) => subagent::call(self, rpc_id, method, &payload).await,
-            RpcMethod::HostDescribe => host::describe(self, &payload).await,
-            RpcMethod::HostPickDirectory => host::pick_directory(self, &payload).await,
-            RpcMethod::HostListDirectory => host::list_directory(self, &payload).await,
-            RpcMethod::HostCreateDirectory => host::create_directory(self, &payload).await,
-            RpcMethod::HostOpenPath => host::open_path(self, &payload).await,
-            method @ (RpcMethod::WorkspaceList
-            | RpcMethod::WorkspaceCreate
-            | RpcMethod::WorkspaceRename
-            | RpcMethod::WorkspaceDelete
-            | RpcMethod::WorkspaceInsertBefore
-            | RpcMethod::WorkspaceInsertSessionBefore
-            | RpcMethod::WorkspaceArchiveSession
-            | RpcMethod::WorkspaceUnarchiveSession) => {
-                workspace::call(self, rpc_id, method, &payload).await
-            }
-            RpcMethod::SkillList => host::skill_list(self, &payload).await,
-            method @ (RpcMethod::AgentPresetList
-            | RpcMethod::AgentPresetSelect
-            | RpcMethod::AgentPresetRead
-            | RpcMethod::AgentPresetCopy
-            | RpcMethod::AgentPresetOpenDocument
-            | RpcMethod::AgentPresetRemove) => preset::call(self, rpc_id, method, &payload).await,
-            method @ (RpcMethod::GoalUpdatePlan
-            | RpcMethod::GoalCreate
-            | RpcMethod::GoalEdit
-            | RpcMethod::GoalPause
-            | RpcMethod::GoalResume
-            | RpcMethod::GoalComplete
-            | RpcMethod::GoalClear) => goal::call(self, rpc_id, method, &payload).await,
-            method @ (RpcMethod::SettingsDescribe
-            | RpcMethod::SettingsOpenDocument
-            | RpcMethod::SettingsUpdate
-            | RpcMethod::SettingsReplace
-            | RpcMethod::SettingsMutate) => settings::call(self, rpc_id, method, &payload).await,
-            method @ (RpcMethod::CredentialsDescribe
-            | RpcMethod::CredentialsSet
-            | RpcMethod::CredentialsUnset) => credentials::call(self, method, &payload).await,
-            method @ (RpcMethod::LlmProviders
-            | RpcMethod::LlmModels
-            | RpcMethod::LlmDiscoverModels) => model::call(self, method, &payload).await,
-        };
-        match result {
-            Ok(value) => RpcResult::success(value),
-            Err(error) => RpcResult::failure(error),
-        }
+        .await;
+        observation.finish(&result);
+        result
     }
 
     async fn call_dynamic(
@@ -160,101 +176,113 @@ impl ApiBackend for BasicHost {
         payload: Value,
         _cancellation: CancellationToken,
     ) -> Option<RpcResult> {
-        if endpoint == "swarm/tasks" {
-            return Some(match swarm_tasks::call(self, rpc_id, &payload).await {
-                Ok(value) => RpcResult::success(value),
-                Err(error) => RpcResult::failure(error),
-            });
-        }
-        if endpoint == "swarm/manage" {
-            return Some(match swarm::manage(self, rpc_id, &payload).await {
-                Ok(value) => RpcResult::success(value),
-                Err(error) => RpcResult::failure(error),
-            });
-        }
-        if endpoint == "workspace/memory" {
-            // Settings must remain repairable even if session hydration fails.
-            return Some(match memory::call(self, rpc_id, &payload).await {
-                Ok(v) => RpcResult::success(v),
-                Err(e) => RpcResult::failure(e),
-            });
-        }
-        if endpoint == "display/inspect" {
-            let result = crate::display::inspect_rpc(self, &payload, _cancellation).await;
-            return Some(match result {
-                Ok(v) => RpcResult::success(v),
-                Err(e) => RpcResult::failure(e),
-            });
-        }
-        if endpoint == "display/read" {
-            let result = crate::display::read_rpc(self, &payload, _cancellation).await;
-            return Some(match result {
-                Ok(v) => RpcResult::success(v),
-                Err(e) => RpcResult::failure(e),
-            });
-        }
-        if endpoint.starts_with("github/review-") {
-            let result = crate::github_review::call(self, endpoint, &payload, _cancellation).await;
-            return Some(match result {
-                Ok(v) => RpcResult::success(v),
-                Err(e) => RpcResult::failure(e),
-            });
-        }
-        // Retired product surface: fail closed without reading or mutating old
-        // PR/chat metadata. Existing normal conversations are unaffected.
-        if matches!(endpoint, "github/chat-get" | "github/chat-set") {
-            return Some(RpcResult::failure(RpcError::bad_request(
-                "PR chat binding has been retired; use the global assistant",
-                json!([]),
-            )));
-        }
-        if endpoint.starts_with("github/") {
-            let result = match self.github.get() {
-                Some(backend) => backend.read(endpoint, &payload, _cancellation).await,
-                None => Err(RpcError::internal(
-                    "GitHub integration is unavailable in this Host build",
-                )),
-            };
-            return Some(match result {
-                Ok(value) => RpcResult::success(value),
-                Err(error) => RpcResult::failure(error),
-            });
-        }
-        // Namespaced mutations carry the session under args.agentId rather
-        // than sessionId. Viewing a cold page must not bypass their recovery.
-        let nested_mutation = matches!(
-            endpoint,
-            "commands/execute"
-                | "goals/create"
-                | "goals/edit"
-                | "goals/pause"
-                | "goals/resume"
-                | "goals/complete"
-                | "goals/clear"
+        let observation = crate::error_boundary::RpcObservation::new(
+            &rpc_id,
+            crate::error_boundary::dynamic_operation(endpoint),
         );
-        let target = if nested_mutation {
-            payload
-                .get("args")
-                .and_then(|args| args.get("agentId"))
-                .and_then(Value::as_str)
-        } else {
-            payload.get("sessionId").and_then(Value::as_str)
-        };
-        if let Some(session_id) = target {
-            if let Err(error) = self.hydrate_session(session_id).await {
-                return Some(RpcResult::failure(rpc_error(
-                    xharness_api::RpcErrorCode::Internal,
-                    format!("session recovery failed: {error}"),
-                    json!({"sessionId": session_id}),
+        let result = async {
+            if endpoint == "swarm/tasks" {
+                return Some(match swarm_tasks::call(self, rpc_id, &payload).await {
+                    Ok(value) => RpcResult::success(value),
+                    Err(error) => RpcResult::failure(error),
+                });
+            }
+            if endpoint == "swarm/manage" {
+                return Some(match swarm::manage(self, rpc_id, &payload).await {
+                    Ok(value) => RpcResult::success(value),
+                    Err(error) => RpcResult::failure(error),
+                });
+            }
+            if endpoint == "workspace/memory" {
+                // Settings must remain repairable even if session hydration fails.
+                return Some(match memory::call(self, rpc_id, &payload).await {
+                    Ok(v) => RpcResult::success(v),
+                    Err(e) => RpcResult::failure(e),
+                });
+            }
+            if endpoint == "display/inspect" {
+                let result = crate::display::inspect_rpc(self, &payload, _cancellation).await;
+                return Some(match result {
+                    Ok(v) => RpcResult::success(v),
+                    Err(e) => RpcResult::failure(e),
+                });
+            }
+            if endpoint == "display/read" {
+                let result = crate::display::read_rpc(self, &payload, _cancellation).await;
+                return Some(match result {
+                    Ok(v) => RpcResult::success(v),
+                    Err(e) => RpcResult::failure(e),
+                });
+            }
+            if endpoint.starts_with("github/review-") {
+                let result =
+                    crate::github_review::call(self, endpoint, &payload, _cancellation).await;
+                return Some(match result {
+                    Ok(v) => RpcResult::success(v),
+                    Err(e) => RpcResult::failure(e),
+                });
+            }
+            // Retired product surface: fail closed without reading or mutating old
+            // PR/chat metadata. Existing normal conversations are unaffected.
+            if matches!(endpoint, "github/chat-get" | "github/chat-set") {
+                return Some(RpcResult::failure(RpcError::bad_request(
+                    "PR chat binding has been retired; use the global assistant",
+                    json!([]),
                 )));
             }
+            if endpoint.starts_with("github/") {
+                let result = match self.github.get() {
+                    Some(backend) => backend.read(endpoint, &payload, _cancellation).await,
+                    None => Err(RpcError::internal(
+                        "GitHub integration is unavailable in this Host build",
+                    )),
+                };
+                return Some(match result {
+                    Ok(value) => RpcResult::success(value),
+                    Err(error) => RpcResult::failure(error),
+                });
+            }
+            // Namespaced mutations carry the session under args.agentId rather
+            // than sessionId. Viewing a cold page must not bypass their recovery.
+            let nested_mutation = matches!(
+                endpoint,
+                "commands/execute"
+                    | "goals/create"
+                    | "goals/edit"
+                    | "goals/pause"
+                    | "goals/resume"
+                    | "goals/complete"
+                    | "goals/clear"
+            );
+            let target = if nested_mutation {
+                payload
+                    .get("args")
+                    .and_then(|args| args.get("agentId"))
+                    .and_then(Value::as_str)
+            } else {
+                payload.get("sessionId").and_then(Value::as_str)
+            };
+            if let Some(session_id) = target {
+                if let Err(error) = self.hydrate_session(session_id).await {
+                    return Some(RpcResult::failure(rpc_error(
+                        xharness_api::RpcErrorCode::Internal,
+                        format!("session recovery failed: {error}"),
+                        json!({"sessionId": session_id}),
+                    )));
+                }
+            }
+            let result = dynamic::call(self, rpc_id, endpoint, &payload).await?;
+            Some(match result {
+                Ok(Some(value)) => RpcResult::success(value),
+                Ok(None) => RpcResult::Success { value: None },
+                Err(error) => RpcResult::failure(error),
+            })
         }
-        let result = dynamic::call(self, rpc_id, endpoint, &payload).await?;
-        Some(match result {
-            Ok(Some(value)) => RpcResult::success(value),
-            Ok(None) => RpcResult::Success { value: None },
-            Err(error) => RpcResult::failure(error),
-        })
+        .await;
+        if let Some(result) = &result {
+            observation.finish(result);
+        }
+        result
     }
 
     async fn session_in_workspace(

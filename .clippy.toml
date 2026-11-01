@@ -1,0 +1,5 @@
+# Test assertions may be fatal; production, including constants, stays strict.
+allow-expect-in-tests = true
+allow-unwrap-in-tests = true
+allow-expect-in-consts = false
+allow-unwrap-in-consts = false

@@ -198,6 +198,9 @@ pub struct OpenAiProviderConfig {
     pub max_sse_pending_bytes: usize,
     pub max_sse_event_bytes: usize,
     pub max_error_body_bytes: usize,
+    /// Final serialized JSON limit, independent of token/image budgets.
+    /// Official DeepSeek routes default to 48 MiB; other deployments opt in.
+    pub max_request_body_bytes: Option<usize>,
     pub reasoning: Option<OpenAiReasoningProfile>,
     pub context_window_fallback: Option<u64>,
     pub capability_probe: Option<OpenAiCapabilityProbe>,
@@ -210,10 +213,12 @@ impl OpenAiProviderConfig {
         api_key: impl Into<String>,
         model: impl Into<String>,
     ) -> Self {
+        let base_url = base_url.into();
+        let max_request_body_bytes = crate::image_budget::request_body_limit(&base_url);
         Self {
             protocol,
             usage_input_semantics: crate::InputUsageSemantics::Auto,
-            base_url: base_url.into(),
+            base_url,
             api_key: api_key.into(),
             model: model.into(),
             connect_timeout: Duration::from_secs(30),
@@ -222,10 +227,16 @@ impl OpenAiProviderConfig {
             max_sse_pending_bytes: DEFAULT_SSE_PENDING_LIMIT_BYTES,
             max_sse_event_bytes: DEFAULT_SSE_EVENT_LIMIT_BYTES,
             max_error_body_bytes: DEFAULT_ERROR_BODY_LIMIT_BYTES,
+            max_request_body_bytes,
             reasoning: None,
             context_window_fallback: None,
             capability_probe: None,
         }
+    }
+
+    pub fn with_request_body_limit(mut self, bytes: usize) -> Self {
+        self.max_request_body_bytes = Some(bytes);
+        self
     }
 
     pub fn with_reasoning_profile(mut self, reasoning: OpenAiReasoningProfile) -> Self {
@@ -289,6 +300,7 @@ impl fmt::Debug for OpenAiProviderConfig {
             .field("max_sse_pending_bytes", &self.max_sse_pending_bytes)
             .field("max_sse_event_bytes", &self.max_sse_event_bytes)
             .field("max_error_body_bytes", &self.max_error_body_bytes)
+            .field("max_request_body_bytes", &self.max_request_body_bytes)
             .field(
                 "reasoning_efforts",
                 &self.reasoning.as_ref().map(|profile| profile.patches.len()),
@@ -302,6 +314,13 @@ impl fmt::Debug for OpenAiProviderConfig {
     }
 }
 
+#[derive(Clone, Copy)]
+struct CounterRetryAfter {
+    started: Instant,
+    delay_ms: u64,
+    status: u16,
+}
+
 #[derive(Clone)]
 pub struct OpenAiProvider {
     config: Arc<OpenAiProviderConfig>,
@@ -310,6 +329,9 @@ pub struct OpenAiProvider {
     token_count_support: Arc<AtomicU8>,
     calibration: Arc<CalibrationStore>,
     counter_retry_at: Arc<std::sync::Mutex<Option<Instant>>>,
+    // Server-mandated Retry-After is not the optional local cooldown. Even a
+    // fresh verification must respect it, including across subsequent steps.
+    counter_retry_after: Arc<std::sync::Mutex<Option<CounterRetryAfter>>>,
     capability_cache: Arc<Mutex<Option<CachedCapabilities>>>,
     debug: DebugRecorder,
     attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
@@ -455,6 +477,7 @@ impl OpenAiProvider {
             token_count_support: Arc::new(AtomicU8::new(TOKEN_COUNT_UNKNOWN)),
             calibration: Arc::new(CalibrationStore::default()),
             counter_retry_at: Arc::new(std::sync::Mutex::new(None)),
+            counter_retry_after: Arc::new(std::sync::Mutex::new(None)),
             capability_cache: Arc::new(Mutex::new(None)),
             debug: DebugRecorder::disabled(),
             attachments: None,
@@ -628,34 +651,62 @@ impl OpenAiProvider {
         for k in ["messages", "input", "max_tokens", "max_output_tokens"] {
             controls.as_object_mut().unwrap().remove(k);
         }
+        // Keep verified body-only text training reusable with images. Legacy
+        // mixed rows lack numeric shape and cannot train the complete visual
+        // envelope; captions have their own unscaled allowance in WireFeatures.
+        let has_attachment_blocks = request
+            .messages
+            .iter()
+            .any(|m| !m.content_blocks.is_empty());
         let scope=format!("{:x}",Sha256::digest(serde_json::to_vec(&json!({"endpoint":self.config.endpoint(),"controls":controls,"encoder":"openai-wire/v2","usageSemantics":self.config.usage_input_semantics})).unwrap()));
-        let request_id = format!("{:x}", Sha256::digest(serde_json::to_vec(&body).unwrap()));
+        // The text-only body omits content_blocks until asynchronous wire
+        // expansion. Hash their ordered references too, so different images
+        // or captions cannot collapse into one calibration observation. Only
+        // the digest is retained; attachment identifiers are not persisted.
+        let identity = if has_attachment_blocks {
+            json!({"body": &body, "contentBlocks": request.messages.iter().map(|m| &m.content_blocks).collect::<Vec<_>>()})
+        } else {
+            body.clone()
+        };
+        let request_id = format!(
+            "{:x}",
+            Sha256::digest(
+                serde_json::to_vec(&identity).map_err(|e| ProviderError::new(format!(
+                    "counter identity encoding failed: {e}"
+                )))?
+            )
+        );
         let messages = request
             .messages
             .iter()
             .map(serde_json::to_value)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| ProviderError::new(e.to_string()))?;
-        let mut image_tokens =
+        let image_tokens =
             crate::image_budget::estimate(&self.config.base_url, &self.config.model, &messages)
                 .map_err(|e| ProviderError::new(e.to_string()))?;
-        if image_tokens != 0 {
-            // request_body has not expanded content_blocks yet. Keep their
-            // accompanying text outside the learned text ratio so a large
-            // image caption cannot disappear behind text calibration.
-            for block in request.messages.iter().flat_map(|m| &m.content_blocks) {
-                if let xharness_attachments::ContentBlock::Text { text } = block {
-                    image_tokens = image_tokens
-                        .saturating_add(text.len() as u64)
-                        .saturating_add(64);
+        let mut features = WireFeatures::from_body(&body, image_tokens);
+        let mut images = xharness_token::ImageFeatures::default();
+        for block in request.messages.iter().flat_map(|m| &m.content_blocks) {
+            match block {
+                xharness_attachments::ContentBlock::Text { text } => {
+                    features.add_attachment_text(text)
                 }
+                xharness_attachments::ContentBlock::Image { attachment } => {
+                    images.count = images.count.saturating_add(1);
+                    images.pixels = images.pixels.saturating_add(
+                        u64::from(attachment.width).saturating_mul(u64::from(attachment.height)),
+                    );
+                    images.max_width = images.max_width.max(attachment.width);
+                    images.max_height = images.max_height.max(attachment.height);
+                }
+                _ => {}
             }
         }
-        Ok((
-            scope,
-            request_id,
-            WireFeatures::from_body(&body, image_tokens),
-        ))
+        if images.count > 0 {
+            features.images = Some(images);
+        }
+        Ok((scope, request_id, features))
     }
 
     async fn multimodal_body(
@@ -711,7 +762,7 @@ impl OpenAiProvider {
                         }
                         ContentBlock::Image { attachment } => {
                             total_bytes=total_bytes.saturating_add(attachment.bytes);
-                            if total_bytes>xharness_core::MAX_REQUEST_IMAGE_BYTES { return Err(ProviderError::new("request images exceed 40 MiB; reduce image context")); }
+                            if total_bytes>xharness_core::MAX_REQUEST_IMAGE_BYTES { return Err(ProviderError::http(413, "local image resource admission exceeded 40 MiB; reduce explicit images or retire tool observations")); }
                             let key=(attachment.session_id.clone(),attachment.id.clone());
                             if !resolved.contains_key(&key) {
                                 let item=tokio::select! {
@@ -763,6 +814,24 @@ impl OpenAiProvider {
         Ok(body)
     }
 
+    /// Serialize once and send these exact bytes. This includes base64, text,
+    /// tools, reasoning/profile patches and protocol framing, not raw files.
+    fn request_body_bytes(&self, body: &Value) -> Result<Vec<u8>, ProviderError> {
+        let bytes = serde_json::to_vec(body)
+            .map_err(|_| ProviderError::new("request body JSON serialization failed"))?;
+        if self
+            .config
+            .max_request_body_bytes
+            .is_some_and(|limit| bytes.len() > limit)
+        {
+            return Err(ProviderError::http(413, format!(
+                "local request-body admission rejected {} serialized bytes (limit {}); no HTTP request was sent",
+                bytes.len(), self.config.max_request_body_bytes.unwrap_or(0)
+            )));
+        }
+        Ok(bytes)
+    }
+
     fn request_body(
         &self,
         request: &ProviderRequest,
@@ -783,6 +852,145 @@ impl OpenAiProvider {
             None => {}
         }
         Ok(body)
+    }
+}
+
+impl OpenAiProvider {
+    async fn count_native_input_tokens(
+        &self,
+        request: &ProviderRequest,
+        cancellation: CancellationToken,
+        fresh: bool,
+    ) -> Result<Option<ProviderInputTokenCount>, ProviderError> {
+        let retry_after = *self
+            .counter_retry_after
+            .lock()
+            .map_err(|_| ProviderError::new("input token counter retry state unavailable"))?;
+        if let Some(state) = retry_after {
+            let remaining = state.delay_ms.saturating_sub(
+                state
+                    .started
+                    .elapsed()
+                    .as_millis()
+                    .min(u128::from(u64::MAX)) as u64,
+            );
+            if remaining > 0 {
+                let mut error = ProviderError::http(
+                    state.status,
+                    "input token counter Retry-After is still active",
+                );
+                error.retry_after_ms = Some(remaining);
+                return Err(error);
+            }
+        }
+        if !fresh
+            && self
+                .counter_retry_at
+                .lock()
+                .ok()
+                .is_some_and(|at| at.is_some_and(|t| t > Instant::now()))
+        {
+            return Ok(None);
+        }
+        if self.token_count_support.load(Ordering::Acquire) == TOKEN_COUNT_UNSUPPORTED {
+            return Ok(None);
+        }
+        let body = self.multimodal_body(request, true, &cancellation).await?;
+        let body_bytes = self.request_body_bytes(&body)?;
+        self.trace(
+            &request.debug_scope,
+            "token_count.request",
+            || json!({"endpoint": self.config.token_count_endpoint(), "body": image_safe_trace(&body)}),
+        )
+        .await;
+        let request_builder = self
+            .client
+            .post(self.config.token_count_endpoint())
+            .bearer_auth(&self.config.api_key)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(body_bytes);
+        let response = self
+            .send_request(
+                request_builder,
+                &cancellation,
+                "OpenAI input token count request",
+            )
+            .await?;
+        let status = response.status();
+        self.trace(
+            &request.debug_scope,
+            "token_count.response_status",
+            || json!({"status": status.as_u16()}),
+        )
+        .await;
+        if matches!(status.as_u16(), 404 | 405 | 501) {
+            self.token_count_support
+                .store(TOKEN_COUNT_UNSUPPORTED, Ordering::Release);
+            return Ok(None);
+        }
+        if !status.is_success() {
+            let code = status.as_u16();
+            let retry_after = response
+                .headers()
+                .get(header::RETRY_AFTER)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| retry_after_ms(v, SystemTime::now()));
+            let body =
+                bounded_error_body(response, self.config.max_error_body_bytes, &cancellation)
+                    .await?;
+            let detail = if body.is_empty() {
+                format!("OpenAI input token count HTTP {code}")
+            } else {
+                format!("OpenAI input token count HTTP {code}: {body}")
+            };
+            let mut error = ProviderError::http(code, detail);
+            error.retry_after_ms = retry_after;
+            if error.retryable {
+                if let Some(delay) = retry_after {
+                    if let Ok(mut state) = self.counter_retry_after.lock() {
+                        *state = Some(CounterRetryAfter {
+                            started: Instant::now(),
+                            delay_ms: delay,
+                            status: code,
+                        });
+                    }
+                }
+            }
+            return Err(error);
+        }
+        let body =
+            bounded_error_body(response, self.config.max_error_body_bytes, &cancellation).await?;
+        self.trace(
+            &request.debug_scope,
+            "token_count.response_body",
+            || json!({"body": &body}),
+        )
+        .await;
+        let value: serde_json::Value = serde_json::from_str(&body).map_err(|error| {
+            ProviderError::new(format!(
+                "invalid OpenAI input token count response: {error}"
+            ))
+        })?;
+        let input_tokens = value
+            .get("input_tokens")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| {
+                ProviderError::new(
+                    "invalid OpenAI input token count response: missing input_tokens",
+                )
+            })?;
+        self.token_count_support
+            .store(TOKEN_COUNT_SUPPORTED, Ordering::Release);
+        if let Ok(mut at) = self.counter_retry_at.lock() {
+            *at = None;
+        }
+        // Do not revoke a newer server-mandated backoff: another count may
+        // have received Retry-After while this successful call was in flight.
+        // Expired server deadlines are harmless; only local cooldown is cleared.
+        Ok(Some(ProviderInputTokenCount::exact_request(
+            self.config.token_counter_id(),
+            input_tokens,
+        )))
     }
 }
 
@@ -852,87 +1060,17 @@ impl ModelProvider for OpenAiProvider {
         request: &ProviderRequest,
         cancellation: CancellationToken,
     ) -> Result<Option<ProviderInputTokenCount>, ProviderError> {
-        if self
-            .counter_retry_at
-            .lock()
-            .ok()
-            .is_some_and(|at| at.is_some_and(|t| t > Instant::now()))
-        {
-            return Ok(None);
-        }
-        if self.token_count_support.load(Ordering::Acquire) == TOKEN_COUNT_UNSUPPORTED {
-            return Ok(None);
-        }
-        let body = self.multimodal_body(request, true, &cancellation).await?;
-        self.trace(
-            &request.debug_scope,
-            "token_count.request",
-            || json!({"endpoint": self.config.token_count_endpoint(), "body": image_safe_trace(&body)}),
-        )
-        .await;
-        let request_builder = self
-            .client
-            .post(self.config.token_count_endpoint())
-            .bearer_auth(&self.config.api_key)
-            .json(&body);
-        let response = self
-            .send_request(
-                request_builder,
-                &cancellation,
-                "OpenAI input token count request",
-            )
-            .await?;
-        let status = response.status();
-        self.trace(
-            &request.debug_scope,
-            "token_count.response_status",
-            || json!({"status": status.as_u16()}),
-        )
-        .await;
-        if matches!(status.as_u16(), 404 | 405 | 501) {
-            self.token_count_support
-                .store(TOKEN_COUNT_UNSUPPORTED, Ordering::Release);
-            return Ok(None);
-        }
-        if !status.is_success() {
-            let code = status.as_u16();
-            let body =
-                bounded_error_body(response, self.config.max_error_body_bytes, &cancellation)
-                    .await?;
-            let detail = if body.is_empty() {
-                format!("OpenAI input token count HTTP {code}")
-            } else {
-                format!("OpenAI input token count HTTP {code}: {body}")
-            };
-            return Err(ProviderError::http(code, detail));
-        }
-        let body =
-            bounded_error_body(response, self.config.max_error_body_bytes, &cancellation).await?;
-        self.trace(
-            &request.debug_scope,
-            "token_count.response_body",
-            || json!({"body": &body}),
-        )
-        .await;
-        let value: serde_json::Value = serde_json::from_str(&body).map_err(|error| {
-            ProviderError::new(format!(
-                "invalid OpenAI input token count response: {error}"
-            ))
-        })?;
-        let input_tokens = value
-            .get("input_tokens")
-            .and_then(serde_json::Value::as_u64)
-            .ok_or_else(|| {
-                ProviderError::new(
-                    "invalid OpenAI input token count response: missing input_tokens",
-                )
-            })?;
-        self.token_count_support
-            .store(TOKEN_COUNT_SUPPORTED, Ordering::Release);
-        Ok(Some(ProviderInputTokenCount::exact_request(
-            self.config.token_counter_id(),
-            input_tokens,
-        )))
+        self.count_native_input_tokens(request, cancellation, false)
+            .await
+    }
+
+    async fn recount_input_tokens(
+        &self,
+        request: &ProviderRequest,
+        cancellation: CancellationToken,
+    ) -> Result<Option<ProviderInputTokenCount>, ProviderError> {
+        self.count_native_input_tokens(request, cancellation, true)
+            .await
     }
 
     async fn stream(
@@ -944,6 +1082,7 @@ impl ModelProvider for OpenAiProvider {
         let calibration = self.calibration.clone();
         let mut observation = NetworkObservation::new(&self.config.endpoint());
         let body = self.multimodal_body(&request, false, &cancellation).await?;
+        let body_bytes = self.request_body_bytes(&body)?;
         self.trace(&request.debug_scope, "request", || {
             json!({
                 "endpoint": self.config.endpoint(),
@@ -961,7 +1100,8 @@ impl ModelProvider for OpenAiProvider {
             .header(header::ACCEPT_ENCODING, "identity")
             .header(header::CACHE_CONTROL, "no-cache")
             .bearer_auth(&self.config.api_key)
-            .json(&body);
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(body_bytes);
         let response = self
             .send_request(request_builder, &cancellation, "OpenAI request")
             .await
@@ -1592,6 +1732,53 @@ mod tests {
     }
 
     #[test]
+    fn attachment_caption_does_not_pollute_image_budget_and_shape_is_recorded() {
+        use xharness_attachments::{AttachmentRef, ContentBlock};
+        let p = OpenAiProvider::new(OpenAiProviderConfig::new(
+            OpenAiProtocol::ChatCompletions,
+            "http://localhost/v1",
+            "fixture",
+            "fixture",
+        ))
+        .unwrap();
+        let mut r = request(None);
+        r.messages = vec![
+            xharness_core::AgentMessage::user("").with_content_blocks(vec![ContentBlock::Image {
+                attachment: AttachmentRef {
+                    id: "a".repeat(64),
+                    session_id: "fixture".into(),
+                    media_type: "image/png".into(),
+                    bytes: 32,
+                    width: 1920,
+                    height: 1080,
+                },
+            }]),
+        ];
+        let (scope, base_id, base) = p.count_features(&r).unwrap();
+        r.messages[0].content_blocks.push(ContentBlock::Text {
+            text: "caption 中文".into(),
+        });
+        let (_, caption_id, caption) = p.count_features(&r).unwrap();
+        assert_ne!(base_id, caption_id);
+        if let ContentBlock::Image { attachment } = &mut r.messages[0].content_blocks[0] {
+            attachment.id = "b".repeat(64);
+        }
+        let (new_scope, new_id, _) = p.count_features(&r).unwrap();
+        assert_eq!(scope, new_scope);
+        assert_ne!(
+            caption_id, new_id,
+            "different same-size images must warm independently"
+        );
+        assert_eq!(base.image_tokens, caption.image_tokens);
+        assert_eq!(
+            caption.units() - base.units(),
+            "caption 中文".len() as u64 + 64
+        );
+        assert_eq!(caption.images.as_ref().unwrap().count, 1);
+        assert_eq!(caption.images.as_ref().unwrap().pixels, 1920 * 1080);
+    }
+
+    #[test]
     fn exact_model_reasoning_profile_maps_public_ids_to_wire_fragments() {
         let profile = OpenAiReasoningProfile::new(
             Some("high".to_owned()),
@@ -1869,6 +2056,89 @@ mod multimodal_tests {
                 debug_scope: DebugScope::default(),
             },
         )
+    }
+
+    #[tokio::test]
+    async fn byte_admission_precedes_stream_and_native_count_network_io() {
+        for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+            let (_, request) = fixture(protocol).await;
+            let provider = OpenAiProvider::new(
+                OpenAiProviderConfig::new(protocol, "http://127.0.0.1:1", "", "test")
+                    .with_request_body_limit(1),
+            )
+            .unwrap();
+            let mut request = request;
+            request.messages = vec![AgentMessage::user("界\n\"🙂")];
+            for count in [false, true] {
+                let error = if count {
+                    provider
+                        .count_input_tokens(&request, CancellationToken::new())
+                        .await
+                        .err()
+                        .unwrap()
+                } else {
+                    provider
+                        .stream(request.clone(), CancellationToken::new())
+                        .await
+                        .err()
+                        .unwrap()
+                };
+                assert!(error.is_request_body_too_large());
+                assert!(!error.is_context_overflow());
+                assert!(!error.retryable);
+                assert!(error.message.contains("no HTTP request was sent"));
+                assert!(
+                    error.diagnostics.is_none(),
+                    "not a connection refusal on port 1"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn exact_json_bytes_include_protocol_tools_unicode_and_image_base64() {
+        for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+            let (provider, mut request) = fixture(protocol).await;
+            request.tools.push(xharness_core::ToolDefinition {
+                name: "test".into(),
+                description: "界\n\"🙂".into(),
+                parameters: json!({"type":"object"}),
+            });
+            for count in [false, true] {
+                let body = provider
+                    .multimodal_body(&request, count, &CancellationToken::new())
+                    .await
+                    .unwrap();
+                let exact = serde_json::to_vec(&body).unwrap();
+                let mut config = (*provider.config).clone();
+                config.max_request_body_bytes = Some(exact.len());
+                let admitted = OpenAiProvider::new(config.clone()).unwrap();
+                assert_eq!(admitted.request_body_bytes(&body).unwrap(), exact);
+                config.max_request_body_bytes = Some(exact.len() - 1);
+                assert!(OpenAiProvider::new(config)
+                    .unwrap()
+                    .request_body_bytes(&body)
+                    .unwrap_err()
+                    .is_request_body_too_large());
+            }
+        }
+    }
+
+    #[test]
+    fn incident_26_to_27_images_exceeds_bytes_not_raw_resource_budget() {
+        let provider = OpenAiProvider::new(OpenAiProviderConfig::new(
+            OpenAiProtocol::ChatCompletions,
+            "https://api.deepseek.com",
+            "",
+            "deepseek-flash",
+        ))
+        .unwrap();
+        const { assert!(38_348_082 < xharness_core::MAX_REQUEST_IMAGE_BYTES) };
+        for (base64_bytes, rejected) in [(46_887_304, false), (51_130_808, true)] {
+            // Synthetic zero-image encoding only, never real conversation data.
+            let body = json!({"messages":[{"role":"user","content":[{"type":"image_url", "image_url":{"url":format!("data:image/png;base64,{}", "A".repeat(base64_bytes))}}]}], "tools":[]});
+            assert_eq!(provider.request_body_bytes(&body).is_err(), rejected);
+        }
     }
 
     #[tokio::test]

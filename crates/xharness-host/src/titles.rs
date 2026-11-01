@@ -131,7 +131,10 @@ impl BasicHost {
                     Err(_) => {
                         let failures = store_failures.entry(id.clone()).or_default();
                         *failures = failures.saturating_add(1);
-                        eprintln!("xharness auto-title: storage transition failed (attempt {failures}/3); chat is unaffected");
+                        xharness_diagnostics::record_failure(
+                            xharness_diagnostics::FailureCode::AutoTitle,
+                        );
+                        xharness_diagnostics::diagnostic_stderr!("xharness auto-title: storage transition failed (attempt {failures}/3); chat is unaffected");
                         if *failures < 3 {
                             self.title_work.enqueue(&id, Duration::from_secs(5));
                         } else {

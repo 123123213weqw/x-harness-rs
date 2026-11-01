@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::Path;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -273,6 +274,8 @@ pub(crate) struct DriverCommand {
 #[serde(rename_all = "camelCase")]
 pub struct SessionRecord {
     #[serde(skip)]
+    pub(crate) driver_epoch: Option<Arc<crate::driver_lifecycle::DriverEpoch>>,
+    #[serde(skip)]
     pub(crate) dispatch_paused: bool,
     #[serde(skip)]
     pub(crate) delegated: bool,
@@ -534,6 +537,7 @@ impl SessionRecord {
             "sessionId": self.session_id,
             "updatedAt": self.updated_at,
             "running": self.running,
+            "driverHealth": if !self.running { "idle" } else if self.control.as_ref().is_some_and(|c| !c.is_closed()) { "attached" } else { "unavailable" },
             "restoring": self.restoring,
             "blank": self.blank,
             "cwd": self.cwd,

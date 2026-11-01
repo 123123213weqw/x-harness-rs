@@ -50,6 +50,8 @@ jobs:
           python3 -B scripts/test-ci-tiering.py
           python3 -B scripts/test-desktop-build-cache.py
           python3 -B scripts/test-ci-browser-runtime.py
+          python3 -B scripts/check-wry-vendor.py
+          python3 -B scripts/test-wry-vendor.py
       - name: Browser routing fixture and oracle regression (offline)
         run: python3 -B scripts/experiments/test-browser-routing-ab.py
       - uses: actions/upload-artifact@v7
@@ -169,6 +171,8 @@ jobs:
       # Offline only: no Keychain, SSH, live model requests or deployment.
       - run: python3 -B scripts/experiments/test-compaction-coding.py
       - run: python3 -B scripts/experiments/test-compaction-multiround.py
+      - name: Tool-result ablation fixtures, scoring and frozen receipts (offline)
+        run: python3 -B scripts/experiments/test-tool-result-ablation.py
 
   cloud-offline-guards:
     name: Cloud lifecycle offline guards
@@ -219,6 +223,7 @@ jobs:
       - name: Validate sharding, baseline coverage and fail-closed gate
         run: |
           node --test scripts/test-ci-ui-suite.mjs
+          node --test scripts/test-ci-gate.mjs
           python3 -B scripts/test-ci-tiering.py
           python3 -B scripts/test-ci-latency.py
           node --test scripts/test-ci-ui-timing.mjs
@@ -460,6 +465,7 @@ jobs:
         run: |
           node scripts/generate-session-terminal-contract.mjs --from "$XHARNESS_SESSION_TERMINAL_EXPORT" --check
           node --test scripts/test-session-terminal-contract.mjs
+          node --test scripts/test-business-error-visibility.mjs
       - name: File display wire is generated from actual Rust DTOs
         env:
           XHARNESS_FILE_DISPLAY_EXPORT: ${{ runner.temp }}/file-display-export
@@ -494,6 +500,18 @@ jobs:
         if: runner.os != 'Windows'
         run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Prove business error guards with actual compiler mutations
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+        run: python3 -B scripts/regression/test-business-error-compiler-guard.py --root . --evidence-dir dist/business-error-guard
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: business-error-compiler-guard
+          path: dist/business-error-guard/
+          if-no-files-found: warn
+          retention-days: 14
+
 
   rust-windows:
     name: Rust / Windows x86_64
@@ -534,6 +552,8 @@ jobs:
           node-version: 22
       - name: Install locked UI toolchain for native wire and desktop contracts
         run: npm ci --prefix ui --ignore-scripts
+      - name: Native Windows fail-closed CI aggregate regression
+        run: node --test scripts/test-ci-gate.mjs
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.99.0'
@@ -1009,3 +1029,26 @@ jobs:
       - run: node scripts/test-updater-signature.mjs
       - run: python3 scripts/test-desktop-assets.py
       - run: python3 scripts/test-desktop-release.py
+
+  # Real aggregate for the protected branch's literal `CI` required context.
+  # All original jobs remain mandatory; no status is posted via the API.
+  ci:
+    # Manual diagnostics must not publish the PR merge-required check name.
+    name: ${{ github.event_name == 'workflow_dispatch' && 'CI / manual diagnostics' || 'CI' }}
+    needs: [architecture-freeze, release-checkpoints, unix-update-rehearsal, update-channel-contract, compaction-evaluator-contract, cloud-offline-guards, context-layout, ui-build, ui-contracts, ui-browser, ui-parity, rust-linux, rust-windows, macos-fixed-signing-contract, rust-macos-arm64, desktop-linux]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Test fail-closed aggregation and require every applicable result
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          node --test scripts/test-ci-gate.mjs
+          node scripts/ci-gate.mjs

@@ -7,10 +7,11 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use xharness_compaction::{ToolResultPruner, ToolResultPrunerConfig};
 use xharness_session::{ContentBlock, Message, MessageRole};
 
+mod visual_history;
 mod working_set;
 pub use working_set::{
     approximate_working_set_tokens, calibrate_working_set_tokens, project_working_set,
@@ -206,13 +207,67 @@ impl ContextSurface {
         }
     }
 
-    /// Keep recent visual context within the wire budget. Older images become
+    /// Keep recent visual context within the raw-image resource budget. Older images become
     /// explicit, session-scoped `read` references, not silent omissions. This
     /// changes only the disposable surface; the session log and UI stay intact.
     /// No fixed count of images is imposed on a conversation or request.
     pub fn defer_images_over_budget(&mut self, max_bytes: u64) {
-        let mut used = 0u64;
-        for message in self.messages.iter_mut().rev() {
+        let current_images = self
+            .messages
+            .iter()
+            .rev()
+            .find(|m| m.role == MessageRole::User)
+            .into_iter()
+            .flat_map(|m| &m.content_blocks)
+            .filter_map(|b| {
+                if let ContentBlock::Image { attachment } = b {
+                    Some((attachment.session_id.clone(), attachment.id.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        self.defer_images_over_budget_preserving(max_bytes, &HashSet::new(), &current_images);
+    }
+
+    /// Current genuine user images and protected/opaque tool units are never
+    /// silently dropped. Older images retain explicit session-scoped read links.
+    pub fn defer_images_over_budget_preserving(
+        &mut self,
+        max_bytes: u64,
+        protected_calls: &HashSet<String>,
+        current_user_images: &HashSet<(String, String)>,
+    ) {
+        let current_user_index = self.messages.iter().rposition(|m| m.role == MessageRole::User
+            && m.content_blocks.iter().any(|b| matches!(b, ContentBlock::Image { attachment }
+                if current_user_images.contains(&(attachment.session_id.clone(), attachment.id.clone())))));
+        let pinned = |index: usize, m: &Message| {
+            (m.role != MessageRole::Tool && m.role != MessageRole::User)
+                || (m.role == MessageRole::Tool && m.tool_call_id.is_none())
+                || m.interrupted
+                || !m.provider_items.is_empty()
+                || Some(index) == current_user_index
+                || m.tool_call_id
+                    .as_ref()
+                    .is_some_and(|id| protected_calls.contains(id))
+        };
+        let mut used = self
+            .messages
+            .iter()
+            .enumerate()
+            .filter(|(index, m)| pinned(*index, m))
+            .flat_map(|(_, m)| &m.content_blocks)
+            .fold(0u64, |used, block| {
+                if let ContentBlock::Image { attachment } = block {
+                    used.saturating_add(attachment.bytes)
+                } else {
+                    used
+                }
+            });
+        for (index, message) in self.messages.iter_mut().enumerate().rev() {
+            if pinned(index, message) {
+                continue;
+            }
             for block in message.content_blocks.iter_mut().rev() {
                 let ContentBlock::Image { attachment } = block else {
                     continue;
@@ -511,6 +566,46 @@ mod tests {
         surface.defer_images_over_budget(MAX_REQUEST_IMAGE_BYTES);
         assert_eq!(surface.deferred_images, 0);
         assert_eq!(surface.messages, messages);
+    }
+
+    #[test]
+    fn image_budget_does_not_silently_omit_explicit_user_images() {
+        let messages = vec![
+            Message::user("compare both").with_content_blocks(vec![image('a', 20), image('b', 20)]),
+            Message::tool("read", "observation").with_tool_blocks(vec![image('c', 20)]),
+        ];
+        let mut surface = ContextSurface::identity(messages.clone());
+        surface.defer_images_over_budget(20);
+        assert_eq!(surface.messages[0], messages[0]);
+        assert!(matches!(
+            surface.messages[1].content_blocks[0],
+            ContentBlock::Text { .. }
+        ));
+        assert_eq!(surface.deferred_images, 1);
+    }
+
+    #[test]
+    fn current_user_pin_is_not_fooled_by_runtime_notes_or_repeated_old_attachment() {
+        let original = vec![
+            Message::user("old").with_content_blocks(vec![image('a', 20)]),
+            Message::user("current compare")
+                .with_content_blocks(vec![image('a', 20), image('b', 20)]),
+            Message::user("runtime status, not a new request"),
+        ];
+        let mut surface = ContextSurface::identity(original.clone());
+        surface.defer_images_over_budget_preserving(
+            20,
+            &HashSet::new(),
+            &HashSet::from([
+                ("session".into(), "a".repeat(64)),
+                ("session".into(), "b".repeat(64)),
+            ]),
+        );
+        assert!(matches!(
+            surface.messages[0].content_blocks[0],
+            ContentBlock::Text { .. }
+        ));
+        assert_eq!(surface.messages[1..], original[1..]);
     }
 
     #[test]

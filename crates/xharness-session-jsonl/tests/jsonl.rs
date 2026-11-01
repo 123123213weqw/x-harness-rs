@@ -2031,6 +2031,7 @@ async fn indexed_compaction_terminal_page_retains_summary_sources_after_restart_
                     delay_ms: Some(1000),
                     input_tokens_before: Some(180000),
                     input_tokens_after: None,
+                    ..CompactionProgress::default()
                 },
             }
             .into(),

@@ -1,5 +1,17 @@
 # Development policy
 
+## Dependency update policy
+
+- Prioritize our product features and bug fixes. Do not proactively propose,
+  reopen, rebase, or merge dependency, runtime, SDK, or GitHub Actions version
+  upgrade PRs, or refresh lockfiles solely to follow upstream releases.
+- Dependency changes require an explicit user request, or prior user agreement
+  that a minimal change is necessary for the requested feature or fix.
+- Keep automatic dependency PR generators disabled. Do not change existing
+  security alert, scanning, or push-protection settings as part of this policy.
+- Feature PRs still require passing CI, review, and the existing architecture
+  gates before merging; disabling dependency proposals does not weaken gates.
+
 ## Rust remote compilation
 
 - 禁止在本机执行会编译 Rust 的命令，包括 `cargo build`、`cargo check`、
@@ -21,3 +33,29 @@
 - 提交前主动执行 `cargo fmt --all -- --check`、架构检查、相关测试和
   `cargo clippy --locked -p <受影响 crate> --all-targets -- -D warnings`；
   所有 Rust 编译、测试与 Clippy 仍须在同步源码后的远程服务器执行。
+
+## Recoverable business errors
+
+- All extracted business seams in `scripts/regression/check-architecture.py` and
+  every managed Host processor inherit unconditional module-wide `deny` plus
+  `cfg_attr(not(test), forbid(...))` for
+  `clippy::unwrap_used`, `clippy::expect_used`,
+  `clippy::let_underscore_must_use` and `unused_must_use`.
+- Do not weaken/remove the unconditional deny or alter the exact non-test forbid
+  fence, add production `allow`/`expect` overrides, or exempt production types.
+  Existing unconditional `forbid(unsafe_code)` remains unchanged, including tests.
+  Test assertions may unwrap/expect via the two explicit test settings;
+  both constant exemptions stay disabled in `.clippy.toml`.
+- Propagate meaningful `Result` errors with context. Do not mechanically replace
+  a panic with `.ok()`, a default, `drop(result)` or an empty error branch.
+  Optional best-effort behavior needs a documented reason, visible failure
+  evidence, and must not acknowledge an operation as successfully applied.
+- Record failure once at the owning API/task boundary. Preserve the original
+  typed error for its caller; logs must not include prompts, payloads, raw error
+  strings, credentials or caller-controlled identifiers.
+- Observe background completion/cancellation/panic; a dropped JoinHandle is not
+  evidence of success. Any recovery must respect the existing ownership/epoch.
+- Before commit run the architecture mutation tests, actual remote Clippy
+  compiler mutations, affected Rust tests, and strict Clippy. All Rust commands
+  that compile remain remote-only as above. Dependency/native FFI code is not
+  silently exempted as "business"; audit it separately with native regressions.

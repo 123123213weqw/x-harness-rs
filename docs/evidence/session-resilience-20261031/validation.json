@@ -1,0 +1,166 @@
+{
+  "schema": 1,
+  "verified_at_utc": "2026-10-31T04:56:47.329971+00:00",
+  "integrated_base": "eaa5997c4cbb8882b648775b6b6b53067ac7cbd8",
+  "source_sha256": {
+    "crates/xharness-agent/src/driver.rs": "c5529e132fff8d60e3c5b4d62b7a91a9e0fc5a43137b1cd5796246e80708f411",
+    "crates/xharness-agent/src/stability_repro.rs": "70ed506eb54d8c50fb0c92db8d5f1983cc3bd88054cee24f2afe731a369bf350",
+    "crates/xharness-agent/tests/driver.rs": "b70a2dc0ed0390c8a807f572eb68acf6cb455d9115d7e528fff65e52de54de2b",
+    "crates/xharness-host/src/runtime.rs": "c395bc1dc5e865c4a75d94fc758a150b727d9ef4a40845b9b609e24c889b7a48",
+    "crates/xharness-host/src/session_recovery.rs": "89084cae250a56c0b6faa8c0cf4fc15c5ae05be452723d5718816f9d3a5ca70d",
+    "ui/src/modules/client-runtime/sessions/session.ts": "863be8c67e1004e3543eab40688466c1eee57f0d652d0f278ef4a5331f386786",
+    "ui/src/modules/conversation/conversation-nodes/chat-snapshot-builder.ts": "b11bf01fbc5b54c8e8705fbea4a3bc66518aad932e68a72f6c3ced1748cd5f81",
+    "ui/src/modules/conversation/chat/ChatFlow.tsx": "f0af7373c5c8174af57156ab3113a2e305c84b139476f5906e01664cf3e01fc5",
+    "ui/src/modules/conversation/chat/ChatNodeSeat.tsx": "61391707581532d509a8bf680fc6791094502572ebd5e5c52b58437f0c0fd9b8",
+    "ui/src/modules/conversation/skeleton/SessionRecoveryButton.tsx": "c2da54507df0658a23388ce52bdef1a86a46ea259d9c54970b07d52ef23f7a4c",
+    "ui/src/modules/layout/retained-pages.ts": "21de95f648e3fa748b217e8b7a73b5e17a50453c550eb71f9d3567f252f389ce",
+    "ui/src/modules/layout/workspace-pane.tsx": "49e16d3c378f20d3e2f02c72dce96955c60abcd525fc190c0615003cb39d5627",
+    "scripts/test-turn-process-browser.mjs": "9e7b8de573ffd8c99cf82971e82dfaa39f7382eb1ed65074d97fd5830f3194aa",
+    "scripts/test-session-recovery-browser.mjs": "06c029f3190e700e8bcd90d32db43248b35659cc5e80e6f6a0950835c2c76618",
+    "scripts/test-workspace-retention-browser.mjs": "09bc56e3863678681325cef221a7098f9c46310fcaba341d47c137c85b2e9abb"
+  },
+  "rust": {
+    "execution": "remote WZU_Server only",
+    "full_agent_host_suite": {
+      "passed": 604,
+      "failed": 0,
+      "existing_ignored_diagnostics": 9
+    },
+    "final_host_status_boundary_rerun": {
+      "passed": 501,
+      "failed": 0,
+      "existing_ignored_diagnostics": 9
+    },
+    "strict_clippy_all_targets": "passed",
+    "local_rust_compilation": false
+  },
+  "compiler_negative_mutations": {
+    "all_business_error_boundaries": {
+      "cases": 35,
+      "passed": true,
+      "restored_positive": true
+    },
+    "managed_host_unsafe_guards": {
+      "cases": 2,
+      "passed": true,
+      "restored_positive": true
+    },
+    "final_recovery_module": {
+      "cases": [
+        {
+          "case": "unwrap",
+          "lint": "clippy::unwrap_used",
+          "passed": true
+        },
+        {
+          "case": "expect",
+          "lint": "clippy::expect_used",
+          "passed": true
+        },
+        {
+          "case": "discard_result",
+          "lint": "clippy::let_underscore_must_use",
+          "passed": true
+        },
+        {
+          "case": "unused_result",
+          "lint": "unused_must_use",
+          "passed": true
+        },
+        {
+          "case": "const_unwrap",
+          "lint": "clippy::unwrap_used",
+          "passed": true
+        },
+        {
+          "case": "const_expect",
+          "lint": "clippy::expect_used",
+          "passed": true
+        },
+        {
+          "case": "local_allow",
+          "lint": "E0453",
+          "passed": true
+        },
+        {
+          "case": "unsafe_block",
+          "lint": "unsafe_code",
+          "passed": true
+        },
+        {
+          "case": "unsafe_allow",
+          "lint": "E0453",
+          "passed": true
+        }
+      ],
+      "source_sha256": "89084cae250a56c0b6faa8c0cf4fc15c5ae05be452723d5718816f9d3a5ca70d",
+      "passed": true,
+      "restored_positive": true
+    }
+  },
+  "history_browser_measurements": [
+    {
+      "engine": "chromium",
+      "turns": 2000,
+      "frames": 120,
+      "rows": 4002,
+      "full_structural_rebuilds": 0,
+      "heavy_mounted_rows": 15
+    },
+    {
+      "engine": "chromium",
+      "turns": 5000,
+      "frames": 120,
+      "rows": 10002,
+      "full_structural_rebuilds": 0,
+      "heavy_mounted_rows": 15
+    },
+    {
+      "engine": "webkit",
+      "turns": 2000,
+      "frames": 120,
+      "rows": 4002,
+      "full_structural_rebuilds": 0,
+      "heavy_mounted_rows": 15
+    },
+    {
+      "engine": "webkit",
+      "turns": 5000,
+      "frames": 120,
+      "rows": 10002,
+      "full_structural_rebuilds": 0,
+      "heavy_mounted_rows": 15
+    }
+  ],
+  "ui": {
+    "strict_owned_build_and_byte_check": "passed",
+    "modules": 61,
+    "assets": 190,
+    "engines": [
+      "chromium",
+      "webkit"
+    ],
+    "covered": [
+      "recovery double submit, explicit errors, session/unmount epochs and unchanged draft",
+      "new identical-text errors survive recovery history waits",
+      "slash service acknowledges only after original-session history success",
+      "retention owner identity, background completion, inert hiding, LRU, TTL and explicit close",
+      "full owned file-display graph and object URL lifecycle",
+      "browser dock, mocked native lifecycle, model-open readiness/cancel/origin/visibility",
+      "transcript windowing and pending-tool protection"
+    ],
+    "architecture_freeze_mutation_tests": 34,
+    "ci_command_coverage_and_partition_tests": "passed"
+  },
+  "limits": {
+    "recovery": "idle worker only; active, queued or unknown execution is rejected; no force-stop/replay/Host restart",
+    "page_cache": "up to 4 renderer pages, 300000 ms hidden TTL; not a cap/teardown policy for native guests",
+    "browser_authorization": "unchanged visible-owner/origin requirements; no hidden automation grant",
+    "performance": "synthetic structural/mount gate, not O(1) total streaming or native physical memory measurement",
+    "platform_shells": "headless native transports are mocks; real macOS/Windows shell builds remain CI validation",
+    "existing_host_restarted": false,
+    "installed_app_replaced": false,
+    "merged_or_released": false
+  },
+  "test_note": "An earlier pre-integration upstream-RPC baseline control receipt raced once. Five targeted repeats and subsequent full suites passed; no assertion or production control confirmation was weakened."
+}

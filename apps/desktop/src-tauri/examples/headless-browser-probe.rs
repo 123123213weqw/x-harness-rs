@@ -25,7 +25,19 @@ fn main() {
             let owner = request["owner"].as_str().unwrap_or("acceptance-owner");
             let op = request["op"].as_str().unwrap_or("");
             let args = request.get("args").cloned().unwrap_or_else(|| json!({}));
-            let result = if op == "preview" {
+            // Acceptance-only cancellation: drop the real manager future while
+            // a loopback page is handling a native press. No product RPC added.
+            let result = if op == "cancel_input" {
+                match tokio::time::timeout(
+                    std::time::Duration::from_millis(200),
+                    browsers.dispatch(owner, "input", args),
+                )
+                .await
+                {
+                    Err(_) => Ok(json!({"cancelled":true})),
+                    Ok(_) => Err("fixture action finished before cancellation".to_owned()),
+                }
+            } else if op == "preview" {
                 browsers
                     .preview(owner, args["tab_id"].as_str().unwrap_or(""))
                     .await

@@ -28,6 +28,9 @@ mod browser_request;
 #[allow(dead_code)]
 mod headless_browser;
 
+#[cfg(target_os = "macos")]
+#[path = "probe_support/empty_url.rs"]
+mod empty_url_probe;
 #[path = "../src/lifecycle_trace.rs"]
 mod lifecycle_trace;
 mod native_api;
@@ -1735,6 +1738,10 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
     {
         return Err("hidden tab was incorrectly inspected".into());
     }
+    // Do not let the temporary child WebView perturb the preceding focus,
+    // tracking-area or hover assertions. Its evidence is still mandatory.
+    #[cfg(target_os = "macos")]
+    empty_url_probe::run(app).await?;
     println!("Native Tauri DOM probe passed: observation, fill/select/click actual state, guest denial, duplicate/replacement/user-edit guards, callback timeout/expired action, hidden/hide-reselect races (no model/global OS input)");
     Ok(())
 }

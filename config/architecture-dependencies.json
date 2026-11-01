@@ -64,6 +64,7 @@
     "xharness-control",
     "xharness-core",
     "xharness-debug",
+    "xharness-diagnostics",
     "xharness-fs",
     "xharness-interaction",
     "xharness-jobs",

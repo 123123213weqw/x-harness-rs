@@ -41,14 +41,48 @@ pub fn prepare_session_tail_update(
             session, route, base_seq, max_events, max_bytes,
         ));
     };
+    // Queue metadata is local unless it rewrites the source of an already
+    // visible user message. Imported/legacy journals can reuse a consumed ID;
+    // preserve their canonical full fold instead of trusting live RPC policy.
+    let changed_inputs = delta
+        .iter()
+        .filter_map(|event| match event.data() {
+            EventData::AgentInboxSpliced { inserted, .. } => Some(inserted),
+            _ => None,
+        })
+        .flatten()
+        .map(|input| input.id.as_str())
+        .collect::<BTreeSet<_>>();
+    let inbox_is_local = changed_inputs.is_empty()
+        || !session.events()[..start]
+            .iter()
+            .any(|event| match event.data() {
+                EventData::UserMessage { message, .. }
+                | EventData::AssistantMessage { message, .. }
+                    if message.role == MessageRole::User =>
+                {
+                    message
+                        .id
+                        .as_deref()
+                        .is_some_and(|id| changed_inputs.contains(id))
+                }
+                _ => false,
+            });
     let safe = delta.iter().all(|event| match event.data() {
         EventData::AssistantChunk { .. }
+        | EventData::TurnStart { .. }
+        | EventData::RequestHeader { .. }
+        | EventData::AgentDispatchPaused { .. }
         | EventData::StepStart { .. }
         | EventData::StepEnd { .. }
         | EventData::ToolCall { .. }
         | EventData::ToolResult { .. }
         | EventData::TurnEnd { .. }
         | EventData::ModelReception { .. } => true,
+        EventData::AgentInboxSpliced { .. } => inbox_is_local,
+        EventData::UserMessage {
+            surface_replace, ..
+        } => surface_replace.is_none(),
         EventData::AssistantMessage { message, .. } => message.role == MessageRole::Assistant,
         _ => false,
     });

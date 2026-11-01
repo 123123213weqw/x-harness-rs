@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Enroll the new input-free single-session recovery boundary in existing compiler-enforced error fences.",
+  "compatibility": "No lint fence or frozen foundation is weakened. Worker replacement is idle-only, input-free and session-local; existing wire and journal schemas, native visibility grants and Host lifetime remain unchanged. UI caches are bounded presentation state only.",
+  "paths": {
+    "scripts/regression/check-architecture.py": {
+      "before": "4813ca4538d373182a9e0df76154b077cccb1e134d2f3585dad0ec01541a53c0",
+      "after": "12eaedb46fa276be2bf680189fbff404c9bc0386d841d92672db866478e34763"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}
