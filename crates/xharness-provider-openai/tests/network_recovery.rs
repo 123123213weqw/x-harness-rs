@@ -68,6 +68,9 @@ async fn read_request(socket: &mut TcpStream) -> Option<Value> {
 }
 impl FaultServer {
     async fn start(replies: Vec<Reply>) -> Self {
+        Self::start_with_response_delay(replies, Duration::ZERO).await
+    }
+    async fn start_with_response_delay(replies: Vec<Reply>, response_delay: Duration) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}/v1", listener.local_addr().unwrap());
         let attempts = Arc::new(AtomicUsize::new(0));
@@ -97,6 +100,7 @@ impl FaultServer {
                                 Reply::Stall { headers: true, prefix } => format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 100000\r\nConnection: close\r\n\r\n{prefix}"),
                                 Reply::Stall { headers: false, .. } => String::new(),
                             };
+                            if !response_delay.is_zero() { tokio::time::sleep(response_delay).await; }
                             if socket.write_all(response.as_bytes()).await.is_err() { return; }
                             if matches!(reply, Reply::Stall { .. }) {
                                 let mut byte = [0u8; 1];
@@ -668,31 +672,132 @@ async fn sustained_network_wait_stalled_transport_is_cancellable() {
 
 #[tokio::test]
 async fn sustained_network_wait_continues_after_partial_idle_timeout_past_short_deadline() {
-    let server = FaultServer::start(vec![
-        Reply::Status(503),
-        Reply::Stall {
-            headers: true,
-            prefix: text_delta(),
-        },
-        success(),
-    ])
+    // The former 30ms recovery budget also bounded setup of the second HTTP
+    // request, so a busy runner could fail before observing any partial text.
+    // Deliberately exceed that old setup assumption. Only after the real
+    // partial delta is committed do we advance the clock past the retry budget
+    // and idle timeout; real socket work stays on the unpaused clock.
+    let server = FaultServer::start_with_response_delay(
+        vec![
+            Reply::Status(503),
+            Reply::Stall {
+                headers: true,
+                prefix: text_delta(),
+            },
+            success(),
+        ],
+        Duration::from_millis(40),
+    )
     .await;
     let mut req = LoopRequest::new(
-        server.provider(OpenAiProtocol::ChatCompletions, Duration::from_millis(100)),
+        server.provider(OpenAiProtocol::ChatCompletions, Duration::from_secs(1)),
         vec![AgentMessage::user("go")],
     );
     req.config.provider_retry_base_delay_ms = 1;
-    req.config.provider_retry_budget_ms = 30;
-    let result = tokio::time::timeout(Duration::from_secs(3), async {
-        let mut run = LoopEngine.start(req);
-        while run.next().await.is_some() {}
-        run.result().await
+    req.config.provider_retry_budget_ms = 1_000;
+    let budget = Duration::from_millis(req.config.provider_retry_budget_ms);
+    let wall_deadline = std::time::Instant::now() + Duration::from_secs(3);
+    let mut run = LoopEngine.start(req);
+    let mut events = Vec::new();
+    let bounded_retry_at = tokio::time::timeout(Duration::from_secs(3), async {
+        let mut bounded_retry_at = None;
+        while let Some(event) = run.next().await {
+            if matches!(
+                event.kind,
+                LoopEventKind::ModelRetry {
+                    max_retries: Some(_),
+                    ..
+                }
+            ) {
+                bounded_retry_at = Some(tokio::time::Instant::now());
+            }
+            let partial =
+                matches!(&event.kind, LoopEventKind::TextDelta(text) if text == "partial");
+            events.push(event);
+            if partial {
+                return bounded_retry_at
+                    .expect("HTTP 503 must enter bounded recovery before partial text");
+            }
+        }
+        panic!("fixture must commit partial text before testing its idle timeout")
     })
     .await
-    .unwrap();
+    .expect("real HTTP setup must remain inside the original three-second wall bound");
+    assert_eq!(server.count(), 2);
+    // There is no active test timeout while virtual time moves. The remaining
+    // real wall budget below still includes setup, clock advance and recovery.
+    tokio::time::pause();
+    tokio::time::advance(budget + Duration::from_millis(1)).await;
+    let after_deadline = tokio::time::Instant::now() - bounded_retry_at >= budget;
+    tokio::time::resume();
+    assert!(
+        after_deadline,
+        "continuation must outlive the old bounded deadline"
+    );
+    let result = tokio::time::timeout(
+        wall_deadline.saturating_duration_since(std::time::Instant::now()),
+        async {
+            while let Some(event) = run.next().await {
+                events.push(event);
+            }
+            run.result().await
+        },
+    )
+    .await
+    .expect("all phases must retain the original three-second real wall bound");
     assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
     assert_eq!(result.final_text, "partialrecovered");
     assert_eq!(server.count(), 3);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(
+                event.kind,
+                LoopEventKind::ModelRetry {
+                    max_retries: Some(_),
+                    ..
+                }
+            ))
+            .count(),
+        1
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(
+                event.kind,
+                LoopEventKind::ModelRetry {
+                    max_retries: None,
+                    ..
+                }
+            ))
+            .count(),
+        1
+    );
+    let transport_error = events
+        .iter()
+        .find_map(|event| match &event.kind {
+            LoopEventKind::ModelRetry {
+                max_retries: None,
+                error,
+                ..
+            } => Some(error),
+            _ => None,
+        })
+        .unwrap();
+    let diagnostics: Value =
+        serde_json::from_str(transport_error.split_once("\nnetwork: ").unwrap().1).unwrap();
+    assert_eq!(
+        diagnostics["transport"]["kind"], "idle_timeout",
+        "the interrupted attempt must be the intended idle timeout, not an HTTP EOF"
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event.kind, LoopEventKind::ModelInterrupted))
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]
