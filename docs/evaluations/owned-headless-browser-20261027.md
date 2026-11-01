@@ -459,3 +459,26 @@ the remote tested tree. The shared historical-reader fixture also carries the
 bounded, task-yielding concurrent-page regression validated on local cached
 Chromium and WebKit; no production history API or acceptance assertion is
 weakened. Fresh exact-head cross-platform CI is still required before merging.
+
+
+## CI fixture boundary and asynchronous evaluation hardening
+
+The next macOS CI exposed a cold-session test calling session.models about 5ms
+before the intentionally post-Ready background catalogue published that session.
+The fixture now verifies the acknowledged journal bytes survive abrupt child
+termination, waits for read-only session.list publication, and still issues the
+restored-model query once without retrying errors. Model-settings readiness
+checks stay immediate. Four tests pass across eleven remote executions, plus
+strict all-target Clippy and 35 compiler mutations with restored positive.
+
+The Chromium reader fixture also still hit Playwright's generic evaluation
+context error after the initial task-yield correction. That message alone does
+not establish navigation: the SDK rewrites other protocol failures as well.
+The fixture now retains its async task in the page, observes success separately
+from completion, forces bounded GC while a page is pending, asserts no navigation
+or crash, and preserves raw protocol diagnostics in CI artifacts. Deliberately
+starving paging and rejecting the task both fail the strengthened gate; exact
+source restoration passes both cached local engines. Pinned Linux Chromium
+149 / Playwright 1.61.1 also passes ten repetitions and a final source-bound run.
+The precise original protocol failure remains unconfirmed without its raw
+response; this hardening does not waive any failure or replace fresh full CI.

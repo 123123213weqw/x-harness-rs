@@ -2,15 +2,28 @@
  * Synthetic RPC pages let the test hold cold opens at deterministic boundaries. */
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { readFileSync, readdirSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { root, runtimeTestSource, conversationBrowserTestSource } from './runtime-source-test-harness.mjs'
 import { installOwnedViewPlatform } from './fixtures/owned-view-platform-browser.mjs'
 const require = createRequire(resolve(process.env.UI_TEST_DEPS ?? '/tmp/ui-tests', 'package.json'))
 const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
+assert.ok(['chromium', 'webkit'].includes(engine), 'unsupported history-fixture engine')
+const evidence = resolve(root, 'dist/history-open-target', engine)
+mkdirSync(evidence, { recursive: true })
+// Playwright's generic evaluation error can also rewrite a CDP failure, not
+// just navigation. Preserve the original protocol response in CI artifacts.
+if (engine === 'chromium') {
+  process.env.DEBUG = [process.env.DEBUG, 'pw:protocol'].filter(Boolean).join(',')
+  process.env.DEBUG_FILE = resolve(evidence, 'protocol.log')
+}
+const diagnostics = { navigations: [], crashed: false, closed: false, phase: 'boot', passed: false }
 const browser = await require('playwright')[engine].launch({ headless: true })
 try {
   const page = await browser.newPage({ viewport: { width: 1000, height: 720 } })
+  page.on('framenavigated', frame => { if (frame === page.mainFrame()) diagnostics.navigations.push(frame.url()) })
+  page.on('crash', () => { diagnostics.crashed = true })
+  page.on('close', () => { diagnostics.closed = true })
   const errors = []
   page.on('pageerror', e => { if (!e.message.includes('owned feature fixture: stop Host boot')) errors.push(e.message) })
   await installOwnedViewPlatform(page, 'source')
@@ -140,16 +153,30 @@ try {
   // whether the preceding UI paging callback has settled on a busy runner.
   await page.evaluate(() => { holdOlder = true; window.concurrentOlder = session.loadOlder() })
   await page.waitForFunction(() => typeof releaseOlder === 'function')
-  const draining = page.evaluate(async () => {
-    window.drainStarted = true
-    await expandAllHistory(); memory.requestFollow('reader')
+  diagnostics.phase = 'concurrent-page-start'
+  await page.evaluate(() => {
+    window.historyDrainDone = false; window.historyDrainError = null
+    // Keep this asynchronous fixture task strongly reachable in its own
+    // realm. Do not leave an ephemeral long-running evaluate promise as its
+    // only lifetime/observation mechanism across pagination and browser GC.
+    window.historyDrain = expandAllHistory().then(() => {
+      memory.requestFollow('reader')
+    }).catch(error => {
+      window.historyDrainError = error?.stack ?? String(error)
+    }).finally(() => {
+      window.historyDrainDone = true
+    })
   })
-  // Observe the pending promise immediately so a failed latch is not an
-  // unhandled rejection while the finally block closes the test browser.
-  void draining.catch(() => {})
-  await page.waitForFunction(() => window.drainStarted, undefined, { timeout: 6000 })
+  if (engine === 'chromium') {
+    const gc = await page.context().newCDPSession(page)
+    await gc.send('HeapProfiler.collectGarbage')
+    await gc.detach()
+  }
+  diagnostics.phase = 'concurrent-page-release'
   await page.evaluate(() => { holdOlder = false; releaseOlder() })
-  await draining
+  await page.waitForFunction(() => window.historyDrainDone, undefined, { timeout: 6000 })
+  assert.equal(await page.evaluate(() => historyDrainError), null, 'history expansion must succeed, not merely settle')
+  diagnostics.phase = 'concurrent-page-complete'
   await page.evaluate(() => concurrentOlder)
   await settle()
   assert.equal((await page.evaluate(() => state())).bookmark, null)
@@ -212,5 +239,11 @@ try {
   assert.ok(await page.locator('[data-heavy-message]').count() < 30, 'large conversation still uses bounded virtual rows')
   await page.evaluate(() => unmount())
   assert.deepEqual(errors, [])
+  assert.deepEqual(diagnostics.navigations, ['http://owned-platform-fixture.test/'], 'the fixture must never navigate away')
+  assert.equal(diagnostics.crashed, false)
+  diagnostics.passed = true
   console.log(JSON.stringify({ engine, anchor: { seq: saved.anchorSeq, offsetBefore: before }, restoredPages: restored.calls.length, latestPages: latest.calls.length, pagination: 'preserved', concurrentPaging: 'pending read completes without microtask starvation', windowing: 'bounded', coldLayout: 'bookmark retained', explicitFollow: 'supersedes bookmark', largeHistory: { messages: 100000, requests: 2, rows: 51, obsoleteRead: 'aborted' } }))
-} finally { await browser.close() }
+} finally {
+  try { writeFileSync(resolve(evidence, 'diagnostics.json'), JSON.stringify(diagnostics, null, 2) + '\n') }
+  finally { await browser.close() }
+}
