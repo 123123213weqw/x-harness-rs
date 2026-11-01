@@ -12,6 +12,15 @@ impl ContextSurface {
     /// no generated description is substituted for an unseen image. Callers
     /// must first verify closed, known tool outcomes from journal provenance.
     pub fn defer_superseded_tool_images(&mut self) -> Result<(), ContextError> {
+        self.defer_superseded_tool_images_preserving(&HashSet::new())
+    }
+
+    /// Unknown/open units are pinned locally, not a global veto on retiring
+    /// unrelated, closed visual transactions in a long-lived conversation.
+    pub fn defer_superseded_tool_images_preserving(
+        &mut self,
+        protected_calls: &HashSet<String>,
+    ) -> Result<(), ContextError> {
         let Some(last_visual) = self.messages.iter().rposition(|m| {
             m.role == MessageRole::Tool
                 && m.content_blocks
@@ -27,8 +36,13 @@ impl ContextSurface {
         let mut seen = HashSet::new();
         for (index, message) in self.messages.iter_mut().enumerate().rev() {
             if message.role != MessageRole::Tool
+                || message.tool_call_id.is_none()
                 || message.interrupted
                 || !message.provider_items.is_empty()
+                || message
+                    .tool_call_id
+                    .as_ref()
+                    .is_some_and(|id| protected_calls.contains(id))
             {
                 continue;
             }
@@ -121,6 +135,36 @@ mod tests {
         let projected = surface.messages.clone();
         surface.defer_superseded_tool_images().unwrap();
         assert_eq!(surface.messages, projected, "projection is idempotent");
+    }
+
+    #[test]
+    fn one_unknown_unit_does_not_pin_unrelated_old_screenshots() {
+        let original = vec![
+            batch("unknown"),
+            Message::tool("unknown", "outcome unknown").with_tool_blocks(vec![image('a')]),
+            batch("old"),
+            Message::tool("old", "known").with_tool_blocks(vec![image('b')]),
+            batch("new"),
+            Message::tool("new", "latest").with_tool_blocks(vec![image('c')]),
+        ];
+        let protected = HashSet::from(["unknown".to_owned()]);
+        let mut surface = ContextSurface::identity(original.clone());
+        surface
+            .defer_superseded_tool_images_preserving(&protected)
+            .unwrap();
+        assert_eq!(surface.messages[1], original[1]);
+        assert!(matches!(
+            surface.messages[3].content_blocks[0],
+            ContentBlock::Text { .. }
+        ));
+        assert_eq!(surface.messages[5], original[5]);
+        surface.defer_images_over_budget_preserving(0, &protected, &HashSet::new());
+        assert_eq!(surface.messages[1], original[1]);
+        assert!(matches!(
+            surface.messages[5].content_blocks[0],
+            ContentBlock::Text { .. }
+        ));
+        assert_eq!(count(&original), 3);
     }
 
     #[test]

@@ -468,6 +468,9 @@ impl LoopEngine {
             journal,
             recovered_tool_batch: None,
             overflow_recoveries: 0,
+            body_recoveries: 0,
+            request_image_budget: crate::MAX_REQUEST_IMAGE_BYTES,
+            body_rejected_surface: None,
             last_input_tokens: None,
             recent_input_growth: VecDeque::new(),
             last_budget_report: None,
@@ -644,6 +647,9 @@ struct Runner {
     journal: Option<JournalState>,
     recovered_tool_batch: Option<RecoveredToolBatch>,
     overflow_recoveries: u32,
+    body_recoveries: u8,
+    request_image_budget: u64,
+    body_rejected_surface: Option<String>,
     last_input_tokens: Option<u64>,
     recent_input_growth: VecDeque<u64>,
     last_budget_report: Option<TokenBudgetReport>,
@@ -772,6 +778,20 @@ impl Runner {
             }
             Err(RunFailure::Provider { message, failure }) => {
                 provider_failure = Some(failure);
+                let _ = self
+                    .emit(LoopEventKind::RunFailed {
+                        error: message.clone(),
+                    })
+                    .await;
+                (LoopStatus::Failed, Some(message), "failed")
+            }
+            Err(RunFailure::RequestBodyTooLarge(error)) => {
+                let message = "request body is too large; current user images and protected tool history were retained; reduce attachments/text or configure the deployment byte limit".to_owned();
+                provider_failure = Some(xharness_session::ProviderFailure {
+                    retryable: false,
+                    http_status: error.http_status,
+                    retry_after_ms: None,
+                });
                 let _ = self
                     .emit(LoopEventKind::RunFailed {
                         error: message.clone(),
@@ -910,10 +930,18 @@ impl Runner {
                         .map(|guard| guard.budget().reserved_output_tokens),
                     debug_scope: self.debug_scope(),
                 };
-                match self
+                self.check_body_recovery_progress(&prepared)?;
+                let checked = match self
                     .check_token_budget(&provider_request, &prepared, &context_tools)
-                    .await?
+                    .await
                 {
+                    Err(RunFailure::RequestBodyTooLarge(error)) => {
+                        self.reduce_request_images(&prepared, &error)?;
+                        continue;
+                    }
+                    other => other?,
+                };
+                match checked {
                     TokenBudgetCheck::Admitted(report) => {
                         if let Some(report) = &report {
                             if !working_set_attempted
@@ -1099,6 +1127,12 @@ impl Runner {
 
             let mut model = match self.model_round(provider_request).await {
                 Ok(model) => model,
+                Err(RunFailure::RequestBodyTooLarge(error)) => {
+                    self.reduce_request_images(&prepared, &error)?;
+                    self.journal_step_end().await?;
+                    self.settle_control_at_boundary().await?;
+                    continue 'steps;
+                }
                 Err(RunFailure::ContextOverflow(message)) => {
                     let maximum = self
                         .request
@@ -1407,6 +1441,50 @@ impl Runner {
         });
     }
 
+    fn check_body_recovery_progress(&self, surface: &ContextSurface) -> Result<(), RunFailure> {
+        if let Some(previous) = &self.body_rejected_surface {
+            let hash = sha256_json(&json!(surface.messages))?;
+            if &hash == previous {
+                return Err(RunFailure::RequestBodyTooLarge(ProviderError::http(
+                    413,
+                    "no safely removable image context remains; original history is unchanged",
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// A byte failure never fabricates token pressure or replays a model/tool
+    /// effect. Rebuild, recount and journal a smaller disposable request surface.
+    fn reduce_request_images(
+        &mut self,
+        surface: &ContextSurface,
+        error: &ProviderError,
+    ) -> Result<(), RunFailure> {
+        let raw_bytes = surface
+            .messages
+            .iter()
+            .flat_map(|m| &m.content_blocks)
+            .fold(0u64, |sum, block| {
+                if let xharness_session::ContentBlock::Image { attachment } = block {
+                    sum.saturating_add(attachment.bytes)
+                } else {
+                    sum
+                }
+            });
+        if self.body_recoveries >= 3 || raw_bytes == 0 {
+            return Err(RunFailure::RequestBodyTooLarge(error.clone()));
+        }
+        self.body_rejected_surface = Some(sha256_json(&json!(surface.messages))?);
+        self.body_recoveries += 1;
+        self.request_image_budget = if self.body_recoveries == 3 {
+            0
+        } else {
+            self.request_image_budget.min(raw_bytes) / 2
+        };
+        Ok(())
+    }
+
     // Shared by normal requests and pre-commit compaction admission. Keeping
     // policy, continuations and runtime notices identical avoids undercounting
     // a candidate that would grow again immediately after its replacement.
@@ -1458,8 +1536,8 @@ impl Runner {
                     crate::context_working_set::aligned(&context_messages, &surface, &sources);
             }
         }
-        let allow_visual_window =
-            crate::context_working_set::visual_history_is_known(&context_messages, &origins);
+        let protected_visual_calls =
+            crate::context_working_set::protected_visual_tool_calls(&context_messages, &origins);
         let history_available = context_tools
             .iter()
             .any(|tool| tool.get("name").and_then(Value::as_str) == Some("history"));
@@ -1521,7 +1599,7 @@ impl Runner {
             &origins,
             &attribution,
             working_plan.as_ref(),
-            allow_visual_window,
+            &protected_visual_calls,
         )
         .await
     }
@@ -1533,10 +1611,12 @@ impl Runner {
         origins: &[Option<xharness_context::WorkingSetSource>],
         attribution: &[xharness_token::ContextMessageOrigin],
         working_plan: Option<&xharness_session::SessionPlan>,
-        allow_visual_window: bool,
+        protected_visual_calls: &HashSet<String>,
     ) -> Result<crate::context_composition::PreparedContext, RunFailure> {
         let working_attribution =
             crate::context_composition::project_origins(attribution, &working);
+        let mut current_user_images =
+            crate::context_working_set::current_user_images(&working.messages, &[]);
         let mut context_request = ContextRequest::new(working.messages.clone())
             .with_target(
                 self.request.provider.provider_name(),
@@ -1571,6 +1651,19 @@ impl Runner {
                 source += 1;
                 output += 1;
             }
+            current_user_images = genuine
+                .last()
+                .and_then(|i| working.messages.get(*i))
+                .into_iter()
+                .flat_map(|m| &m.content_blocks)
+                .filter_map(|b| {
+                    if let xharness_session::ContentBlock::Image { attachment } = b {
+                        Some((attachment.session_id.clone(), attachment.id.clone()))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
             context_request = context_request.with_genuine_user_indices(genuine);
         }
         let mut prepared = self
@@ -1606,12 +1699,14 @@ impl Runner {
         // Account for exactly the image references that will be sent on the
         // wire. In particular, a long conversation must not fail forever once
         // its accumulated attachments exceed one request's resource budget.
-        if allow_visual_window {
-            prepared
-                .defer_superseded_tool_images()
-                .map_err(|e| RunFailure::Failed(e.to_string()))?;
-        }
-        prepared.defer_images_over_budget(crate::MAX_REQUEST_IMAGE_BYTES);
+        prepared
+            .defer_superseded_tool_images_preserving(protected_visual_calls)
+            .map_err(|e| RunFailure::Failed(e.to_string()))?;
+        prepared.defer_images_over_budget_preserving(
+            self.request_image_budget,
+            protected_visual_calls,
+            &current_user_images,
+        );
         if let Some(note) =
             crate::plan_context::snapshot(&prepared.messages, working_plan, context_tools)
         {
@@ -1951,6 +2046,10 @@ impl Runner {
                             fallback_reason = Some("counter_unavailable".to_owned());
                         }
                         break value;
+                    }
+                    Err(error) if error.is_request_body_too_large() => {
+                        provider_cancellation.cancel();
+                        return Err(RunFailure::RequestBodyTooLarge(error));
                     }
                     Err(error) if error.is_context_overflow() => {
                         // A native counter may reject an oversized request before
@@ -2348,12 +2447,18 @@ impl Runner {
         }
         let mut priced =
             ContextSurface::identity(surface.iter().map(|n| n.message.clone()).collect());
-        if crate::context_working_set::visual_history_is_known(&priced.messages, &origins) {
-            priced
-                .defer_superseded_tool_images()
-                .map_err(|e| RunFailure::Failed(e.to_string()))?;
-        }
-        priced.defer_images_over_budget(crate::MAX_REQUEST_IMAGE_BYTES);
+        let protected_visual_calls =
+            crate::context_working_set::protected_visual_tool_calls(&priced.messages, &origins);
+        priced
+            .defer_superseded_tool_images_preserving(&protected_visual_calls)
+            .map_err(|e| RunFailure::Failed(e.to_string()))?;
+        let current_user_images =
+            crate::context_working_set::current_user_images(&priced.messages, &origins);
+        priced.defer_images_over_budget_preserving(
+            self.request_image_budget,
+            &protected_visual_calls,
+            &current_user_images,
+        );
         let mut nodes = surface
             .iter()
             .zip(&priced.messages)
@@ -2737,7 +2842,7 @@ impl Runner {
                     &candidate_origins,
                     &[],
                     xharness_session::session_plan(&session).as_ref(),
-                    crate::context_working_set::visual_history_is_known(
+                    &crate::context_working_set::protected_visual_tool_calls(
                         &prefixed_candidate,
                         &candidate_origins,
                     ),
@@ -4888,6 +4993,9 @@ impl Runner {
                     // Cancellation may make provider.stream resolve with an error
                     // in the same poll that the cancellation branch becomes ready.
                     self.ensure_running()?;
+                    if error.is_request_body_too_large() && !round.saw_delta {
+                        return Err(RunFailure::RequestBodyTooLarge(error));
+                    }
                     if error.is_context_overflow() && !round.saw_delta {
                         return Err(RunFailure::ContextOverflow(error.message));
                     }
@@ -5123,6 +5231,9 @@ impl Runner {
             let error = failure.expect("an incomplete provider attempt has an error");
             self.journal_reception(reception.checkpoint(true, None))
                 .await?;
+            if error.is_request_body_too_large() && !round.saw_delta {
+                return Err(RunFailure::RequestBodyTooLarge(error));
+            }
             if error.is_context_overflow() && !round.saw_delta {
                 return Err(RunFailure::ContextOverflow(error.message));
             }
@@ -6065,6 +6176,8 @@ enum RunFailure {
     Stopped(StopReason),
     #[error("{0}")]
     Failed(String),
+    #[error("request body admission failed: {0}")]
+    RequestBodyTooLarge(ProviderError),
     #[error("provider context overflow: {0}")]
     ContextOverflow(String),
     #[error("{message}")]

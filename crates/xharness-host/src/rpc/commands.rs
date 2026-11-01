@@ -252,7 +252,7 @@ async fn execute_compact(
 
     let run = match host
         .agent_runtime
-        .start_manual_compaction(
+        .start_manual_compaction_with_instructions(
             session_id,
             &command_id,
             (!instructions.is_empty()).then_some(instructions),

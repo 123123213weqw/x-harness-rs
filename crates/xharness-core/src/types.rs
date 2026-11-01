@@ -241,6 +241,12 @@ impl ProviderError {
             || (message.contains("context window") && message.contains("exceed"))
     }
 
+    /// Byte admission is separate from token context overflow. A 413 may be
+    /// returned by an intermediary before inference, without a JSON body.
+    pub fn is_request_body_too_large(&self) -> bool {
+        self.http_status == Some(413)
+    }
+
     /// A committed stream may only be continued automatically after a
     /// transport failure. HTTP and protocol failures need their own policy;
     /// treating them as a dropped connection could repeat unsafe work.

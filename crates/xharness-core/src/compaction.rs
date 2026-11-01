@@ -22,6 +22,8 @@ pub(crate) enum SummaryError {
     Interrupted,
     #[error("compaction input budget exceeded: {0}")]
     Input(String),
+    #[error("compaction request-body admission failed: {0}")]
+    Body(ProviderError),
     #[error("compaction summary was incomplete: output token limit")]
     Output,
     #[error("compaction made no progress: {0}")]
@@ -34,7 +36,9 @@ pub(crate) enum SummaryError {
     Invalid(String),
 }
 fn provider_error(error: ProviderError) -> SummaryError {
-    if error.is_context_overflow() {
+    if error.is_request_body_too_large() {
+        SummaryError::Body(error)
+    } else if error.is_context_overflow() {
         SummaryError::Input(error.message)
     } else {
         SummaryError::Provider(error)
@@ -218,6 +222,7 @@ impl SummaryRunner {
             .min(self.max_output);
         let mut previous_truncated_output = 0;
         let mut recovery = RetryState::default();
+        let mut image_budget = MAX_REQUEST_IMAGE_BYTES;
         loop {
             self.report(CompactionStage::Preparing, None).await?;
             let mut request = self.template.clone();
@@ -243,7 +248,15 @@ impl SummaryRunner {
             surface
                 .defer_superseded_tool_images()
                 .map_err(|e| SummaryError::Invalid(e.to_string()))?;
-            surface.defer_images_over_budget(MAX_REQUEST_IMAGE_BYTES);
+            surface.defer_images_over_budget(image_budget);
+            let can_defer_images = surface.messages.iter().any(|m| {
+                m.role == Role::Tool
+                    && !m.interrupted
+                    && m.provider_items.is_empty()
+                    && m.content_blocks
+                        .iter()
+                        .any(|b| matches!(b, xharness_session::ContentBlock::Image { .. }))
+            });
             request.messages = surface.messages;
             request.max_output_tokens = Some(output);
             let mut allocated_output = output;
@@ -288,6 +301,16 @@ impl SummaryRunner {
                         json!({"reason":"output_limit","nextOutputTokens":output,"depth":depth}),
                     )
                     .await;
+                }
+                Err(SummaryError::Body(_)) if image_budget > 0 && can_defer_images => {
+                    // Retry once with explicit read references for tool images.
+                    // Explicit user images stay pinned. Subsequent 413s split
+                    // the raw span under the existing depth/call/deadline bound.
+                    image_budget = 0;
+                }
+                Err(SummaryError::Body(_)) => {
+                    self.trace("compaction.summary_split", json!({"reason":"request_body_too_large","status":413,"depth":depth,"sourceMessages":messages.len()})).await;
+                    break;
                 }
                 Err(error @ (SummaryError::Input(_) | SummaryError::Output)) => {
                     self.trace("compaction.summary_split",json!({"reason":error.to_string(),"depth":depth,"sourceMessages":messages.len()})).await;
@@ -681,6 +704,9 @@ mod tests {
             if self.mode == 6 {
                 return Err(ProviderError::http(401, "bad counter credential"));
             }
+            if self.mode == 18 && price(request) > 1000 {
+                return Err(ProviderError::http(413, "counter request too large"));
+            }
             // Deliberately inaccurate estimate to exercise provider 400 recovery.
             let tokens = if self.mode == 1 { 100 } else { price(request) };
             Ok(Some(ProviderInputTokenCount::exact_request(
@@ -698,6 +724,18 @@ mod tests {
             drop(requests);
             if self.mode == 1 && price(&request) > 2000 {
                 return Err(ProviderError::http(400, "exceed_context_size_error"));
+            }
+            if self.mode == 17 && price(&request) > 1000 {
+                return Err(ProviderError::http(413, "gateway request too large"));
+            }
+            if self.mode == 19
+                && request.messages.iter().any(|m| {
+                    m.content_blocks
+                        .iter()
+                        .any(|b| matches!(b, ContentBlock::Image { .. }))
+                })
+            {
+                return Err(ProviderError::http(413, "image request too large"));
             }
             if self.mode == 2 && n == 0 {
                 return Err(ProviderError::http(503, "temporary"));
@@ -830,6 +868,63 @@ mod tests {
         assert!(instruction.starts_with("Act as the compaction engine"));
         assert!(instruction.contains("Additional focus for this user-requested compaction"));
         assert!(instruction.contains("focus on parser regressions"));
+    }
+
+    #[tokio::test]
+    async fn byte_413_from_summary_stream_or_counter_splits_without_token_overflow() {
+        for mode in [17, 18] {
+            let fake = Arc::new(Fake {
+                mode,
+                ..Fake::default()
+            });
+            let raw = vec![
+                AgentMessage::user("a".repeat(600)),
+                AgentMessage::user("b".repeat(600)),
+            ];
+            let result = runner(fake.clone(), CancellationToken::new())
+                .run(raw)
+                .await
+                .unwrap();
+            assert_eq!(result.splits, 1);
+            assert_eq!(result.calls, if mode == 17 { 3 } else { 2 });
+            assert_eq!(fake.requests.lock().unwrap().len(), result.calls);
+        }
+    }
+
+    #[tokio::test]
+    async fn summary_byte_413_retires_tool_image_before_splitting() {
+        let fake = Arc::new(Fake {
+            mode: 19,
+            ..Fake::default()
+        });
+        let image = ContentBlock::Image {
+            attachment: AttachmentRef {
+                id: "a".repeat(64),
+                session_id: "summary-body".into(),
+                media_type: "image/png".into(),
+                bytes: 100,
+                width: 1,
+                height: 1,
+            },
+        };
+        let raw = vec![AgentMessage::tool("read", "caption").with_tool_blocks(vec![image])];
+        let result = runner(fake.clone(), CancellationToken::new())
+            .run(raw.clone())
+            .await
+            .unwrap();
+        assert_eq!(result.calls, 2);
+        assert_eq!(result.splits, 0);
+        let requests = fake.requests.lock().unwrap();
+        assert!(requests[1]
+            .messages
+            .iter()
+            .any(|m| m.content_blocks.iter().any(
+                |b| matches!(b, ContentBlock::Text { text } if text.contains("attachment://"))
+            )));
+        assert!(matches!(
+            raw[0].content_blocks[0],
+            ContentBlock::Image { .. }
+        ));
     }
 
     #[tokio::test]

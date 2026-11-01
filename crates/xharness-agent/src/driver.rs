@@ -550,7 +550,12 @@ impl DurableAgentHandle {
         self.send(DriverCommand::RecoverOpenTurn).await
     }
 
-    pub async fn compact(
+    /// Preserve the original input-free maintenance entry point.
+    pub async fn compact(&self, command_id: impl Into<String>) -> Result<(), AgentCommandError> {
+        self.compact_with_instructions(command_id, None).await
+    }
+
+    pub async fn compact_with_instructions(
         &self,
         command_id: impl Into<String>,
         instructions: Option<String>,

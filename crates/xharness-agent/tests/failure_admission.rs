@@ -273,7 +273,7 @@ async fn nonshrinking_compaction_parks_receipts_and_explicit_user_retry_is_atomi
         )
         .await
         .unwrap();
-    handle.compact("explicit-maintenance", None).await.unwrap();
+    handle.compact("explicit-maintenance").await.unwrap();
     loop {
         if let AgentEvent::TurnFinished { result, .. } = next(&mut events).await {
             assert_eq!(result.status, LoopStatus::Completed, "{result:?}");

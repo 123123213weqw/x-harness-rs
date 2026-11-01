@@ -198,6 +198,9 @@ pub struct OpenAiProviderConfig {
     pub max_sse_pending_bytes: usize,
     pub max_sse_event_bytes: usize,
     pub max_error_body_bytes: usize,
+    /// Final serialized JSON limit, independent of token/image budgets.
+    /// Official DeepSeek routes default to 48 MiB; other deployments opt in.
+    pub max_request_body_bytes: Option<usize>,
     pub reasoning: Option<OpenAiReasoningProfile>,
     pub context_window_fallback: Option<u64>,
     pub capability_probe: Option<OpenAiCapabilityProbe>,
@@ -210,10 +213,12 @@ impl OpenAiProviderConfig {
         api_key: impl Into<String>,
         model: impl Into<String>,
     ) -> Self {
+        let base_url = base_url.into();
+        let max_request_body_bytes = crate::image_budget::request_body_limit(&base_url);
         Self {
             protocol,
             usage_input_semantics: crate::InputUsageSemantics::Auto,
-            base_url: base_url.into(),
+            base_url,
             api_key: api_key.into(),
             model: model.into(),
             connect_timeout: Duration::from_secs(30),
@@ -222,10 +227,16 @@ impl OpenAiProviderConfig {
             max_sse_pending_bytes: DEFAULT_SSE_PENDING_LIMIT_BYTES,
             max_sse_event_bytes: DEFAULT_SSE_EVENT_LIMIT_BYTES,
             max_error_body_bytes: DEFAULT_ERROR_BODY_LIMIT_BYTES,
+            max_request_body_bytes,
             reasoning: None,
             context_window_fallback: None,
             capability_probe: None,
         }
+    }
+
+    pub fn with_request_body_limit(mut self, bytes: usize) -> Self {
+        self.max_request_body_bytes = Some(bytes);
+        self
     }
 
     pub fn with_reasoning_profile(mut self, reasoning: OpenAiReasoningProfile) -> Self {
@@ -289,6 +300,7 @@ impl fmt::Debug for OpenAiProviderConfig {
             .field("max_sse_pending_bytes", &self.max_sse_pending_bytes)
             .field("max_sse_event_bytes", &self.max_sse_event_bytes)
             .field("max_error_body_bytes", &self.max_error_body_bytes)
+            .field("max_request_body_bytes", &self.max_request_body_bytes)
             .field(
                 "reasoning_efforts",
                 &self.reasoning.as_ref().map(|profile| profile.patches.len()),
@@ -750,7 +762,7 @@ impl OpenAiProvider {
                         }
                         ContentBlock::Image { attachment } => {
                             total_bytes=total_bytes.saturating_add(attachment.bytes);
-                            if total_bytes>xharness_core::MAX_REQUEST_IMAGE_BYTES { return Err(ProviderError::new("request images exceed 40 MiB; reduce image context")); }
+                            if total_bytes>xharness_core::MAX_REQUEST_IMAGE_BYTES { return Err(ProviderError::http(413, "local image resource admission exceeded 40 MiB; reduce explicit images or retire tool observations")); }
                             let key=(attachment.session_id.clone(),attachment.id.clone());
                             if !resolved.contains_key(&key) {
                                 let item=tokio::select! {
@@ -800,6 +812,24 @@ impl OpenAiProvider {
             }
         }
         Ok(body)
+    }
+
+    /// Serialize once and send these exact bytes. This includes base64, text,
+    /// tools, reasoning/profile patches and protocol framing, not raw files.
+    fn request_body_bytes(&self, body: &Value) -> Result<Vec<u8>, ProviderError> {
+        let bytes = serde_json::to_vec(body)
+            .map_err(|_| ProviderError::new("request body JSON serialization failed"))?;
+        if self
+            .config
+            .max_request_body_bytes
+            .is_some_and(|limit| bytes.len() > limit)
+        {
+            return Err(ProviderError::http(413, format!(
+                "local request-body admission rejected {} serialized bytes (limit {}); no HTTP request was sent",
+                bytes.len(), self.config.max_request_body_bytes.unwrap_or(0)
+            )));
+        }
+        Ok(bytes)
     }
 
     fn request_body(
@@ -866,6 +896,7 @@ impl OpenAiProvider {
             return Ok(None);
         }
         let body = self.multimodal_body(request, true, &cancellation).await?;
+        let body_bytes = self.request_body_bytes(&body)?;
         self.trace(
             &request.debug_scope,
             "token_count.request",
@@ -876,7 +907,8 @@ impl OpenAiProvider {
             .client
             .post(self.config.token_count_endpoint())
             .bearer_auth(&self.config.api_key)
-            .json(&body);
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(body_bytes);
         let response = self
             .send_request(
                 request_builder,
@@ -1050,6 +1082,7 @@ impl ModelProvider for OpenAiProvider {
         let calibration = self.calibration.clone();
         let mut observation = NetworkObservation::new(&self.config.endpoint());
         let body = self.multimodal_body(&request, false, &cancellation).await?;
+        let body_bytes = self.request_body_bytes(&body)?;
         self.trace(&request.debug_scope, "request", || {
             json!({
                 "endpoint": self.config.endpoint(),
@@ -1067,7 +1100,8 @@ impl ModelProvider for OpenAiProvider {
             .header(header::ACCEPT_ENCODING, "identity")
             .header(header::CACHE_CONTROL, "no-cache")
             .bearer_auth(&self.config.api_key)
-            .json(&body);
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(body_bytes);
         let response = self
             .send_request(request_builder, &cancellation, "OpenAI request")
             .await
@@ -2022,6 +2056,89 @@ mod multimodal_tests {
                 debug_scope: DebugScope::default(),
             },
         )
+    }
+
+    #[tokio::test]
+    async fn byte_admission_precedes_stream_and_native_count_network_io() {
+        for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+            let (_, request) = fixture(protocol).await;
+            let provider = OpenAiProvider::new(
+                OpenAiProviderConfig::new(protocol, "http://127.0.0.1:1", "", "test")
+                    .with_request_body_limit(1),
+            )
+            .unwrap();
+            let mut request = request;
+            request.messages = vec![AgentMessage::user("界\n\"🙂")];
+            for count in [false, true] {
+                let error = if count {
+                    provider
+                        .count_input_tokens(&request, CancellationToken::new())
+                        .await
+                        .err()
+                        .unwrap()
+                } else {
+                    provider
+                        .stream(request.clone(), CancellationToken::new())
+                        .await
+                        .err()
+                        .unwrap()
+                };
+                assert!(error.is_request_body_too_large());
+                assert!(!error.is_context_overflow());
+                assert!(!error.retryable);
+                assert!(error.message.contains("no HTTP request was sent"));
+                assert!(
+                    error.diagnostics.is_none(),
+                    "not a connection refusal on port 1"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn exact_json_bytes_include_protocol_tools_unicode_and_image_base64() {
+        for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+            let (provider, mut request) = fixture(protocol).await;
+            request.tools.push(xharness_core::ToolDefinition {
+                name: "test".into(),
+                description: "界\n\"🙂".into(),
+                parameters: json!({"type":"object"}),
+            });
+            for count in [false, true] {
+                let body = provider
+                    .multimodal_body(&request, count, &CancellationToken::new())
+                    .await
+                    .unwrap();
+                let exact = serde_json::to_vec(&body).unwrap();
+                let mut config = (*provider.config).clone();
+                config.max_request_body_bytes = Some(exact.len());
+                let admitted = OpenAiProvider::new(config.clone()).unwrap();
+                assert_eq!(admitted.request_body_bytes(&body).unwrap(), exact);
+                config.max_request_body_bytes = Some(exact.len() - 1);
+                assert!(OpenAiProvider::new(config)
+                    .unwrap()
+                    .request_body_bytes(&body)
+                    .unwrap_err()
+                    .is_request_body_too_large());
+            }
+        }
+    }
+
+    #[test]
+    fn incident_26_to_27_images_exceeds_bytes_not_raw_resource_budget() {
+        let provider = OpenAiProvider::new(OpenAiProviderConfig::new(
+            OpenAiProtocol::ChatCompletions,
+            "https://api.deepseek.com",
+            "",
+            "deepseek-flash",
+        ))
+        .unwrap();
+        const { assert!(38_348_082 < xharness_core::MAX_REQUEST_IMAGE_BYTES) };
+        for (base64_bytes, rejected) in [(46_887_304, false), (51_130_808, true)] {
+            // Synthetic zero-image encoding only, never real conversation data.
+            let body = json!({"messages":[{"role":"user","content":[{"type":"image_url", "image_url":{"url":format!("data:image/png;base64,{}", "A".repeat(base64_bytes))}}]}], "tools":[]});
+            assert_eq!(provider.request_body_bytes(&body).is_err(), rejected);
+        }
     }
 
     #[tokio::test]
