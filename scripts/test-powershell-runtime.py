@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import re
 import stat
 import tempfile
 import unittest
@@ -326,8 +327,10 @@ class WiringTests(unittest.TestCase):
         base = (ROOT / 'apps/desktop/src-tauri/tauri.conf.json').read_text()
         self.assertNotIn('powershell', base)
 
-    def test_bot_trusted_schedule_no_auto_merge_and_ci_dispatch_has_pr_smoke(self):
+    def test_bot_is_manual_only_no_auto_merge_and_ci_dispatch_has_pr_smoke(self):
         source = (ROOT / '.github/workflows/powershell-dependency-update.yml').read_text()
+        self.assertNotIn('  schedule:', source)
+        self.assertIn('  workflow_dispatch:', source)
         self.assertIn("github.ref == 'refs/heads/master'", source)
         self.assertNotIn('pull_request_target:', source)
         self.assertNotIn('PAT', source)
@@ -339,6 +342,13 @@ class WiringTests(unittest.TestCase):
         bot = (ROOT / 'scripts/publish-powershell-upgrade.py').read_text()
         self.assertNotIn("'/merge'", bot)
         self.assertTrue((ROOT / '.github/dependabot.yml').is_file())
+
+    def test_all_dependency_ecosystems_disable_automatic_version_prs(self):
+        source = (ROOT / '.github/dependabot.yml').read_text()
+        ecosystems = re.findall(r'^\s+- package-ecosystem: (\S+)\s*$', source, re.MULTILINE)
+        self.assertCountEqual(ecosystems, ['cargo', 'npm', 'github-actions'])
+        limits = re.findall(r'^\s+open-pull-requests-limit: (\d+)\s*$', source, re.MULTILINE)
+        self.assertEqual(limits, ['0', '0', '0'])
 
 
 if __name__ == '__main__':
