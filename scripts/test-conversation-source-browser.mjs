@@ -1,3 +1,4 @@
+import {installSharedSourceVendors} from './fixtures/shared-source-vendors.mjs'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
@@ -7,25 +8,37 @@ import { compile, legacyTest } from './conversation-test-harness.mjs'
 const deps=process.env.UI_TEST_DEPS??'/Users/wangyue/codex-build/xharness-plugin-migration/ui-types-step1/browser-deps',require=createRequire(resolve(deps,'package.json'));
 const {chromium,webkit}=require('playwright'),engine=process.env.UI_TEST_BROWSER??'chromium',impl=process.env.UI_TEST_IMPL??'source';
 const source=impl==='legacy'?legacyTest:compile().test;
+// Use the production Menu with this fixture's React singleton. The old in-card
+// absolute popup mock ignored portal/clamping and could put WebKit's file row
+// above the viewport after a composer-height change.
+const uiRequire=createRequire(new URL('../ui/package.json',import.meta.url));
+const menuBundle=uiRequire('esbuild').buildSync({entryPoints:[resolve('ui/src/modules/platform/primitives/Menu.tsx')],bundle:true,platform:'browser',format:'cjs',target:'es2022',write:false,outdir:'/fixture-menu',jsx:'automatic',nodePaths:[resolve('ui/node_modules')],external:['react','react-dom','react/jsx-runtime'],loader:{'.module.css':'local-css'}});
+const menuScript=menuBundle.outputFiles.find(file=>file.path.endsWith('.js')).text;
+const menuStyles=menuBundle.outputFiles.find(file=>file.path.endsWith('.css')).text;
+
 const server=createServer((_req,res)=>{res.setHeader('content-type','text/html');res.end('<html><head></head><body style="margin:0"><div id="root" style="height:740px;width:1000px"></div></body></html>')});await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const browser=await({chromium,webkit}[engine]).launch({headless:true});
 try {
  const page=await browser.newPage({viewport:{width:1000,height:780}});page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto(`http://127.0.0.1:${server.address().port}`);
  for(const file of ['react/umd/react.development.js','react-dom/umd/react-dom.development.js'])await page.addScriptTag({path:resolve(deps,'node_modules',file)});
+ await page.addStyleTag({content:menuStyles});
+ await page.addScriptTag({content:`(function(require){const module={exports:{}};const exports=module.exports;${menuScript};window.fixtureMenu=module.exports.Menu;})(name=>{if(name==='react')return React;if(name==='react-dom')return ReactDOM;if(name==='react/jsx-runtime'){const jsx=(type,props,key)=>React.createElement(type,key===undefined?props:{...props,key});return{jsx,jsxs:jsx,Fragment:React.Fragment};}throw Error('Unexpected menu fixture dependency '+name)});`});
+
  await page.addStyleTag({content:':root{--dsh-composer-side-clearance:0px;--dsh-chat-content-width:760px;--dsh-composer-card-max-width:800px;--dsh-composer-text-max-height:240px;--dsh-composer-dock-inset:4px;--dsw-alias-label-primary:#222;--dsw-alias-label-secondary:#555;--dsw-alias-label-tertiary:#777;--dsw-alias-label-caption:#999;--dsw-alias-bg-base:#fff;--dsw-specific-input-major:#fafafa;--dsw-alias-border-l2:#ddd;--dsw-alias-border-l3:#bbb;--dsw-alias-markdown-code-block:#f4f4f4;--ds-font-family-code:monospace;--dsw-alias-state-business-primary:#4577e5;}body{font:14px sans-serif}button{font:inherit}'});
+ await installSharedSourceVendors(page)
  await page.addScriptTag({content:'window.__ModuleLoader__={load:r=>window.registration=r}'});await page.addScriptTag({content:source});
  await page.evaluate(()=>{
   const jsx=(type,props,key)=>React.createElement(type,key===undefined?props:{...props,key});
   const makeStore=initial=>{let value=initial;const listeners=new Set();return{getSnapshot:()=>value,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},set:next=>{value=next;listeners.forEach(fn=>fn())},update:fn=>{value={...value};fn(value);listeners.forEach(fn=>fn())}}};
   window.makeStore=makeStore;const hook=store=>selector=>selector(React.useSyncExternalStore(store.subscribe,store.getSnapshot));
   const Button=({variant,size,...props})=>jsx('button',props),Tooltip=({children})=>children;
-  const Menu=({open,items,anchor,onSelect})=>jsx(React.Fragment,{children:[anchor,open&&jsx('div',{role:'menu',style:{position:'absolute',bottom:40,background:'#fff',padding:8,zIndex:50,border:'1px solid #aaa'},children:items.map(item=>item.type==='separator'?jsx('hr',{key:item.id}):jsx('button',{key:item.id,role:'menuitem',disabled:item.disabled,onClick:()=>onSelect(item.id),children:[item.icon,item.label]}))})]});
+  const Menu=window.fixtureMenu;
   const Modal=props=>props.open?jsx('div',{role:'dialog','aria-label':props.title,children:[jsx('button',{'aria-label':props.closeLabel,onClick:props.onClose,children:props.closeLabel}),props.children,props.footer]}):null;
   const DisclosureRow=({title,open,onToggle,collapsedContent,children})=>jsx('div',{children:[jsx('button',{onClick:onToggle,'aria-expanded':open,children:[title,!open&&collapsedContent]}),open&&children]});
   const RiskConfirmation=props=>props.open?jsx('div',{role:'dialog','aria-label':props.title,children:[jsx('input',{type:'checkbox','aria-label':props.acknowledgeLabel,checked:props.acknowledged,onChange:event=>props.onAcknowledgedChange(event.target.checked)}),jsx('button',{disabled:props.disabled||!props.acknowledged,onClick:props.onConfirm,children:props.confirmLabel}),jsx('button',{onClick:props.onCancel,children:props.cancelLabel})]}):null;
   const primitives=new Proxy({Button,Tooltip,Menu,Modal,DisclosureRow,RiskConfirmation,MarkdownText:({text})=>jsx('div',{'data-markdown':'',children:text}),MessageText:({text})=>jsx('div',{children:text}),JsonBlock:({label,payload})=>jsx('pre',{children:label+JSON.stringify(payload)}),StateDot:()=>jsx('span',{}),writeClipboard:async text=>{window.copied=text;return true},Toast:({text})=>jsx('div',{role:'alert',children:text})},{get:(o,k)=>o[k]??(()=>jsx('svg',{width:14,height:14}))});
   const runtime={publishChatSnapshot:value=>value,createSnapshotStore:makeStore,defineStore:spec=>({spec}),workspaceTitleOf:cwd=>cwd.split('/').filter(Boolean).at(-1)||'',sessionRecallLabels:s=>s?.labels??[],isAppendSurfaceEvent:e=>e.type==='user/message'&&e.surfaceOp?.op!=='replace',isReplacementSurfaceEvent:e=>e.surfaceOp?.op==='replace',shallowEqual:(a,b)=>a===b,resolveWorkspacePath:(cwd,p)=>p.startsWith('/')?p:cwd+'/'+p,displayFailureMessage:e=>e.message};
-  window.plugin=registration.factory(name=>name==='react'?React:name==='react-dom'?ReactDOM:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:React.Fragment}:name==='@xharness/dsh-client-ui-primitives'?primitives:name==='@xharness/cordis'?{Service:class{constructor(ctx){this.ctx=ctx}},Context:{is:ctx=>ctx!==null&&typeof ctx==='object'}}:name==='@xharness/dsh-client-ui-slots'?{resolveSlotLabel:x=>x}:runtime);
+  window.plugin=registration.factory(name=>name==='zod'?window.__sourceVendors.zod:name==='react'?React:name==='react-dom'?ReactDOM:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:React.Fragment}:name==='@xharness/dsh-client-ui-primitives'?primitives:name==='@xharness/cordis'?{Service:class{constructor(ctx){this.ctx=ctx}},Context:{is:ctx=>ctx!==null&&typeof ctx==='object'}}:name==='@xharness/dsh-client-ui-slots'?{resolveSlotLabel:x=>x}:runtime);
   window.root=ReactDOM.createRoot(document.getElementById('root'));window.renderComponent=(name,props)=>ReactDOM.flushSync(()=>root.render(jsx(plugin[name],props)));
   window.t=(key,args)=>{let value=plugin.en[key]??key;for(const[k,v]of Object.entries(args??{}))value=value.replaceAll('{'+k+'}',String(v));return value};
   window.setMode=name=>{window.mode=name;ReactDOM.flushSync(()=>root.render(jsx(App,{})))};
@@ -50,8 +63,8 @@ try {
    const checkpoint={key:'checkpoint',kind:'run-checkpoint',data:{kind:'run-checkpoint',seq:count+2,time:Date.now(),turn:0,step:0,noticeKind:'limit',message:'saved checkpoint'},location:{kind:'session'}};order.push(checkpoint.key);nodes.set(checkpoint.key,checkpoint);
    snapshot.set({...snapshot.getSnapshot(),chat:{...snapshot.getSnapshot().chat,order,nodes}})};
   function App(){
-   if(mode==='permissions')return jsx(plugin.PermissionSelect,{value:window.permissionValue,locked:false,command:async line=>{calls.push({permission:line});if(window.permissionWait)await permissionWait;return true},t});
-   if(mode==='meter')return jsx(plugin.ContextMeter,{useProjection,t});
+   if(mode==='permissions')return jsx('div',{style:{position:'fixed',bottom:80,left:24},children:jsx(plugin.PermissionSelect,{value:window.permissionValue,locked:false,command:async line=>{calls.push({permission:line});if(window.permissionWait)await permissionWait;return true},t})});
+   if(mode==='meter')return jsx('div',{style:{position:'fixed',right:16,bottom:80},children:jsx(plugin.ContextMeter,{useProjection,t})});
    if(mode==='bar')return jsx(plugin.XHarnessEditableInputBar,barProps);
    if(mode==='window'){return jsx('div',{'data-conversation-scroll':'',style:{height:400,overflowY:'auto',width:700},children:Array.from({length:150},(_,i)=>jsx(plugin.XhTranscriptWindowRow,{key:i,'data-row':i,keepMounted:i===149,children:jsx(Counter,{index:i})}))})}
    if(mode==='queue')return jsx(plugin.QueueDock,{useSession,t,updateQueue:async(id,action)=>{calls.push({queue:id,action});if(window.queueFail)throw Error('queue race')},notify:(_level,text)=>calls.push({notice:text})});
@@ -91,16 +104,47 @@ try {
   assert.equal(await page.getByRole('button',{name:'Send message',exact:true}).isDisabled(),true,'empty drafts stay disabled')
   await page.evaluate(()=>document.body.removeAttribute('data-ds-dark-theme'));await palette.evaluate(el=>el.remove())
  }
+ // Component context arrives through the actual visible composer and existing
+ // attachment owner, not a DOM textarea mutation or a synthetic prompt send.
+ if (impl === 'source') {
+  const admitted=await page.evaluate(()=>{const detail={sessionId:'s',files:[new File(['selected DOM context'],'component-context.txt',{type:'text/plain'})],result:undefined};window.dispatchEvent(new CustomEvent('xharness:composer-files',{detail}));return detail.result===null});assert.equal(admitted,true)
+  await page.getByRole('button',{name:'Remove component-context.txt'}).waitFor()
+  assert.equal(await page.evaluate(()=>calls.some(c=>c.content)),false,'external draft intake never submits')
+  assert.equal(await page.evaluate(()=>{const detail={sessionId:'different-chat',files:[new File(['x'],'wrong.txt')],result:undefined};window.dispatchEvent(new CustomEvent('xharness:composer-files',{detail}));return detail.result===undefined}),true,'another chat cannot receive this attachment')
+  assert.equal(await page.evaluate(()=>{const target=document.querySelector('textarea');target.style.visibility='hidden';const detail={sessionId:'s',files:[new File(['x'],'hidden.txt')],result:undefined};window.dispatchEvent(new CustomEvent('xharness:composer-files',{detail}));target.style.visibility='';return detail.result===undefined}),true,'hidden input does not claim attachments')
+  await page.getByRole('button',{name:'Remove component-context.txt'}).click();await page.waitForFunction(()=>shell.snapshot.imageIds.length===0)
+ }
  // Native picker, shared plus-menu focus, commands and draft submission.
  await page.getByRole('button',{name:'Add attachments or commands',exact:true}).press('ArrowDown');await page.getByRole('menuitem',{name:'Add images or files'}).waitFor();await page.waitForFunction(()=>document.activeElement?.textContent?.includes('Add images or files'));assert.equal(await page.getByRole('menuitem',{name:'Add images or files'}).evaluate(e=>e===document.activeElement),true);
  await page.getByRole('menuitem',{name:'Add images or files'}).press('End');assert.equal(await page.getByRole('menuitem',{name:'Commands'}).evaluate(e=>e===document.activeElement),true);await page.getByRole('menuitem',{name:'Commands'}).press('Escape');assert.equal(await page.getByRole('button',{name:'Add attachments or commands',exact:true}).evaluate(e=>e===document.activeElement),true);
- await page.getByRole('button',{name:'Add attachments or commands',exact:true}).click();const chooser=page.waitForEvent('filechooser');await page.getByRole('menuitem',{name:'Add images or files'}).click();await(await chooser).setFiles({name:'report.txt',mimeType:'text/plain',buffer:Buffer.from('file bytes')});await page.getByRole('button',{name:'Remove report.txt'}).waitFor();await page.locator('textarea').fill('hello');await page.getByRole('button',{name:'Send message',exact:true}).click();await page.waitForFunction(()=>calls.some(x=>x.content));assert.equal(await page.evaluate(()=>calls.find(x=>x.content).content[0].type),'file');await page.waitForFunction(()=>shell.snapshot.imageIds.length===0&&shell.snapshot.draft==='');
+ await page.getByRole('button',{name:'Add attachments or commands',exact:true}).click();const [chooser]=await Promise.all([page.waitForEvent('filechooser'),page.getByRole('menuitem',{name:'Add images or files'}).click()]);await chooser.setFiles({name:'report.txt',mimeType:'text/plain',buffer:Buffer.from('file bytes')});await page.getByRole('button',{name:'Remove report.txt'}).waitFor();await page.locator('textarea').fill('hello');await page.getByRole('button',{name:'Send message',exact:true}).click();await page.waitForFunction(()=>calls.some(x=>x.content));assert.equal(await page.evaluate(()=>calls.find(x=>x.content).content[0].type),'file');await page.waitForFunction(()=>shell.snapshot.imageIds.length===0&&shell.snapshot.draft==='');
  // Editor replace-confirm, cancel/restore, missing attachment retry and portable IDB File storage.
  await page.locator('textarea').fill('unsent draft');await page.evaluate(()=>editor.request([{type:'text',text:'history edit'}]));await page.getByRole('alertdialog').waitFor();await page.getByRole('button',{name:'Replace draft',exact:true}).click();await page.waitForFunction(()=>editor.state.editing);assert.equal(await page.locator('textarea').inputValue(),'history edit');await page.getByRole('button',{name:'Cancel editing',exact:true}).click();await page.waitForFunction(()=>editor.state.phase==='idle');assert.equal(await page.locator('textarea').inputValue(),'unsent draft');
  await page.locator('textarea').fill('');await page.evaluate(()=>editor.request([{type:'file',attachment:{attachmentId:'a',name:'source.txt',mediaType:'text/plain',bytes:2}}]));await page.getByRole('button',{name:'Retry',exact:true}).waitFor();assert.equal(await page.evaluate(()=>{try{editor.guardSubmit();return false}catch{return true}}),true);await page.evaluate(()=>readReady=true);await page.getByRole('button',{name:'Retry',exact:true}).click();await page.waitForFunction(()=>conversation.draftImages(shell.snapshot.imageIds)[0]?.loadState==='ready');await page.getByRole('button',{name:'Cancel editing',exact:true}).click();await page.waitForFunction(()=>editor.state.phase==='idle');
  const idb=await page.evaluate(async()=>{await storage.save('portable',{version:1,backup:{text:'old',images:[]},draft:{text:'file',images:[{file:new File(['portable bytes'],'web-kit.txt',{type:'text/plain'})}]}});const record=await plugin.xhEditStorage().load('portable');const result={text:record.draft.text,name:record.draft.images[0].file.name,bytes:await record.draft.images[0].file.text()};await storage.remove('portable');return result});assert.deepEqual(idb,{text:'file',name:'web-kit.txt',bytes:'portable bytes'});
  // Context seat is stable when missing/pending, and seven segments match actual reading.
- await page.evaluate(()=>setMode('meter'));assert.equal(await page.locator('svg circle').count(),8);await page.getByRole('button').click();await page.getByRole('dialog').waitFor();assert.match(await page.getByRole('dialog').innerText(),/25%/);await page.keyboard.press('Escape');await page.evaluate(()=>setPressure({phase:'preparing'}));assert.equal(await page.getByRole('button').isDisabled(),true);await page.evaluate(()=>setPressure(undefined));assert.equal(await page.locator('svg').count(),1);
+ await page.evaluate(()=>setMode('meter'));assert.equal(await page.locator('svg circle').count(),8);await page.getByRole('button').click();await page.getByRole('dialog').waitFor();if(impl!=='legacy')assert.equal(await page.getByRole('dialog').getAttribute('aria-modal'),'false','context usage is a nonmodal popup');assert.match(await page.getByRole('dialog').innerText(),/25%/);await page.keyboard.press('Escape');await page.evaluate(()=>setPressure({phase:'preparing'}));assert.equal(await page.getByRole('button').isDisabled(),true);await page.evaluate(()=>setPressure(undefined));assert.equal(await page.locator('svg').count(),1);
+ if(impl!=='legacy') {
+  const sample={tokens:7320,contextWindow:1048576,composition:{systemTokens:1,toolResultTokens:9}};
+  for(const phase of ['preparing','in_flight','unmeasured','history_changed']) {
+   await page.evaluate(({phase,sample})=>setPressure({phase,lastMeasured:sample,contextWindow:2000000,projectedTokens:315420,projectedAccuracy:'conservative_upper_bound',composition:{assistantTokens:999}}),{phase,sample});
+   const trigger=page.getByRole('button');
+   assert.equal(await trigger.getAttribute('aria-label'),'1% of context used · Awaiting update');
+   const arcs=await page.locator('svg circle[stroke-dasharray]').evaluateAll(nodes=>nodes.map(n=>[n.getAttribute('stroke'),n.getAttribute('stroke-dasharray')]));
+   assert.deepEqual(arcs.map(a=>a[0]),['#8290a5','#e1a63b'],'shares belong to measured request, not pending request');
+   await trigger.click();const popup=page.getByRole('dialog');await popup.waitFor();
+   assert.match(await popup.innerText(),/7.3K \/ 1M/);assert.match(await popup.innerText(),/Admission byte ceiling \(not measured\)/);assert.match(await popup.innerText(),/315K/);
+   for(const width of [360,1000]) {
+    await page.setViewportSize({width,height:780});
+    const box=await popup.boundingBox();assert.ok(box.x>=0&&box.x+box.width<=width+1,'pending detail stays inside viewport');
+   }
+   await page.keyboard.press('Escape');
+  }
+  await page.evaluate(()=>setPressure({phase:'unmeasured',contextWindow:1048576,projectedTokens:315420,projectedAccuracy:'conservative_upper_bound'}));
+  assert.equal(await page.getByRole('button').getAttribute('aria-label'),'No measured input yet');
+  await page.getByRole('button').click();assert.match(await page.getByRole('dialog').innerText(),/No measured input yet/);assert.doesNotMatch(await page.getByRole('dialog').innerText(),/30%/);await page.keyboard.press('Escape');
+  await page.evaluate(()=>setPressure({phase:'model_changed'}));assert.equal(await page.getByRole('button').isDisabled(),true);
+ }
  // Actual resident conversation tree: user editing, reasoning, compaction disclosure, limit notices.
  await page.evaluate(()=>{installNodes();setMode('conversation')});await page.getByText('final answer',{exact:true}).waitFor();await page.getByRole('button',{name:/Think/}).click();await page.getByText('first line\nreasoning details',{exact:true}).waitFor();await page.getByRole('button',{name:/Context compacted/}).click();await page.getByText('saved summary',{exact:true}).waitFor();
  // Linux WebKit appends a layout LF to aggregate details.innerText. Verify
@@ -140,5 +184,28 @@ try {
  await page.evaluate(()=>document.activeElement?.blur());
  await page.locator('[data-counter="0"]').waitFor({state:'detached'});
  await scroll.evaluate(e=>{e.style.width='500px';e.scrollTop=0});await page.locator('[data-counter="1"]').waitFor();assert.equal(await page.locator('[data-counter="0"]').innerText(),'row 0 count 1');
+ // A visible conversation fork targets the real turn/end, not the prose or
+ // an interruption-frozen fractional message sequence. Failures stay visible.
+ if(impl==='source'){
+  await page.evaluate(()=>{
+   window.forkCalls=[];window.forkNotices=[];window.forkOpened=[];window.failFork=false;
+   const sessions={fork:async input=>{forkCalls.push(input);if(failFork)throw Error('fork persistence unavailable');return'child'},open:id=>forkOpened.push(id)};
+   const hub={shell:()=>({notify:(kind,message)=>forkNotices.push({kind,message})})};
+   renderComponent('TurnTailNodeView',{
+    node:{key:'fork-tail',location:{kind:'turn',turn:{}},data:{turn:1,seq:19,branchUnavailable:false,
+     closing:{time:100,blocks:[],finalNode:{seq:17.1}}}},
+    openFile:async()=>{},forkAt:seq=>{void plugin.xhForkAt(hub,sessions,'source',seq)},
+    renderSlot:()=>null,renderSlotChain:()=>null,t,
+    useSession:select=>select({chat:{locations:{getTurn:()=>['fork-tail']}}}),
+   });
+  });
+  const branch=page.getByRole('button',{name:await page.evaluate(()=>t('message.branch')),exact:true});
+  await branch.click();await page.waitForFunction(()=>forkOpened.length===1);
+  assert.deepEqual(await page.evaluate(()=>forkCalls),[{sessionId:'source',atSeq:19,increaseTitle:true}]);
+  await page.evaluate(()=>{window.failFork=true});await branch.click();
+  await page.waitForFunction(()=>forkNotices.length===1);
+  assert.equal(await page.evaluate(()=>forkOpened.length),1);
+  assert.ok((await page.evaluate(()=>forkNotices[0])).message.includes('fork persistence unavailable'));
+ }
  await page.evaluate(()=>root.unmount());assert.deepEqual(errors,[]);console.log(`${engine} ${impl}: whole resident conversation + light/dark Send/Stop contrast + composer/menu/file send + editor/IDB + context ring + reasoning/compaction/checkpoint + approval/queue/permissions/silver hero/fork ancestry + transcript pin/evict/reflow passed`);
 } finally {await browser.close();await new Promise(r=>server.close(r))}

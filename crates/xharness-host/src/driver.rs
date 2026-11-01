@@ -1,6 +1,8 @@
 use std::sync::{atomic::Ordering, Arc};
 use xharness_projection::metrics::web_token_usage_from_core;
-use xharness_projection::{project_session_event_range, project_session_event_tail_from};
+#[cfg(test)]
+use xharness_projection::project_session_event_tail_from;
+use xharness_projection::{prepare_session_tail_update, project_session_event_range};
 
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, OwnedMutexGuard};
@@ -42,6 +44,8 @@ struct ProjectionInputs {
     cache_base_seq: u64,
     created_at: u64,
     schedules_hydrated: bool,
+    restoring: bool,
+    projected_model: Option<crate::state::ModelSelection>,
     route: ModelRoute,
 }
 
@@ -52,6 +56,8 @@ impl ProjectionInputs {
             cache_base_seq: record.event_base_seq,
             created_at: record.created_at,
             schedules_hydrated: record.schedules_hydrated,
+            restoring: record.restoring,
+            projected_model: record.projected_model.clone(),
             route: ModelRoute {
                 provider: record.model.provider.clone(),
                 model: record.model.model.clone(),
@@ -63,13 +69,34 @@ impl ProjectionInputs {
 
     fn matches(&self, record: &crate::state::SessionRecord) -> bool {
         self.cursor == record.authoritative_seq
-            && self.cache_base_seq == record.event_base_seq
+            // Another session may evict this display prefix while preparation
+            // runs. The journal cursor still certifies the delta; applying it
+            // to a shorter suffix is safe, but never resurrect a stale cursor.
+            && self.cache_base_seq <= record.event_base_seq
             && self.created_at == record.created_at
             && self.schedules_hydrated == record.schedules_hydrated
+            && self.restoring == record.restoring
+            && self.projected_model == record.projected_model
             && self.route.provider == record.model.provider
             && self.route.model == record.model.model
             && self.route.reasoning_effort == record.model.reasoning_effort
             && self.route.context_window_tokens == record.model.context_window_tokens
+    }
+
+    fn already_projected(&self, next_seq: u64) -> bool {
+        self.cursor == Some(next_seq)
+            && self.schedules_hydrated
+            && !self.restoring
+            && self.reusable_route()
+    }
+
+    fn reusable_route(&self) -> bool {
+        self.projected_model.as_ref().is_some_and(|model| {
+            model.provider == self.route.provider
+                && model.model == self.route.model
+                && model.reasoning_effort == self.route.reasoning_effort
+                && model.context_window_tokens == self.route.context_window_tokens
+        })
     }
 }
 
@@ -155,6 +182,11 @@ impl BasicHost {
         if let Some(view) = view {
             self.push_projection(session_id, "permissions", view).await;
         }
+    }
+
+    /// Share notification lifetime without exposing the lifetime owner's fields.
+    pub(crate) fn background_listener_cancellation(&self) -> tokio_util::sync::CancellationToken {
+        self.background_listener_lifetime.stop.clone()
     }
 
     /// Stop background notification listeners. Already-admitted turns remain
@@ -271,6 +303,9 @@ impl BasicHost {
                 let (control_tx, control_rx) = mpsc::channel::<DriverCommand>(64);
                 record.running = true;
                 record.control = Some(control_tx);
+                record.driver_epoch = Some(std::sync::Arc::new(
+                    crate::driver_lifecycle::DriverEpoch::default(),
+                ));
                 exclusive_control = Some(control_rx);
             }
             already_running
@@ -282,12 +317,20 @@ impl BasicHost {
                 "running": true,
             }));
             let host = self.as_ref().clone();
-            tokio::spawn(
+            self.spawn_session_task(
+                session_id.clone(),
+                crate::error_boundary::TaskOperation::RecoveredTurn,
                 async move { host.drive_recovered_turn(session_id, run, control_rx).await },
-            );
+            )
+            .await;
         } else if already_running {
             let host = self.as_ref().clone();
-            tokio::spawn(async move { host.drive_background_projection(session_id, run).await });
+            self.spawn_session_task(
+                session_id.clone(),
+                crate::error_boundary::TaskOperation::BackgroundProjection,
+                async move { host.drive_background_projection(session_id, run).await },
+            )
+            .await;
         }
         Ok(())
     }
@@ -379,6 +422,13 @@ impl BasicHost {
                 })?;
                 ProjectionInputs::capture(record)
             };
+            // Several stream notices can refer to the same latest snapshot.
+            // Rebuilding it again clones and serializes the entire resident
+            // history without producing any new durable events. Cold records
+            // and changed routes must still pass through full hydration.
+            if inputs.already_projected(session.next_seq()) {
+                return Ok(true);
+            }
             let route = &inputs.route;
             let permission = restored_permission(&session);
             let agent_preset = restored_agent_preset(&session);
@@ -403,15 +453,24 @@ impl BasicHost {
                     .sessions
                     .get(session_id)
                     .is_some_and(|record| record.running));
-            let tail = project_session_event_tail_from(
+            let tail = prepare_session_tail_update(
                 &session,
                 route,
                 inputs.cache_base_seq,
+                inputs.cursor,
+                inputs.reusable_route(),
                 self.config.session_event_cache_capacity,
                 self.config.session_event_cache_bytes,
             );
             let prepared_events =
                 prepare_projection_events(&session, route, inputs.cursor.unwrap_or_default())?;
+            // Plans are whole-value metadata: only rebuild on hydration or a
+            // plan event, never scan/clone a long plan for every text chunk.
+            let task_plan_update = (inputs.cursor.is_none()
+                || prepared_events.iter().any(|(event, _)| {
+                    event.get("type").and_then(Value::as_str) == Some("session/plan-updated")
+                }))
+            .then(|| xharness_session::session_plan(&session));
             let schedule_projection = (!inputs.schedules_hydrated
                 || prepared_events.iter().any(|(event, _)| {
                     event.get("type").and_then(Value::as_str) == Some("schedule/change")
@@ -423,9 +482,21 @@ impl BasicHost {
                 .events()
                 .iter()
                 .any(|event| matches!(event.data(), xharness_session::EventData::TurnStart { .. }));
-            let (new_events, queue_changed, permission_changed, schedules_changed) = {
+            let (
+                new_events,
+                queue_changed,
+                permission_changed,
+                schedules_changed,
+                task_plan_changed,
+            ) = {
                 let mut state = self.state.write().await;
-                let (new_events, queue_changed, permission_changed, schedules_changed) = {
+                let (
+                    new_events,
+                    queue_changed,
+                    permission_changed,
+                    schedules_changed,
+                    task_plan_changed,
+                ) = {
                     let record = state.sessions.get_mut(session_id).ok_or_else(|| {
                         rpc_error(
                             RpcErrorCode::SessionNotFound,
@@ -452,12 +523,12 @@ impl BasicHost {
                             updates.push(update);
                         }
                     }
-                    record.replace_authoritative_tail(
-                        tail.base_seq,
-                        tail.next_seq,
-                        tail.events,
-                        tail.bytes,
+                    record.apply_tail_update(
+                        tail,
+                        self.config.session_event_cache_capacity,
+                        self.config.session_event_cache_bytes,
                     );
+                    record.projected_model = Some(record.model.clone());
                     // Durable Runtime derives provider messages from the journal on demand.
                     // Do not retain a second transcript for every idle conversation.
                     record.messages.clear();
@@ -467,6 +538,12 @@ impl BasicHost {
                     record.title = title;
                     record.plan_active = plan_active;
                     record.goal = goal.clone();
+                    let task_plan_changed = task_plan_update
+                        .as_ref()
+                        .is_some_and(|plan| record.task_plan != *plan);
+                    if let Some(plan) = task_plan_update.as_ref() {
+                        record.task_plan = plan.clone();
+                    }
                     let schedules_changed = schedule_projection.as_ref().is_some_and(|catalog| {
                         !record.schedules_hydrated || record.schedules != *catalog
                     });
@@ -489,6 +566,7 @@ impl BasicHost {
                         queue_changed,
                         permission_changed,
                         schedules_changed,
+                        task_plan_changed,
                     )
                 };
                 if let Some(goal) = goal.as_ref() {
@@ -496,11 +574,16 @@ impl BasicHost {
                 } else {
                     state.goals.remove(session_id);
                 }
+                state.enforce_projection_budget(
+                    session_id,
+                    self.config.session_event_cache_total_bytes,
+                );
                 (
                     new_events,
                     queue_changed,
                     permission_changed,
                     schedules_changed,
+                    task_plan_changed,
                 )
             };
             for (event, updates, view) in new_events {
@@ -532,6 +615,10 @@ impl BasicHost {
                 goal.as_ref().map_or(Value::Null, |g| g.projection()),
             )
             .await;
+            if task_plan_changed {
+                self.push_projection(session_id, "taskPlan", json!(task_plan_update.flatten()))
+                    .await;
+            }
             if permission_changed {
                 self.push_permission_projection(session_id).await;
             }
@@ -605,10 +692,36 @@ impl BasicHost {
         if let Some(checkpoint) = checkpoint {
             let _ = store.publish_recovery_checkpoint(checkpoint).await;
         }
-        if let Err(error) = store.publish_catalog_entry(entry).await {
+        let presentation = {
+            let state = self.state.read().await;
+            state
+                .sessions
+                .get(&session.header().id)
+                .filter(|record| {
+                    !entry.needs_recovery
+                        && !record.restoring
+                        && record.next_event_seq() == session.next_seq()
+                })
+                .map(|record| xharness_session::HistoryPresentation {
+                    schema: crate::state::HISTORY_PRESENTATION_SCHEMA.to_owned(),
+                    values: record.history_presentation_values(),
+                })
+        };
+        let published = match presentation {
+            Some(presentation) => {
+                store
+                    .publish_catalog_presentation(entry, presentation)
+                    .await
+            }
+            None => store.publish_catalog_entry(entry).await,
+        };
+        if published.is_err() {
             // The journal is authoritative. A failed or racing index write is
             // repaired lazily on the next startup, never a model-loop failure.
-            eprintln!("xharness catalogue update skipped: {error}");
+            xharness_diagnostics::record_failure(xharness_diagnostics::FailureCode::Catalogue);
+            xharness_diagnostics::diagnostic_stderr!(
+                "xharness catalogue update skipped; authoritative journal retained"
+            );
         }
     }
 
@@ -702,6 +815,20 @@ impl BasicHost {
             source,
             fingerprint,
         } = admission;
+        if self
+            .state
+            .read()
+            .await
+            .sessions
+            .get(&session_id)
+            .is_some_and(|s| {
+                s.running
+                    && s.driver_epoch.is_some()
+                    && s.control.as_ref().is_none_or(|c| c.is_closed())
+            })
+        {
+            return Err(RpcError::internal("conversation driver unavailable; input was not admitted; reload status before retrying"));
+        }
         let _ = prompt_message(rpc_id.as_str(), &text, &content)?;
         let session_id = session_id.as_str();
         // Only an explicit user prompt resumes a stopped admission gate.
@@ -831,14 +958,7 @@ impl BasicHost {
                 if let Some(session) = state.sessions.get_mut(session_id) {
                     session.admissions.insert(
                         rpc_id.as_str().to_owned(),
-                        QueuedPrompt {
-                            id: rpc_id.as_str().to_owned(),
-                            text: text.clone(),
-                            content: content.clone(),
-                            source: source.clone(),
-                            fingerprint,
-                            placement: QueuePlacement::Steering,
-                        },
+                        crate::admission_cache::AdmissionReceipt { fingerprint },
                     );
                 }
             }
@@ -898,19 +1018,15 @@ impl BasicHost {
             });
             session.admissions.insert(
                 rpc_id.as_str().to_owned(),
-                QueuedPrompt {
-                    id: rpc_id.as_str().to_owned(),
-                    text,
-                    content,
-                    source,
-                    fingerprint,
-                    placement: QueuePlacement::Queued,
-                },
+                crate::admission_cache::AdmissionReceipt { fingerprint },
             );
             if !session.running && !session.dispatch_paused {
                 let (control_tx, control_rx) = mpsc::channel(64);
                 session.running = true;
                 session.control = Some(control_tx);
+                session.driver_epoch = Some(std::sync::Arc::new(
+                    crate::driver_lifecycle::DriverEpoch::default(),
+                ));
                 start_driver = Some(control_rx);
             }
         }
@@ -925,7 +1041,12 @@ impl BasicHost {
             }));
             let host = self.clone();
             let session_id = session_id.to_owned();
-            tokio::spawn(async move { host.drive_session(session_id, control_rx).await });
+            self.spawn_session_task(
+                session_id.clone(),
+                crate::error_boundary::TaskOperation::SessionDriver,
+                async move { host.drive_session(session_id, control_rx).await },
+            )
+            .await;
         }
         Ok(())
     }
@@ -935,6 +1056,13 @@ impl BasicHost {
         session_id: String,
         mut control_rx: mpsc::Receiver<DriverCommand>,
     ) {
+        let epoch = self
+            .state
+            .read()
+            .await
+            .sessions
+            .get(&session_id)
+            .and_then(|s| s.driver_epoch.clone());
         loop {
             // Serialize the pause check, gate commit and runtime handoff with
             // queue edits and prompt admission. Never keep this guard while
@@ -951,6 +1079,47 @@ impl BasicHost {
                     }
                 }
             };
+            if !self
+                .state
+                .read()
+                .await
+                .sessions
+                .get(&session_id)
+                .is_some_and(|s| {
+                    crate::driver_lifecycle::DriverEpoch::matches(&s.driver_epoch, &epoch)
+                })
+            {
+                return;
+            }
+            let empty = self
+                .state
+                .read()
+                .await
+                .sessions
+                .get(&session_id)
+                .is_some_and(|s| s.queue.is_empty());
+            if empty {
+                match self.agent_runtime.observe_session(&session_id).await {
+                    Ok(crate::runtime::SessionObservation::Active(run)) => {
+                        drop(admission_guard);
+                        self.consume_recovered_turn(&session_id, run, &mut control_rx)
+                            .await;
+                        continue;
+                    }
+                    Ok(crate::runtime::SessionObservation::Unsupported)
+                        if self.agent_runtime.has_authoritative_sessions() =>
+                    {
+                        self.push_host(json!({"type":"host/agent-error","sessionId":session_id,"message":"Runtime activity could not be verified; execution outcome unknown."}));
+                        return;
+                    }
+                    Err(error) => {
+                        self.push_host(json!({"type":"host/agent-error","sessionId":session_id,"message":error.to_string()}));
+                        // Leave execution unknown, never fabricate idle on a read error.
+                        return;
+                    }
+                    _ => {}
+                }
+            }
             let (mut paused, queued_user_prompt) = {
                 let state = self.state.read().await;
                 let Some(record) = state.sessions.get(&session_id) else {
@@ -984,6 +1153,7 @@ impl BasicHost {
                 if let Some(record) = state.sessions.get_mut(&session_id) {
                     record.running = false;
                     record.control = None;
+                    record.driver_epoch = None;
                 }
                 drop(state);
                 self.push_permission_projection(&session_id).await;
@@ -1015,6 +1185,7 @@ impl BasicHost {
                     }
                     session.running = false;
                     session.control = None;
+                    session.driver_epoch = None;
                 }
                 drop(state);
                 self.emit_queue(&session_id).await;
@@ -1055,37 +1226,52 @@ impl BasicHost {
     pub(crate) async fn drive_recovered_turn(
         self,
         session_id: String,
-        mut run: Box<dyn RunningTurn>,
+        run: Box<dyn RunningTurn>,
         mut control_rx: mpsc::Receiver<DriverCommand>,
     ) {
+        let epoch = self
+            .state
+            .read()
+            .await
+            .sessions
+            .get(&session_id)
+            .and_then(|s| s.driver_epoch.clone());
+        self.consume_recovered_turn(&session_id, run, &mut control_rx)
+            .await;
+        if !self
+            .state
+            .read()
+            .await
+            .sessions
+            .get(&session_id)
+            .is_some_and(|s| crate::driver_lifecycle::DriverEpoch::matches(&s.driver_epoch, &epoch))
+        {
+            return;
+        }
+        self.drive_session(session_id, control_rx).await;
+    }
+
+    async fn consume_recovered_turn(
+        &self,
+        session_id: &str,
+        mut run: Box<dyn RunningTurn>,
+        control_rx: &mut mpsc::Receiver<DriverCommand>,
+    ) {
         let outcome = async {
-            loop {
-                tokio::select! {
-                    event = run.next_event() => match event {
-                        Some(event) => {
-                            self.sync_authoritative_session(&session_id).await?;
-                            self.project_authoritative_control_event(&session_id, event).await?;
-                        }
-                        None => break,
-                    },
-                    command = control_rx.recv() => {
-                        if let Some(command) = command {
-                            let result = run
-                                .send_with_metadata(command.command, command.input_metadata)
-                                .await;
-                            let _ = command.acknowledgement.send(result);
-                        }
-                    }
-                }
+            let mut controls = crate::driver_control::ControlPump::default();
+            while let Some(event) = controls.next(run.as_mut(), control_rx).await {
+                self.sync_authoritative_session(session_id).await?;
+                self.project_authoritative_control_event(session_id, event)
+                    .await?;
             }
             let _ = run.result().await;
-            self.sync_authoritative_session(&session_id).await?;
+            self.sync_authoritative_session(session_id).await?;
             self.state
                 .write()
                 .await
                 .pending
                 .retain(|_, pending| match pending {
-                    PendingResponse::Approval { session_id: id, .. } => id != &session_id,
+                    PendingResponse::Approval { session_id: id, .. } => id.as_str() != session_id,
                 });
             Ok::<(), RpcError>(())
         }
@@ -1097,7 +1283,6 @@ impl BasicHost {
                 "message": error.message,
             }));
         }
-        self.drive_session(session_id, control_rx).await;
     }
 
     /// Project a runtime-originated turn while an existing Host driver owns
@@ -1210,40 +1395,27 @@ impl BasicHost {
         drop(admission_guard);
         let mut current_step = None;
 
-        loop {
-            tokio::select! {
-                event = run.next_event() => match event {
-                    Some(event) => {
-                        if authoritative {
-                            match event.kind {
-                                // These fragments are still inside the Core's
-                                // bounded journal batch. The following
-                                // StreamCheckpoint (or any terminal/control
-                                // boundary) refreshes them with authoritative
-                                // sequence coordinates in one store read.
-                                LoopEventKind::TextDelta(_)
-                                | LoopEventKind::ReasoningDelta(_)
-                                | LoopEventKind::ToolCallDelta { .. } => {}
-                                _ => {
-                                    self.sync_authoritative_session(session_id).await?;
-                                    self.project_authoritative_control_event(session_id, event).await?;
-                                }
-                            }
-                        } else {
-                            self.project_loop_event(session_id, turn, &mut current_step, event)
-                                .await?;
-                        }
-                    }
-                    None => break,
-                },
-                command = control_rx.recv() => {
-                    if let Some(command) = command {
-                        let result = run
-                            .send_with_metadata(command.command, command.input_metadata)
-                            .await;
-                        let _ = command.acknowledgement.send(result);
+        let mut controls = crate::driver_control::ControlPump::default();
+        while let Some(event) = controls.next(run.as_mut(), control_rx).await {
+            if authoritative {
+                match event.kind {
+                    // These fragments are still inside the Core's
+                    // bounded journal batch. The following
+                    // StreamCheckpoint (or any terminal/control
+                    // boundary) refreshes them with authoritative
+                    // sequence coordinates in one store read.
+                    LoopEventKind::TextDelta(_)
+                    | LoopEventKind::ReasoningDelta(_)
+                    | LoopEventKind::ToolCallDelta { .. } => {}
+                    _ => {
+                        self.sync_authoritative_session(session_id).await?;
+                        self.project_authoritative_control_event(session_id, event)
+                            .await?;
                     }
                 }
+            } else {
+                self.project_loop_event(session_id, turn, &mut current_step, event)
+                    .await?;
             }
         }
 

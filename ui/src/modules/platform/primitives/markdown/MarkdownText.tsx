@@ -161,11 +161,12 @@ class StreamingRenderer {
  * relative links, and unsafe protocols are disabled, while absolute HTTP(S)
  * images render directly.
  */
-export const MarkdownText = memo(function MarkdownText({ text, streaming = false, smoothStreaming = false, codeLabels, fileMentions, resources }: {
+export const MarkdownText = memo(function MarkdownText({ text, streaming = false, smoothStreaming = false, interrupted = false, codeLabels, fileMentions, resources }: {
   text: string
   streaming?: boolean
-  /** Opt-in live prose smoothing; history, finish and generic renderers stay immediate. */
+  /** Opt-in bounded live pacing; mounted history and interrupted output stay immediate. */
   smoothStreaming?: boolean
+  interrupted?: boolean
   codeLabels?: MarkdownCodeLabels | undefined
   fileMentions?: MarkdownFileMentions | undefined
   /** Read-only file preview resolver; absent in normal chat. */
@@ -173,11 +174,12 @@ export const MarkdownText = memo(function MarkdownText({ text, streaming = false
 }) {
   const streamRef = useRef<StreamingRenderer | null>(null)
   const streamLabelsRef = useRef<MarkdownCodeLabels | undefined>(codeLabels)
-  const frame = useStreamPresentation(text, streaming && smoothStreaming)
-  const visibleText = smoothStreaming && streaming ? frame.text : text
-  const motion = smoothStreaming && streaming ? frame : undefined
+  const frame = useStreamPresentation(text, smoothStreaming && !interrupted, streaming)
+  const visibleText = smoothStreaming && !interrupted ? frame.text : text
+  const presenting = streaming || visibleText !== text
+  const motion = smoothStreaming && !interrupted && presenting ? frame : undefined
   const children = useMemo(() => {
-    if (!streaming) {
+    if (!presenting) {
       streamRef.current = null
       return renderSettled(text, codeLabels, fileMentions, resources)
     }
@@ -186,6 +188,6 @@ export const MarkdownText = memo(function MarkdownText({ text, streaming = false
       streamLabelsRef.current = codeLabels
     }
     return streamRef.current.render(visibleText, motion)
-  }, [visibleText, streaming, motion, codeLabels, fileMentions, resources])
+  }, [visibleText, presenting, motion, codeLabels, fileMentions, resources])
   return <div className={css.markdown} data-xh-stream-owned={smoothStreaming || undefined}>{children}</div>
 })

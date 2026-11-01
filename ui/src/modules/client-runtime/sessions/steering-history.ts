@@ -57,10 +57,16 @@ export class SteeringHistory {
 
   /** Replay one host-validated inbox splice. */
   private applySplice({ target, start, removedCount = 0, inserted, outcome }: InboxSplice): void {
-    const removed = this.inbox[target].splice(start, removedCount, ...inserted)
+    // Do not retain legacy body/source fields through an identity-only fold.
+    const identities = inserted.map(({ id }) => ({ id }))
+    const removed = this.inbox[target].splice(start, removedCount, ...identities)
+    if (target === 'next-step') {
+      for (const identity of removed) {
+        if (outcome === 'canceled') this.claimedNextStep.delete(identity.id)
+        else this.claimedNextStep.add(identity.id)
+      }
+    }
     for (const identity of inserted) this.claimedNextStep.delete(identity.id)
-    if (target !== 'next-step' || outcome === 'canceled') return
-    for (const identity of removed) this.claimedNextStep.add(identity.id)
   }
 }
 

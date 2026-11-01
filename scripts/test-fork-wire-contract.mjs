@@ -1,3 +1,4 @@
+import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
@@ -13,7 +14,7 @@ function evaluate(unit, name, globals = {}) {
   AbortController, AbortSignal, URL, URLSearchParams, Date, Response, Headers, Request, crypto: globalThis.crypto,
   structuredClone, queueMicrotask, setTimeout, clearTimeout, setInterval, clearInterval, fetch, ...globals }
  vm.runInNewContext(exposeModuleUnit(source, 'client-connection', unit, name), context)
- return registration.factory(name => { throw Error('Unexpected external ' + name) })[name]
+ return registration.factory(name => {if(name==='zod')return sharedVendors.zod; throw Error('Unexpected external ' + name) })[name]
 }
 const hostSchema = evaluate('contracts/host/apiproxy/api/events.schema', 'hostFrameSchema')
 const listSchema = evaluate('contracts/host/apiproxy/api/sessions.schema', 'sessionListValueSchema')

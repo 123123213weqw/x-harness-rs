@@ -84,6 +84,28 @@
         },
         {
           "additionalProperties": false,
+          "description": "A bounded, byte-sniffed PDF preview, never a model attachment.",
+          "properties": {
+            "dataBase64": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "pdf",
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "dataBase64"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "properties": {
             "dataBase64": {
               "type": "string"
@@ -121,6 +143,124 @@
         }
       ],
       "title": "DisplayFile"
+    },
+    "DisplayInspect": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Cheap card inspection is separate from full document rendering.",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "thumbnail": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sessionId",
+        "path"
+      ],
+      "title": "DisplayInspect",
+      "type": "object"
+    },
+    "DisplayInspection": {
+      "$defs": {
+        "DisplayPreviewKind": {
+          "enum": [
+            "text",
+            "markdown",
+            "image",
+            "pdf",
+            "unsupported",
+            "tooLarge"
+          ],
+          "type": "string"
+        },
+        "DisplayThumbnail": {
+          "additionalProperties": false,
+          "properties": {
+            "dataBase64": {
+              "type": "string"
+            },
+            "height": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "width": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "dataBase64",
+            "width",
+            "height"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "height": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "modifiedMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "preview": {
+          "$ref": "#/$defs/DisplayPreviewKind"
+        },
+        "thumbnail": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DisplayThumbnail"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "width": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "bytes",
+        "preview"
+      ],
+      "title": "DisplayInspection",
+      "type": "object"
     },
     "DisplayOpen": {
       "$defs": {

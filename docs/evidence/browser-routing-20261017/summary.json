@@ -1,0 +1,29 @@
+{
+  "scope": "Real model, production strings/schema, simulated tool results. No native rendering or end-to-end GUI claim.",
+  "arms": {
+    "baseline": {
+      "passed": 6,
+      "total": 16,
+      "infrastructure_errors": 0,
+      "wrong_desktop_fallbacks": 6,
+      "requests": 22,
+      "usage": {
+        "prompt_tokens": 156652,
+        "completion_tokens": 2391,
+        "total_tokens": 159043
+      }
+    },
+    "candidate": {
+      "passed": 16,
+      "total": 16,
+      "infrastructure_errors": 0,
+      "wrong_desktop_fallbacks": 0,
+      "requests": 58,
+      "usage": {
+        "prompt_tokens": 443972,
+        "completion_tokens": 5443,
+        "total_tokens": 449415
+      }
+    }
+  }
+}

@@ -34,6 +34,7 @@ pub(crate) fn namespaces() -> impl Iterator<Item = SettingsNamespace> {
 
 /// Validate before journal commit, without altering other settings namespaces.
 pub(crate) fn validate(namespace: &SettingsNamespace) -> Result<(), RpcError> {
+    crate::web_search_settings::validate_user(namespace)?;
     let Some((key, choices)) = field(&namespace.ns) else {
         return Ok(());
     };

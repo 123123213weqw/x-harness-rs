@@ -9,6 +9,7 @@ import { resolve } from 'node:path'
 import vm from 'node:vm'
 import { sourceDeclaration } from './fixtures/source-declaration.mjs'
 import { assertRebuildInput } from './fixtures/repository-ui-input.mjs'
+import { installSharedSourceVendors } from './fixtures/shared-source-vendors.mjs'
 
 const dist = resolve(process.env.UI_TEST_DIST ?? new URL('../ui/dist/', import.meta.url).pathname)
 const dependencies = process.env.UI_TEST_DEPS ?? '/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps'
@@ -69,6 +70,7 @@ try {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   await page.setContent('<div id="header"></div><textarea aria-label="消息"></textarea>')
+  await installSharedSourceVendors(page)
   for (const file of ['react/umd/react.development.js', 'react-dom/umd/react-dom.development.js']) {
     await page.addScriptTag({ path: resolve(dependencies, 'node_modules', file) })
   }
@@ -77,6 +79,7 @@ try {
   await page.addScriptTag({ content: internalsOnly(runtime) })
   await page.evaluate(() => {
     const external = id => {
+      if (id === 'zod') return window.__sourceVendors.zod
       if (id === 'react') return React
       if (id === 'react/jsx-runtime') {
         const jsx = (type, props, key) => React.createElement(type, key === undefined ? props : { ...props, key })

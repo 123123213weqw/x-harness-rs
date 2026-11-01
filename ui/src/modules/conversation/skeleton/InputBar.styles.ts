@@ -1,5 +1,8 @@
 import css from './InputBar.css'
 export default {
+      "modelSeat": "_7yzX1q_modelSeat",
+      "actions": "_7yzX1q_actions",
+      "footer": "_7yzX1q_footer",
 			"accessory": "_7yzX1q_accessory",
 			"add": "_7yzX1q_add",
 			"backdrop": "_7yzX1q_backdrop",

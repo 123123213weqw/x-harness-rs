@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Retain content-free compaction metering evidence on rejected candidates instead of losing counter accuracy, fallback provenance and post-compaction counts. Distinguish estimated rejection from exact overflow without mutating source history.",
+  "compatibility": "Existing journals without the optional progress fields replay unchanged under the new reader; all event names, append/CAS/flush and replacement semantics remain intact. New paired Host/reader writes additive progress evidence; strict older readers are not forward-compatible with those fields and must not be used for rollback. Test old progress decoding and new diagnostic roundtrip plus JSONL persistence, projection and interrupted candidate recovery; this record is a compatibility plan, not evidence of native/Windows CI.",
+  "paths": {
+    "crates/xharness-session/src/event.rs": {
+      "before": "252aff89dc54acded0e0cb5559921612c5fec2cd002cf8d4c93944f9e8684d00",
+      "after": "7f880bf328b3ab19ac9e569fa3ed34f622afe22457f71d31248992b52f8c3803"
+    },
+    "crates/xharness-session/tests/session.rs": {
+      "before": "3b8f01689cbed7f7d945958961c7ceaac5a0a959235d21530b9299afda4121d0",
+      "after": "f1aeb96e7a873c47e74de179fb75ced6adce00d64d9b6f2620718284af50fa89"
+    },
+    "crates/xharness-session-jsonl/tests/jsonl.rs": {
+      "before": "c555c2c2147322c483e416086a7d359deb6424e282749359f3abcc7d205b81b8",
+      "after": "5c9c71a5d4af0bbbd85237e0d548a72b2d0db5aa746c965c44a2df403bd0667b"
+    },
+    "crates/xharness-projection/src/lib.rs": {
+      "before": "0bdb62eb901eee7a96fc7f602c32aa92d09ff16f2de93ee1abf05ff8ce47b7d0",
+      "after": "383b271620993891d805e7004c1652165184febbc54982ff3bcf2696555d415e"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows",
+    "persistence",
+    "wire"
+  ]
+}

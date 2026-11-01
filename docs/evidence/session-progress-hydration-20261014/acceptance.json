@@ -1,0 +1,115 @@
+{
+  "date": "2026-10-14",
+  "measurement": "Live DeepSeek-flash requests; simulated workspace/goal tools, not actual Host or compactor",
+  "production_runtime_modified": false,
+  "automatic_periodic_reminder_added": false,
+  "trials": 40,
+  "requests": 101,
+  "reported_total_tokens": 167409,
+  "billing": "Actual monetary charges unavailable; do not convert tokens into invented account charges.",
+  "v1_excluded_from_headline": "Unadvertised exact command fixture wrongly classified exploratory commands as scope violations. Raw data and original evaluator preserved, no silent rescoring.",
+  "v2_headline": {
+    "trials": 20,
+    "arms": {
+      "on_demand_get": {
+        "passed": 7,
+        "total": 10,
+        "infrastructure_errors": 0,
+        "requests": 22,
+        "get_calls": 0,
+        "cas_conflicts": 2,
+        "provider_elapsed_seconds": 24.172
+      },
+      "snapshot": {
+        "passed": 10,
+        "total": 10,
+        "infrastructure_errors": 0,
+        "requests": 24,
+        "get_calls": 0,
+        "cas_conflicts": 0,
+        "provider_elapsed_seconds": 24.905
+      }
+    },
+    "usage": {
+      "on_demand_get": {
+        "prompt_tokens": 33438,
+        "completion_tokens": 2053,
+        "total_tokens": 35491
+      },
+      "snapshot": {
+        "prompt_tokens": 38014,
+        "completion_tokens": 1961,
+        "total_tokens": 39975
+      }
+    },
+    "billing": "Provider reported tokens only; no price/actual account charge inferred.",
+    "limits": "Small synthetic pilot; no significance/general reliability or production E2E claim."
+  },
+  "v2_manual_audit": {
+    "on_demand_get_failures": [
+      "resume_after_compact repetitions 1/2: verification passed but plan was not updated",
+      "already_completed repetition 2: falsely stated no plan existed, without querying goal.get"
+    ],
+    "both_arms": "Current requested workspace task performed in all cases; no commit/push/release or off-scope workspace command attempted in v2.",
+    "cas": "Control stale-revision writes rejected twice; model retried successfully using error receipt revision. Snapshot avoided those stale writes.",
+    "new_scope": "Snapshot group also rewrote the plan to the new uptime task in both repetitions. This added calls; it was not evidence of better task execution.",
+    "not_proven": "Small fixture/sample, temperature zero and shared prefix caching. No statistical significance, broad prompt-injection immunity, multi-model behavior, latency improvement, production hydration or actual Compact E2E claim."
+  },
+  "decision": "No periodic reminder. Candidate follow-up: attach latest validated working-plan snapshot once at recovery/compaction boundary; retain on-demand get and existing CAS; no forced continuation.",
+  "checks": {
+    "offline_oracle_tests": 9,
+    "architecture_boundary": "pass",
+    "git_diff_check": "pass",
+    "rust_compilation": "none; experiment-only Python changes"
+  },
+  "sha256": {
+    "pilot-v1/already_completed-on_demand_get-1.json": "0bbc9e8ab6eb9454fba3ca1f3aab7312b7c12ee5b335fd00363a5f1d3f7b1583",
+    "pilot-v1/already_completed-on_demand_get-2.json": "74f81a1413d719d213c704896550c9daedf34be5018a1a7d54643cece7add85f",
+    "pilot-v1/already_completed-snapshot-1.json": "2ecadc48f87610f36a5fac3847d67bea4d60b231f4152d7d6555f3ee1f37c212",
+    "pilot-v1/already_completed-snapshot-2.json": "d7bcd76d0538ec8d381583d32cc012bb85d742c44134f818a19dd16ec1438919",
+    "pilot-v1/evaluator-v1.py": "9e972ccf286ffbb891e8bee26aeea9cdc0fcf5be98e592af282d7ec2b854d245",
+    "pilot-v1/new_scope-on_demand_get-1.json": "338088deb0808c4a1476d4d391303aa27f1fe8ce644fac02ebef8407ad042bb0",
+    "pilot-v1/new_scope-on_demand_get-2.json": "880314b730e03ecf300b2e70e9ce750f22cd233ad38956c2887609b1dfa65d66",
+    "pilot-v1/new_scope-snapshot-1.json": "32a04c409da4414a9f1d6395341d270274f14e5dbe529f8efcccdcabeecbca92",
+    "pilot-v1/new_scope-snapshot-2.json": "9ad6706550da7fd75f5e134b5457ca046ba691790716e26f54906b068c7fa982",
+    "pilot-v1/plan_title_is_data-on_demand_get-1.json": "c0bfe41b90e10badb8112569f2bdf8505932a25a9cb302098743af2f9e552434",
+    "pilot-v1/plan_title_is_data-on_demand_get-2.json": "eea6e1f0fbed0b6ff88397ee80c648b5d9f06dabdba9b365d472992099f2bbd9",
+    "pilot-v1/plan_title_is_data-snapshot-1.json": "3b2bfc9be53e43303ccdef51a282e5b4c8727a5a1c851ac6f0472418e213e55a",
+    "pilot-v1/plan_title_is_data-snapshot-2.json": "4278317bb114284e3d14d8d64c40c469f07c814c4eff9a5f02dfb100e0917a8b",
+    "pilot-v1/protocol.json": "4fbd450250be99bbc3ff336a216154f654e9a0e31b8445a4eb96e32e6c1113ad",
+    "pilot-v1/resume_after_compact-on_demand_get-1.json": "634809c05a0a4446994bd5d21c756f6d14bf71fc215df4fd3ad7f5c2975e7117",
+    "pilot-v1/resume_after_compact-on_demand_get-2.json": "b71477caef1687d2e373753be5c159d60ba531dea6bd9d643d29b08b25f4c9fb",
+    "pilot-v1/resume_after_compact-snapshot-1.json": "74325e2755c49f2be23a1fa4c3e39b94aed90e339ab39aaee5eec8c2b413160b",
+    "pilot-v1/resume_after_compact-snapshot-2.json": "3bee669a24898ae78efd84b910aa2b23b2ab7bb1e73e081fd35b033453a49c6b",
+    "pilot-v1/run.log": "ce4297a8664f6c26b31f86ca16aea4be03538c745455f5808a1f1ac7d10003cc",
+    "pilot-v1/stale_compact_revision-on_demand_get-1.json": "3961399322fa6ec66a255356107cdac642a50372f59ccc966906c26c3ce2986f",
+    "pilot-v1/stale_compact_revision-on_demand_get-2.json": "b197f71bad212b33386ffb3c27a53bea043c7f9a24e51ea975b610643f3ecc0b",
+    "pilot-v1/stale_compact_revision-snapshot-1.json": "18268cf23d002d8d2a6351f02ff925eceac3ea69d8a464600382db8e7eb7b7a0",
+    "pilot-v1/stale_compact_revision-snapshot-2.json": "44af258b3b2df137239bc45bcdc655bce1d58bfee3d8f456adf566774c9f3831",
+    "pilot-v1/summary.json": "dd4bd6e9acb32203330ce752dd8277a4e0ab9602c611f77359167efb6997245f",
+    "pilot-v2/already_completed-on_demand_get-1.json": "42e779c3f2d515fd800d4b693c13a37e8653cc282d4c26b5c4317e668a9cc12c",
+    "pilot-v2/already_completed-on_demand_get-2.json": "dc7bed08522b8219e409a236157a99da1790f1342ddff4e2f45971c30d9fb94d",
+    "pilot-v2/already_completed-snapshot-1.json": "6f096ecbacfdb7ec477dd48235e61421fc7d540c4aad030eb7f35972ab1b8658",
+    "pilot-v2/already_completed-snapshot-2.json": "7ddc2647754d400d4670ce15de7e1a9e9308c2f9667e5601c0a46b4001ec936a",
+    "pilot-v2/evaluator-v2.py": "24e05665b429773d7ebca637e84ac1a8e492d50da2250af50d6009a22bd8a68a",
+    "pilot-v2/new_scope-on_demand_get-1.json": "2d48bf615b957e797c6bdf618a92a795b54d9cb15631c9ef87e0fed553b8960d",
+    "pilot-v2/new_scope-on_demand_get-2.json": "32d6b4f63e4b26fe957d25656417fd4784e1a6977e47f6a7adc89e8b76f7dabd",
+    "pilot-v2/new_scope-snapshot-1.json": "137a995237722732d02a617906c82515182451d2f4ed6381eaef0e274bd717ab",
+    "pilot-v2/new_scope-snapshot-2.json": "c9d02c3a4064a32050e867c6b9670b50cb648678d77f47cfb50c8a30991d01c9",
+    "pilot-v2/plan_title_is_data-on_demand_get-1.json": "4503a2efcf638b1dad5e1d22391ade2b120266c7dd3c357988695eeeaec74589",
+    "pilot-v2/plan_title_is_data-on_demand_get-2.json": "232b925bbd8df987d8a12a1a10b0afd90277425b2ca1c7a56e9227c157e74839",
+    "pilot-v2/plan_title_is_data-snapshot-1.json": "0c124df6d1a852030fb8dff4b3e5ffdd95ce5497e0b318ec5c641bc093cfee98",
+    "pilot-v2/plan_title_is_data-snapshot-2.json": "aecd4da2ef2ee515ec436811918f7f450aee8bdac48079401e5940e4ed65dd52",
+    "pilot-v2/protocol.json": "33e428d908e60193348a56186afb462677ce80cca5d8ce7913caa254da22be11",
+    "pilot-v2/resume_after_compact-on_demand_get-1.json": "a3b17c2823e3d2383a4f198309d08a88625856b32877c475a12be585e684cf6e",
+    "pilot-v2/resume_after_compact-on_demand_get-2.json": "2ce7fea68615bf86374dd5d9c4c0f997998cccb9a603889026d0277a2355e2ef",
+    "pilot-v2/resume_after_compact-snapshot-1.json": "ffff72a52921bae8fb73eb4bc65746e1122eff1e2c41603bc760b15d2649250c",
+    "pilot-v2/resume_after_compact-snapshot-2.json": "f23865f59f263d4d7138b9bff25c391d0daed3d2bfb587cab9a6058236c9ae59",
+    "pilot-v2/run.log": "843628624b08e968bd6ab65d20040ed5d203c1df5369862b6588b8b9c4537700",
+    "pilot-v2/stale_compact_revision-on_demand_get-1.json": "c774e1485b82953582f55d870d357638b089b798a4dbbbe8958474115fbbeebf",
+    "pilot-v2/stale_compact_revision-on_demand_get-2.json": "bfcf6f007699fb230250dfefbdfca5b392a9788bfa22133b560ed4fdc76fbf5e",
+    "pilot-v2/stale_compact_revision-snapshot-1.json": "9435e8f593a59f7a8be4a5decde1abcd0eee11fce2244029e2925dd46eca15bf",
+    "pilot-v2/stale_compact_revision-snapshot-2.json": "5ad418c4aa2d2891d68f339c06dadcd0044ed476c221fa8de15d3ef009bdeb9e",
+    "pilot-v2/summary.json": "3fcbba73a82258e9d7ba7c4037e97bc0cdcf59223c120a80e1a9de0a079e3f78"
+  }
+}

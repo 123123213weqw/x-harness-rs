@@ -1,4 +1,20 @@
 //! Trusted native account configuration, references only; never provider secrets.
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::let_underscore_must_use,
+    unused_must_use
+)]
+#![cfg_attr(
+    not(test),
+    forbid(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        unused_must_use
+    )
+)]
+
 use crate::{gateway::valid_id, receive::account_key, store, *};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

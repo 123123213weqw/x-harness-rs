@@ -1,0 +1,91 @@
+{
+  "case": "already_completed",
+  "arm": "on_demand_get",
+  "repeat": 2,
+  "infrastructure_error": null,
+  "score": {
+    "passed": true,
+    "violations": [],
+    "tool_calls": 1,
+    "get_calls": 1,
+    "cas_conflicts": 0
+  },
+  "requests": [
+    {
+      "usage": {
+        "prompt_tokens": 1365,
+        "completion_tokens": 36,
+        "total_tokens": 1401,
+        "prompt_tokens_details": {
+          "cached_tokens": 1152
+        },
+        "prompt_cache_hit_tokens": 1152,
+        "prompt_cache_miss_tokens": 213
+      },
+      "elapsed_seconds": 1.409,
+      "finish_reason": "tool_calls",
+      "response_model": "deepseek-flash",
+      "request_id": "c889653b-0f71-46d9-bb40-85508b9e4999"
+    },
+    {
+      "usage": {
+        "prompt_tokens": 1480,
+        "completion_tokens": 72,
+        "total_tokens": 1552,
+        "prompt_tokens_details": {
+          "cached_tokens": 1280
+        },
+        "prompt_cache_hit_tokens": 1280,
+        "prompt_cache_miss_tokens": 200
+      },
+      "elapsed_seconds": 1.035,
+      "finish_reason": "stop",
+      "response_model": "deepseek-flash",
+      "request_id": "1aa17e74-f37b-4175-846f-c53386fc8256"
+    }
+  ],
+  "trace": [
+    {
+      "tool": "goal",
+      "arguments": {
+        "action": "get"
+      },
+      "result": {
+        "goal": null,
+        "ref": null,
+        "plan": {
+          "revision": 6,
+          "items": [
+            {
+              "id": "fix",
+              "title": "Fix the parser",
+              "status": "completed"
+            },
+            {
+              "id": "test",
+              "title": "Run npm test -- parser",
+              "status": "completed"
+            }
+          ]
+        }
+      },
+      "test_passed_before_or_at_result": false
+    }
+  ],
+  "answer": "清单当前状态（revision 6，无持久 Goal）：\n\n| ID | 事项 | 状态 |\n|---|---|---|\n| fix | Fix the parser | completed |\n| test | Run npm test -- parser | completed |\n\n两项都已标记完成，清单里没有待办项。按你的要求，本轮只读取状态，未再执行任何验证。",
+  "final_plan": {
+    "revision": 6,
+    "items": [
+      {
+        "id": "fix",
+        "title": "Fix the parser",
+        "status": "completed"
+      },
+      {
+        "id": "test",
+        "title": "Run npm test -- parser",
+        "status": "completed"
+      }
+    ]
+  }
+}

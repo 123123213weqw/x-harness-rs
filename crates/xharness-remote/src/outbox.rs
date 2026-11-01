@@ -1,5 +1,21 @@
 //! Durable external replies, independent from inbox admission/Agent execution.
 //! One provider effect per record. Unknown send outcomes never auto-replay.
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::let_underscore_must_use,
+    unused_must_use
+)]
+#![cfg_attr(
+    not(test),
+    forbid(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        unused_must_use
+    )
+)]
+
 use crate::{
     gateway::{digest, valid_id, ResultBudget},
     receive::{account_key, current_lease, valid_digest},

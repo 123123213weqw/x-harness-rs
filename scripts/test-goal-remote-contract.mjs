@@ -3,16 +3,22 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import { verifyArtifact } from './fixtures/shipped-source-values.mjs'
+import { sharedSourceVendors } from './fixtures/shared-source-vendors.mjs'
 const verbs = ['create', 'edit', 'pause', 'resume', 'complete', 'clear']
 // Capture the actual public Remote contribution; lexical bundler variable
 // names and nested CommonJS returns are not part of the Host contract.
 const source = verifyArtifact('@xharness/dsh-api-remotes')
 let registration
-vm.runInNewContext(source, {
+const realm = vm.createContext({
   window: { __ModuleLoader__: { load(row) { registration = row } } },
 })
+vm.runInContext(source, realm)
 assert.equal(registration.id, '@xharness/dsh-api-remotes')
-const api = registration.factory(id => { throw Error(`unexpected dependency: ${id}`) })
+const vendors = sharedSourceVendors(realm)
+const api = registration.factory(id => {
+  if (id === 'zod') return vendors.zod
+  throw Error(`unexpected dependency: ${id}`)
+})
 const contributions = []
 const dispose = await api.apply({ remote: { $mount: async contribution => {
   contributions.push(contribution)

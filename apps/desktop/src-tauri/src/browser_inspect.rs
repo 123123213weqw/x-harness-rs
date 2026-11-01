@@ -56,6 +56,8 @@ impl InspectRequest {
 #[derive(Default)]
 pub(super) struct Inspector {
     pub(super) gate: Mutex<()>,
+    pub(super) responses: crate::browser_request::Responses,
+    pub(super) picker: StdMutex<Option<crate::browser_picker::Lease>>,
     pub(super) navigation_epoch: AtomicU64,
     pub(super) delegation: crate::browser_delegation::Delegation,
     latest: StdMutex<Option<Frame>>,
@@ -70,6 +72,7 @@ struct Frame {
 
 impl Inspector {
     pub(super) fn invalidate(&self) {
+        self.responses.clear();
         self.navigation_epoch.fetch_add(1, Ordering::SeqCst);
     }
 
@@ -105,6 +108,23 @@ impl Inspector {
             .lock()
             .map_err(|_| "browser frame unavailable")? = None;
         Ok(())
+    }
+
+    pub(super) fn frame_viewport(&self, id: &str) -> Result<(f64, f64), String> {
+        let latest = self
+            .latest
+            .lock()
+            .map_err(|_| "browser frame unavailable")?;
+        let frame = latest
+            .as_ref()
+            .filter(|frame| {
+                frame.id == id && frame.epoch == self.navigation_epoch.load(Ordering::SeqCst)
+            })
+            .ok_or("stale_frame: observe again")?;
+        frame
+            .viewport
+            .filter(|(w, h)| w.is_finite() && h.is_finite() && *w > 0.0 && *h > 0.0)
+            .ok_or("frame has no viewport geometry; observe again".into())
     }
 
     pub(super) fn check_point(&self, id: &str, x: f64, y: f64) -> Result<(), String> {
@@ -256,6 +276,7 @@ pub(super) async fn inspect(
     }
     authorize(&target, &inspector, owner, false)?;
     let mut snapshot = decode(&raw, &frame)?;
+    state.verify_viewport(tab_id, &snapshot["viewport"])?;
     snapshot["source"] = json!({
         "engine": "tauri-webview", "untrusted": true,
         "tab_id": tab_id,

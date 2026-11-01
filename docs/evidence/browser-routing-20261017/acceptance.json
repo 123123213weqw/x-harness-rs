@@ -1,0 +1,200 @@
+{
+  "base": "34b9336d476d861277e91eff4085c54bc1343d39",
+  "scope": "Browser routing preference and truthful lazy discovery, no native implementation or permission changes",
+  "rust": {
+    "machine": "WZU_Server",
+    "passed": 559,
+    "ignored": 9,
+    "failed": 0,
+    "clippy": "both affected crates, all targets, warnings denied",
+    "status": "passed for the final short-system / detailed-MCP placement"
+  },
+  "offline": {
+    "routing_oracle": 10,
+    "architecture_mutation_tests": 30,
+    "ci_tiering": 10,
+    "desktop_build_cache": 19,
+    "actionlint": "passed",
+    "cargo_fmt": "passed",
+    "diff_check": "passed",
+    "architecture_freeze": "passed with content-bound CI compatibility record"
+  },
+  "live": {
+    "scope": "Real model, production strings/schema, simulated tool results. No native rendering or end-to-end GUI claim.",
+    "arms": {
+      "baseline": {
+        "passed": 6,
+        "total": 16,
+        "infrastructure_errors": 0,
+        "wrong_desktop_fallbacks": 6,
+        "requests": 22,
+        "usage": {
+          "prompt_tokens": 156652,
+          "completion_tokens": 2391,
+          "total_tokens": 159043
+        }
+      },
+      "candidate": {
+        "passed": 16,
+        "total": 16,
+        "infrastructure_errors": 0,
+        "wrong_desktop_fallbacks": 0,
+        "requests": 58,
+        "usage": {
+          "prompt_tokens": 443972,
+          "completion_tokens": 5443,
+          "total_tokens": 449415
+        }
+      }
+    }
+  },
+  "pilot_history": {
+    "live-v1": {
+      "scope": "Real model, production strings/schema, simulated tool results. No native rendering or end-to-end GUI claim.",
+      "arms": {
+        "baseline": {
+          "passed": 5,
+          "total": 14,
+          "infrastructure_errors": 0,
+          "wrong_desktop_fallbacks": 5,
+          "requests": 24,
+          "usage": {
+            "prompt_tokens": 172058,
+            "completion_tokens": 2570,
+            "total_tokens": 174628
+          }
+        },
+        "candidate": {
+          "passed": 11,
+          "total": 14,
+          "infrastructure_errors": 0,
+          "wrong_desktop_fallbacks": 0,
+          "requests": 48,
+          "usage": {
+            "prompt_tokens": 365154,
+            "completion_tokens": 4508,
+            "total_tokens": 369662
+          }
+        }
+      }
+    },
+    "live-v2": {
+      "scope": "Real model, production strings/schema, simulated tool results. No native rendering or end-to-end GUI claim.",
+      "arms": {
+        "baseline": {
+          "passed": 6,
+          "total": 14,
+          "infrastructure_errors": 0,
+          "wrong_desktop_fallbacks": 4,
+          "requests": 28,
+          "usage": {
+            "prompt_tokens": 201779,
+            "completion_tokens": 2907,
+            "total_tokens": 204686
+          }
+        },
+        "candidate": {
+          "passed": 12,
+          "total": 14,
+          "infrastructure_errors": 0,
+          "wrong_desktop_fallbacks": 0,
+          "requests": 55,
+          "usage": {
+            "prompt_tokens": 419925,
+            "completion_tokens": 5196,
+            "total_tokens": 425121
+          }
+        }
+      }
+    },
+    "live-v3": {
+      "scope": "Real model, production strings/schema, simulated tool results. No native rendering or end-to-end GUI claim.",
+      "arms": {
+        "baseline": {
+          "passed": 7,
+          "total": 16,
+          "infrastructure_errors": 0,
+          "wrong_desktop_fallbacks": 5,
+          "requests": 26,
+          "usage": {
+            "prompt_tokens": 186218,
+            "completion_tokens": 2758,
+            "total_tokens": 188976
+          }
+        },
+        "candidate": {
+          "passed": 16,
+          "total": 16,
+          "infrastructure_errors": 0,
+          "wrong_desktop_fallbacks": 0,
+          "requests": 51,
+          "usage": {
+            "prompt_tokens": 384760,
+            "completion_tokens": 4615,
+            "total_tokens": 389375
+          }
+        }
+      }
+    },
+    "live-v4-envelopes": {
+      "scope": "Real model, production strings/schema, simulated tool results. No native rendering or end-to-end GUI claim.",
+      "arms": {
+        "baseline": {
+          "passed": 8,
+          "total": 16,
+          "infrastructure_errors": 0,
+          "wrong_desktop_fallbacks": 4,
+          "requests": 30,
+          "usage": {
+            "prompt_tokens": 216640,
+            "completion_tokens": 3036,
+            "total_tokens": 219676
+          }
+        },
+        "candidate": {
+          "passed": 16,
+          "total": 16,
+          "infrastructure_errors": 0,
+          "wrong_desktop_fallbacks": 0,
+          "requests": 56,
+          "usage": {
+            "prompt_tokens": 431432,
+            "completion_tokens": 5055,
+            "total_tokens": 436487
+          }
+        }
+      }
+    }
+  },
+  "pilot_corrections": [
+    "v1: explicit open sometimes answered only from fetch; tightened explicit-open wording.",
+    "v2: sparse page reading sometimes ended without browser discovery; added insufficient-fetch routing rule.",
+    "v3: added title-only no-browser control; v4 repeated final corpus with nested production-shaped tool envelopes.",
+    "v5: moved detailed guidance under Embedded browser in plugin_mcp.description; system policy v2 retains only the short preference. Repeated the same final envelope corpus before PR submission."
+  ],
+  "limits": [
+    "One live model: deepseek-flash, thinking disabled, temperature 0; not all models or effort levels.",
+    "Live provider with simulated tool results, not actual rendered-page or complete task verification.",
+    "Eight cases repeated twice per arm; not a statistical reliability guarantee.",
+    "No app installation, restart, deployment, merge or publication."
+  ],
+  "source_sha256": {
+    ".github/workflows/ci.yml": "59b10a33da178d71564743884562019134e6a4d8cfe6ab66abeee9d5fbe0db74",
+    "crates/xharness-host/src/state.rs": "b2ad0c69ca43e87f4cd38fc4da4d748ddad840e9c5a54d936320634fa6d78ba9",
+    "crates/xharness-host/src/instructions/tests.rs": "dde2da93044e5f75806447409504154fde04b44badda8426ef639bc54443d11a",
+    "crates/xharness-host-app/src/plugin_mcp.rs": "63a965f420b3d9b48eebf0b8eb9a8db16a0853276d4ebd469e2d06551a32cd56",
+    "crates/xharness-host-app/src/native_browser.rs": "08d7e6e196c07184f10be8880a8a4c98208842d5eb498c154390fb9dc4c062ad",
+    "scripts/experiments/browser-routing-ab.py": "434b8a1847b46d3b33785917fb88ff7e603d79d40000c4f67fbe7dea67b434a1",
+    "scripts/experiments/test-browser-routing-ab.py": "c815c5dff369357c0e070520fc0c3a740fdc13842e6addb3dd0fdb8af52fd571"
+  },
+  "provider_usage_all_pilots": {
+    "prompt_tokens": 2978590,
+    "completion_tokens": 38479,
+    "total_tokens": 3017069
+  },
+  "billing": "Provider-reported tokens; no currency charge inferred; no credentials or hidden reasoning retained.",
+  "policy_placement": {
+    "system": "tool/browser v2: one short preference",
+    "details": "plugin_mcp.description, Embedded browser paragraph"
+  }
+}

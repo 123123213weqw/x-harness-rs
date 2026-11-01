@@ -1,0 +1,3 @@
+architecture dependency boundary passed for 46 crates and 30 extracted processors
+architecture freeze: {"base": "34b9336d476d861277e91eff4085c54bc1343d39", "bootstrap": false, "flexible_changes": [], "protected": [".github/workflows/ci.yml"], "records": ["config/architecture-changes/embedded-browser-routing-ci-20261017.json"]}
+stabilization freeze passed; tool handlers and schemas remain flexible

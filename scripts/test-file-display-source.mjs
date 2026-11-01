@@ -8,7 +8,7 @@ import {compileSourceModules} from './build-source-modules.mjs'
 import {generateWireContract} from './generate-session-terminal-contract.mjs'
 const require=createRequire(resolve('ui/package.json')),id='@xlang/xharness-client-ui-browser/display-test'
 const out=compileSourceModules(resolve('ui'),[{id,source:'src/modules/browser/file-display/test-exports.ts'}])
-let entry;vm.runInNewContext(out.get(id).bytes.toString(),{window:{__ModuleLoader__:{load:x=>entry=x}},TextEncoder,TextDecoder,AbortSignal,URL,Blob,Uint8Array,atob});const api=entry.factory(name=>name==='zod'?require('zod'):undefined)
+let entry;vm.runInNewContext(out.get(id).bytes.toString(),{window:{__ModuleLoader__:{load:x=>entry=x}},TextEncoder,TextDecoder,AbortSignal,DOMException,URL,Blob,Uint8Array,atob});const api=entry.factory(name=>name==='zod'?require('zod'):undefined)
 const fixture=JSON.parse(readFileSync('protocol/fixtures/file-display-v1.json','utf8'))
 test('Rust-exported display schemas and client guards agree; no handwritten file union',()=>{
  const contract=JSON.parse(readFileSync('protocol/file-display.schema.json','utf8'))
@@ -91,4 +91,55 @@ test('Git filename metadata and zero-context malformed hunks do not invent coord
  assert.equal(api.inspectPatch('diff --git a/image name.png b/image name.png\nBinary files a/image name.png and b/image name.png differ\n').files[0].path,'image name.png')
  for(const patch of ['diff --git a/x b/x\nindex a..b 100644\n','--- a/x\n+++ b/x\n','diff --git a/x b/x\n@@ malformed\n','--- a/x\n+++ b/x\n@@ -0,0 +0,0 @@\n+invalid\n','--- a/x\n+++ b/x\n@@ -999999999999999999999,0 +0,0 @@\n'])assert.ok(api.inspectPatch(patch).error)
  const notes=api.inspectPatch('--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n');assert.equal(notes.files[0].rows.filter(row=>row.kind==='note').length,2)
+})
+
+test('reveal capability is explicit; old or non-local openers never masquerade as Finder reveal',async()=>{
+ const calls=[]
+ const client=new api.FileDisplayClient({}, {available:()=>true,open:async path=>calls.push(['open',path]),canReveal:()=>true,reveal:async path=>calls.push(['reveal',path])})
+ assert.equal(client.canReveal('/workspace/a b.md'),true)
+ for(const path of ['relative.md','file:///workspace/a','https://example.com','/tmp/a\0b'])assert.equal(client.canReveal(path),false)
+ await client.reveal('/workspace/a b.md');await client.openExternal('/workspace/a b.md')
+ assert.deepEqual(calls,[['reveal','/workspace/a b.md'],['open','/workspace/a b.md']])
+ const legacy=new api.FileDisplayClient({}, {available:()=>true,open:async()=>{throw Error('must not open instead of revealing')}})
+ assert.equal(legacy.canReveal('/workspace/a'),false);await assert.rejects(()=>legacy.reveal('/workspace/a'))
+ const remote=new api.FileDisplayClient({}, {available:()=>false,open:async()=>{},canReveal:()=>true,reveal:async()=>{}})
+ assert.equal(remote.canReveal('/workspace/a'),false)
+})
+test('PDF previews are bounded, byte-identified blobs, never a model attachment',async()=>{
+ const pdf=fixture.files.find(file=>file.kind==='pdf');assert.ok(pdf)
+ const client=new api.FileDisplayClient({call:async()=>({ok:true,value:pdf})})
+ assert.equal((await client.read('s','report.pdf',new AbortController().signal)).kind,'pdf')
+ for(const dataBase64 of ['PHNjcmlwdD4=','JVBERi0<script>','JVBERi0'+'A'.repeat(12*1024*1024)]){
+  const bad=new api.FileDisplayClient({call:async()=>({ok:true,value:{...pdf,dataBase64}})})
+  await assert.rejects(()=>bad.read('s','x',new AbortController().signal))
+ }
+ const url=api.pdfObjectUrl(pdf)
+ try{const response=await fetch(url);assert.equal(response.headers.get('content-type'),'application/pdf');assert.ok((await response.text()).startsWith('%PDF-'))}finally{URL.revokeObjectURL(url)}
+ await assert.rejects(()=>fetch(url))
+ assert.equal(api.isHtmlPath('/workspace/hello.HTML'),true);assert.equal(api.isHtmlPath('/workspace/program.ts'),false)
+})
+
+test('card metadata validates safe uint64, nullable dimensions and bounded PNG thumbnails',()=>{
+ const info={path:'/workspace/deck.pptx',bytes:2048,preview:'unsupported'}
+ assert.equal(api.validateInspection(info).bytes,2048)
+ for(const value of [{...info,bytes:2**53},{...info,bytes:-1},{...info,bytes:0.5},{...info,modifiedMs:9e15},{...info,width:0},{...info,extra:'no'},{...info,thumbnail:{width:97,height:1,dataBase64:'AA=='}}])assert.throws(()=>api.validateInspection(value))
+ assert.equal(api.validateInspection({...info,width:null,height:null,modifiedMs:null}).preview,'unsupported')
+ assert.equal(api.DisplayInspectSchema.safeParse({sessionId:'s',path:'x',thumbnail:false,command:'cat'}).success,false)
+})
+test('metadata cache bounds concurrency/entries, cancellation and session/revision isolation',async()=>{
+ let active=0,peak=0,calls=0
+ const cache=new api.FileInspectionCache({call:async(_channel,_endpoint,args,signal)=>{
+  calls++;active++;peak=Math.max(peak,active);await new Promise(resolve=>setTimeout(resolve,2));active--
+  if(signal.aborted)throw new DOMException('Aborted','AbortError')
+  return{ok:true,value:{path:args.path,bytes:4,preview:'text'}}
+ }})
+ await Promise.all(Array.from({length:40},(_,i)=>cache.read('s','p'+i,0,false,new AbortController().signal)))
+ assert.equal(peak,2);assert.equal(cache.stats.entries,24)
+ await cache.read('s','p39',0,false,new AbortController().signal);assert.equal(calls,40)
+ await cache.read('other','p39',0,false,new AbortController().signal);await cache.read('s','p39',1,false,new AbortController().signal);assert.equal(calls,42)
+ const aborted=new AbortController();aborted.abort();await assert.rejects(()=>cache.read('s','x',0,true,aborted.signal))
+ const failing=new api.FileInspectionCache({call:async()=>({ok:false,error:{message:'unknown endpoint display/inspect'}})})
+ assert.equal(await failing.read('s','a',0,false,new AbortController().signal),undefined)
+ const missing=new api.FileInspectionCache({call:async(_c,_e,args)=>args.path==='bad'?{ok:false,error:{message:'file not found'}}:{ok:true,value:{path:'good',bytes:0,preview:'text'}}})
+ assert.equal(await missing.read('s','bad',0,false,new AbortController().signal),undefined);assert.equal((await missing.read('s','good',0,false,new AbortController().signal)).bytes,0)
 })

@@ -1,0 +1,214 @@
+{
+  "owner": "swarm-scale12-1792161988",
+  "team": "swarm-1792161988730-373",
+  "started": 1792161988.649606,
+  "phase": "accepted",
+  "maxSeconds": 600,
+  "maxOwnerTurns": 60,
+  "workers": {
+    "Range 10": "agent-004f53be599f82dea3d7a17fe424652ddc350ebfa47ccbe3412b4a1804131a7d",
+    "Range 01": "agent-2905fc9ae3914b070fc16bc78484d15a153a0d1fdfb3b2bcb5e9963a81b5e27d",
+    "Range 06": "agent-47dee621e644446b0afd4618ed762d28fa695b8d10231c544829474d8bc32732",
+    "Range 05": "agent-4df6df899e3e82fbc01a3adec9a0fac5af1b8e20538492e03494ea809b769df7",
+    "Range 11": "agent-60913e4f00a725259e13c12aec348e7c25160f828574cd8d0c73408f7855d91c",
+    "Range 09": "agent-6f8707275bbb3be7299dc94ff72f05447a87a588dbafcca483eb400e63416eb6",
+    "Range 02": "agent-966b876350ddee18edcd9f7fcf90369761890bbf2b1ab19350f83b53bb5fa1eb",
+    "Range 12": "agent-b88c3622f647dd8ebff6cf0358373b2e7720dc87f3e1d1d04b73d7f98f97ccc4",
+    "Range 03": "agent-c6f5ac795474cd9a6aff2934b2bb7bfd44f2ed5ffea07735b87ffc666a4c6dba",
+    "Range 08": "agent-d11cd2b13b027d1a9fec35aa685c3ba34326cecfc591cb4765768b4e64fed4a9",
+    "Range 07": "agent-e1b01efdfd659561cc5abe88d1dcb3d28551efb4210da06091657003411e6daa",
+    "Range 04": "agent-f9198141bc75e0a1eb655430496eac2729223a124dc7265475818713e7c2da82"
+  },
+  "dispatchStarted": 1792162068.823453,
+  "passed": true,
+  "elapsedSeconds": 84.1,
+  "dispatchElapsedSeconds": 75.6,
+  "tasks": [
+    {
+      "id": "swarm-task-1792162044253-1895",
+      "title": "Scale 01",
+      "ready": false,
+      "state": {
+        "messageId": "swarm-work-1792162069614-2397",
+        "outcome": "completed",
+        "status": "settled",
+        "summary": "RANGE_01=55 verified: sum of 1..10 inclusive independently recomputed as 55. Correct.",
+        "turn": 2,
+        "workerSessionId": "agent-2905fc9ae3914b070fc16bc78484d15a153a0d1fdfb3b2bcb5e9963a81b5e27d"
+      }
+    },
+    {
+      "id": "swarm-task-1792162046071-1930",
+      "title": "Scale 02",
+      "ready": false,
+      "state": {
+        "messageId": "swarm-work-1792162069655-2398",
+        "outcome": "completed",
+        "status": "settled",
+        "summary": "RANGE_02=155 verified: sum of 11..20 inclusive independently recomputed as 155. Correct.",
+        "turn": 2,
+        "workerSessionId": "agent-966b876350ddee18edcd9f7fcf90369761890bbf2b1ab19350f83b53bb5fa1eb"
+      }
+    },
+    {
+      "id": "swarm-task-1792162047422-1958",
+      "title": "Scale 03",
+      "ready": false,
+      "state": {
+        "messageId": "swarm-work-1792162069697-2399",
+        "outcome": "completed",
+        "status": "settled",
+        "summary": "RANGE_03=255 verified: sum of 21..30 inclusive independently recomputed as 255. Correct.",
+        "turn": 2,
+        "workerSessionId": "agent-c6f5ac795474cd9a6aff2934b2bb7bfd44f2ed5ffea07735b87ffc666a4c6dba"
+      }
+    },
+    {
+      "id": "swarm-task-1792162049012-1991",
+      "title": "Scale 04",
+      "ready": false,
+      "state": {
+        "messageId": "swarm-work-1792162069738-2400",
+        "outcome": "completed",
+        "status": "settled",
+        "summary": "RANGE_04=355 verified: sum of 31..40 inclusive independently recomputed as 355. Correct.",
+        "turn": 2,
+        "workerSessionId": "agent-f9198141bc75e0a1eb655430496eac2729223a124dc7265475818713e7c2da82"
+      }
+    },
+    {
+      "id": "swarm-task-1792162050623-2024",
+      "title": "Scale 05",
+      "ready": false,
+      "state": {
+        "messageId": "swarm-work-1792162069781-2401",
+        "outcome": "completed",
+        "status": "settled",
+        "summary": "RANGE_05=455 verified: sum of 41..50 inclusive independently recomputed as 455. Correct.",
+        "turn": 2,
+        "workerSessionId": "agent-4df6df899e3e82fbc01a3adec9a0fac5af1b8e20538492e03494ea809b769df7"
+      }
+    },
+    {
+      "id": "swarm-task-1792162052082-2057",
+      "title": "Scale 06",
+      "ready": false,
+      "state": {
+        "messageId": "swarm-work-1792162069826-2402",
+        "outcome": "completed",
+        "status": "settled",
+        "summary": "RANGE_06=555 verified: sum of 51..60 inclusive independently recomputed as 555. Correct.",
+        "turn": 2,
+        "workerSessionId": "agent-47dee621e644446b0afd4618ed762d28fa695b8d10231c544829474d8bc32732"
+      }
+    },
+    {
+      "id": "swarm-task-1792162053374-2090",
+      "title": "Scale 07",
+      "ready": false,
+      "state": {
+        "messageId": "swarm-work-1792162069866-2403",
+        "outcome": "completed",
+        "status": "settled",
+        "summary": "RANGE_07=655 verified: sum of 61..70 inclusive independently recomputed as 655. Correct.",
+        "turn": 2,
+        "workerSessionId": "agent-e1b01efdfd659561cc5abe88d1dcb3d28551efb4210da06091657003411e6daa"
+      }
+    },
+    {
+      "id": "swarm-task-1792162055037-2123",
+      "title": "Scale 08",
+      "ready": false,
+      "state": {
+        "messageId": "swarm-work-1792162069910-2404",
+        "outcome": "completed",
+        "status": "settled",
+        "summary": "RANGE_08=755 verified: sum of 71..80 inclusive independently recomputed as 755. Correct.",
+        "turn": 2,
+        "workerSessionId": "agent-d11cd2b13b027d1a9fec35aa685c3ba34326cecfc591cb4765768b4e64fed4a9"
+      }
+    },
+    {
+      "id": "swarm-task-1792162056444-2156",
+      "title": "Scale 09",
+      "ready": false,
+      "state": {
+        "messageId": "swarm-work-1792162070613-2501",
+        "outcome": "completed",
+        "status": "settled",
+        "summary": "RANGE_09=855 verified: sum of 81..90 inclusive independently recomputed as 855. Correct.",
+        "turn": 2,
+        "workerSessionId": "agent-6f8707275bbb3be7299dc94ff72f05447a87a588dbafcca483eb400e63416eb6"
+      }
+    },
+    {
+      "id": "swarm-task-1792162058020-2189",
+      "title": "Scale 10",
+      "ready": false,
+      "state": {
+        "messageId": "swarm-work-1792162070663-2502",
+        "outcome": "completed",
+        "status": "settled",
+        "summary": "RANGE_10=955 verified: sum of 91..100 inclusive independently recomputed as 955. Correct.",
+        "turn": 2,
+        "workerSessionId": "agent-004f53be599f82dea3d7a17fe424652ddc350ebfa47ccbe3412b4a1804131a7d"
+      }
+    },
+    {
+      "id": "swarm-task-1792162059714-2222",
+      "title": "Scale 11",
+      "ready": false,
+      "state": {
+        "messageId": "swarm-work-1792162070709-2503",
+        "outcome": "completed",
+        "status": "settled",
+        "summary": "RANGE_11=1055 verified: sum of 101..110 inclusive independently recomputed as 1055. Correct.",
+        "turn": 2,
+        "workerSessionId": "agent-60913e4f00a725259e13c12aec348e7c25160f828574cd8d0c73408f7855d91c"
+      }
+    },
+    {
+      "id": "swarm-task-1792162060951-2255",
+      "title": "Scale 12",
+      "ready": false,
+      "state": {
+        "messageId": "swarm-work-1792162070747-2504",
+        "outcome": "completed",
+        "status": "settled",
+        "summary": "RANGE_12=1155 verified: sum of 111..120 inclusive independently recomputed as 1155. Correct.",
+        "turn": 2,
+        "workerSessionId": "agent-b88c3622f647dd8ebff6cf0358373b2e7720dc87f3e1d1d04b73d7f98f97ccc4"
+      }
+    },
+    {
+      "id": "swarm-task-1792162063599-2312",
+      "title": "Scale checksum",
+      "ready": false,
+      "state": {
+        "messageId": "swarm-work-1792162103614-3505",
+        "outcome": "completed",
+        "status": "settled",
+        "summary": "CHECKSUM=7260 verified. All twelve source values correct in range order: RANGE_01=55, RANGE_02=155, RANGE_03=255, RANGE_04=355, RANGE_05=455, RANGE_06=555, RANGE_07=655, RANGE_08=755, RANGE_09=855, RANGE_10=955, RANGE_11=1055, RANGE_12=1155. Independently recomputed total 55+155+255+355+455+555+655+755+855+955+1055+1155=7260. Correct.",
+        "turn": 3,
+        "workerSessionId": "agent-2905fc9ae3914b070fc16bc78484d15a153a0d1fdfb3b2bcb5e9963a81b5e27d"
+      }
+    }
+  ],
+  "ownerStats": {
+    "activeThroughput": {
+      "decodeMs": 60389,
+      "decodeTokens": 15429,
+      "model": "deepseek-flash",
+      "provider": "deepseek"
+    },
+    "decodeMs": 60389,
+    "decodeTokens": 15429,
+    "llmMs": 117107,
+    "steps": 61,
+    "toolMs": 8837,
+    "ttftMs": 50052,
+    "ttftSteps": 61,
+    "turns": 27
+  },
+  "peakObservedRunningWorkers": 11
+}

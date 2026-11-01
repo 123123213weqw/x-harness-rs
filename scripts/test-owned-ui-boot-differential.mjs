@@ -55,7 +55,7 @@ try{
   const source=readFileSync(join(directory,browser+'-source-reference-chat-boot.png'))
   const old=readFileSync(join(directory,browser+'-legacy-chat-boot.png'))
   assert.notDeepEqual(actualSource,old,`${browser}: actual rounded conversation region must differ from the frozen shell`)
-  assert.equal(Buffer.compare(source,old),0,`${browser}: settled conversation pixels after only regional geometry and approved reasoning/environment-entry projection must match independent frozen master`)
+  assert.equal(Buffer.compare(source,old),0,`${browser}: settled conversation pixels after only regional geometry and approved reasoning/environment-entry/model-icon projection must match independent frozen master`)
   console.log(JSON.stringify({browser,implementationRuns:3,fullGraph:true,controls:'providers + model + effort + context',effortChange:true,regionalChrome:true,workNavigation:true,pixelSha256:digest(source),actualPixelSha256:digest(actualSource)}))
  }
 }finally{rmSync(directory,{recursive:true,force:true})}

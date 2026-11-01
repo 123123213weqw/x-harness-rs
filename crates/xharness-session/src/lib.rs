@@ -5,12 +5,15 @@
 //! single-writer [`Revision`]. Model history is always derived from those
 //! facts; it is never maintained as a second mutable transcript.
 
+pub mod plan;
+pub use plan::{session_plan, PlanItem, PlanItemStatus, SessionPlan};
 mod checkpoint;
 mod dispatch;
 pub mod goal;
 mod goal_validation;
 pub use checkpoint::*;
 mod event;
+mod inbox_validation;
 mod job_continuation;
 pub use job_continuation::*;
 mod message;
@@ -19,6 +22,7 @@ mod recovery;
 pub use reception::*;
 mod session;
 mod store;
+mod stream_append;
 mod tool_archive;
 pub use tool_archive::*;
 
@@ -27,3 +31,4 @@ pub use message::*;
 pub use recovery::*;
 pub use session::*;
 pub use store::*;
+pub use stream_append::StreamAppendCursor;

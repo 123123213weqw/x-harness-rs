@@ -30,12 +30,16 @@ import type { ProjectionsBaseline } from './projection-store'
 import { resolvedClientTimeZone } from '../time-zone'
 import type { HistoryCache } from './history-cache'
 import { SessionQueueMirror } from './queue-mirror'
+import { ACTIVE_WINDOW, activeWindowCut, payloadWeight } from './active-working-set'
+import { CooperativeDelivery } from './cooperative-delivery'
 
 /** Messages requested per history page. */
 export const PAGE_MESSAGES = 50
 
 /** Manager-owned observers of a Session object's local state edges. */
 export interface SessionOptions {
+  /** Manager-owned production delivery yields between bounded event slices. */
+  cooperativeEvents?: boolean
   /** Catalog-discovered address selecting non-activating subagent transport. */
   address?: SubagentAddress
   /** Whether the exact direct parent Agent was live at the latest catalog read. */
@@ -70,12 +74,24 @@ export class Session implements SessionFace {
   xhHistoryOwner: HistoryCache | undefined
   private xhRestoreBaseSeq: number | undefined
   private historyOpenTarget: HistoryOpenTarget | undefined
+  private historyGeneration = new AbortController()
+  private historyRangeRead: AbortController | undefined
   private xhPendingOperations = 0
   private xhLiveRecoveryAt: number | undefined
   private events: SessionWireEvent[] = []
   /** Wire views aligned with `events` by index (envelope-level annotations; undefined = no view).
    *  Kept parallel rather than merged so `events` stays the raw log slice (model-visible ⟺ logged). */
   private views: (ToolEventView | undefined)[] = []
+  private eventWeights: number[] = []
+  private eventBytes = 0
+  private trimAfterEvents: number = ACTIVE_WINDOW.highEvents
+  private trimAfterBytes: number = ACTIVE_WINDOW.highBytes
+  private olderPagePinned = false
+  private stopRequested = false
+  private cancelEpoch = 0
+  private cancelPromise: Promise<RpcResult<{ accepted: true }>> | undefined
+  private readonly delivery: CooperativeDelivery<{ event: SessionWireEvent; view: ToolEventView | undefined }> | undefined
+  private liveBufferBytes = 0
   private baseSeq = 0
   private hasMore = false
   private openState: OpenState = 'cold'
@@ -109,6 +125,7 @@ export class Session implements SessionFace {
   private removed = false
   private promptError: PromptError | null = null
   private lastAgentError: string | null = null
+  private agentErrorGeneration = 0
   /** Live events buffered during open/resync and stitched by sequence once history lands. */
   private liveBuffer: { event: SessionWireEvent; view: ToolEventView | undefined }[] = []
   /** Gap repair in flight; live events detour to the buffer until the tail page lands. */
@@ -162,7 +179,12 @@ export class Session implements SessionFace {
         { entries: () => [] },
       )
       : new ConversationNodeAssembler(options.conversation.events, options.conversation.views)
+    this.delivery = options.cooperativeEvents ? new CooperativeDelivery(
+      ({ event, view }) => this.acceptLiveEvent(event, view),
+      error => this.failLiveBacklog(error),
+    ) : undefined
     this.notifier = new Notifier(() => {
+      this.trimActiveWindow()
       this.conversation.flush()
       this.snapshotCache = this.buildSnapshot()
     })
@@ -314,7 +336,20 @@ export class Session implements SessionFace {
    * defensive).
    * @returns the cancel result.
    */
-  async cancel(): Promise<RpcResult<{ accepted: true }>> {
+  cancel(): Promise<RpcResult<{ accepted: true }>> {
+    if (this.cancelPromise !== undefined) return this.cancelPromise
+    if (this.stopRequested) return Promise.resolve({ ok: true, value: { accepted: true } })
+    this.stopRequested = this.running
+    const epoch = this.cancelEpoch
+    this.notifier.markDirty()
+    const pending = this.doCancel(epoch).finally(() => {
+      if (this.cancelPromise === pending) this.cancelPromise = undefined
+    })
+    this.cancelPromise = pending
+    return pending
+  }
+
+  private async doCancel(epoch: number): Promise<RpcResult<{ accepted: true }>> {
     const address = this.address
     if (address !== undefined && address.mode === 'one-shot') {
       const result: RpcResult<{ accepted: true }> = {
@@ -325,6 +360,7 @@ export class Session implements SessionFace {
           details: { childSessionId: address.childSessionId },
         },
       }
+      this.stopRequested = false
       this.promptError = { op: 'stop', error: result.error }
       this.notifier.markDirty()
       return result
@@ -337,7 +373,8 @@ export class Session implements SessionFace {
     } catch (error) {
       result = transportError(error)
     }
-    if (!result.ok) {
+    if (!result.ok && epoch === this.cancelEpoch) {
+      this.stopRequested = false
       this.promptError = { op: 'stop', error: result.error }
       this.notifier.markDirty()
     }
@@ -373,7 +410,22 @@ export class Session implements SessionFace {
   private async doCommand(line: string): Promise<RemoteResult<{ matched: boolean }>> {
     const result = await this.remote.commands.execute(this.sessionId, line, [])
     if (!result.ok) return result
+    if (line.trim() === '/reload' && result.value !== undefined) {
+      if (result.value.result.kind !== 'success') return transportError(new Error(result.value.result.text ?? 'Session restart was not successful'))
+      try { await this.recoverHistory() } catch (error) { return transportError(error) }
+    }
     return { ok: true, value: { matched: result.value !== undefined } }
+  }
+
+  /** Called only after an explicit successful worker-recovery receipt. */
+  async recoverHistory(): Promise<void> {
+    const errorGeneration = this.agentErrorGeneration
+    await this.resync()
+    if (this.openState !== 'open') throw new Error(this.openError?.message ?? 'Session restarted but history could not be restored')
+    // A new turn/error may arrive while history is in flight. Recovery owns
+    // only the prior error, even when the newer message has identical text.
+    if (this.agentErrorGeneration === errorGeneration) this.lastAgentError = null
+    this.notifier.markDirty()
   }
 
   /** First open: pull the tail page (idempotent — in-flight/already-open returns the existing promise). */
@@ -394,6 +446,7 @@ export class Session implements SessionFace {
   private async doLoadOlder(): Promise<void> {
     if (this.openState === 'error') return this.retryHistory()
     if (this.openState !== 'open' || !this.hasMore || this.loadingOlder || this.stitching) return
+    this.olderPagePinned = true
     this.loadingOlder = true
     const generation = this.openGeneration, beforeSeq = this.baseSeq
     this.notifier.markDirty()
@@ -413,9 +466,22 @@ export class Session implements SessionFace {
     }
   }
 
+  /** Invalidate only history reads; model, tool, and mutation requests have separate owners. */
+  private advanceHistoryGeneration(): void {
+    this.openGeneration++
+    this.historyGeneration.abort()
+    this.historyGeneration = new AbortController()
+  }
+
   /** Invalidate dead-transport work before any new-generation frame arrives. */
   invalidateConnectionGeneration(): void {
-    this.openGeneration++
+    this.delivery?.clear()
+    this.liveBuffer = []
+    this.liveBufferBytes = 0
+    this.stopRequested = false
+    this.cancelEpoch++
+    this.cancelPromise = undefined
+    this.advanceHistoryGeneration()
     this.openPromise = null
     this.loadingOlder = false
     this.stitching = false
@@ -430,7 +496,7 @@ export class Session implements SessionFace {
   async resync(): Promise<void> {
     if (this.openState === 'cold') return
     if (this.events.length) this.xhRestoreBaseSeq = this.baseSeq
-    this.openGeneration++
+    this.advanceHistoryGeneration()
     this.loadingOlder = false
     this.stitching = false
     this.openPromise = null
@@ -470,7 +536,9 @@ export class Session implements SessionFace {
    * @param frame - the routed frame.
    */
   handleMuxEnvelope(rpcId: RpcId, frame: MuxFrame): void {
-    this.dispatchMuxEnvelope(rpcId, frame)
+    if (frame.type === 'session/event' && this.delivery !== undefined) {
+      this.delivery.push({ event: frame.event, view: frame.view }, payloadWeight([frame.event, frame.view]))
+    } else this.dispatchMuxEnvelope(rpcId, frame)
     if (frame.type === 'session/event') void this.xhRecoverLiveAnswer()
     this.xhHistoryOwner?.schedule()
   }
@@ -536,6 +604,12 @@ export class Session implements SessionFace {
   }
 
   private applyRunning(running: boolean): void {
+    if (!running && (this.running || this.stopRequested)) {
+      this.stopRequested = false
+      this.cancelEpoch++
+      this.cancelPromise = undefined
+      this.notifier.markDirty()
+    }
     // Turn-start conversion: a blank session never runs, so the first
     // running:true proves another side's first message landed.
     if (running && this.blankBit) {
@@ -590,6 +664,12 @@ export class Session implements SessionFace {
 
   /** host/session-removed relay: flag the snapshot (instance survives — resident-instance rule). */
   handleRemoved(): void {
+    this.delivery?.clear()
+    this.liveBuffer = []
+    this.liveBufferBytes = 0
+    this.stopRequested = false
+    this.cancelEpoch++
+    this.cancelPromise = undefined
     this.removed = true
     this.notifier.markDirty()
   }
@@ -599,6 +679,7 @@ export class Session implements SessionFace {
    * @param message - the stringified error.
    */
   handleAgentError(message: string): void {
+    this.agentErrorGeneration++
     this.lastAgentError = message
     this.notifier.markDirty()
   }
@@ -699,6 +780,10 @@ export class Session implements SessionFace {
     Object.assign(this.conversation, staged)
     this.events = events
     this.views = views
+    this.eventWeights = events.map((event, index) => payloadWeight([event, views[index]]))
+    this.eventBytes = this.eventWeights.reduce((sum, bytes) => sum + bytes, 0)
+    this.trimAfterEvents = ACTIVE_WINDOW.highEvents
+    this.trimAfterBytes = ACTIVE_WINDOW.highBytes
     this.baseSeq = events[0]?.seq ?? 0
     this.hasMore = hasMore
     if (events.some(event => event.type === 'turn/start')) this.firstPromptPendingTurn = false
@@ -707,6 +792,7 @@ export class Session implements SessionFace {
     // Reconcile the complete installed window, not only newly buffered events.
     for (const event of events) this.queueMirror.acceptDurable(event)
     this.liveBuffer = []
+    this.liveBufferBytes = 0
     this.notifier.markDirty()
     this.xhHistoryOwner?.changed(this)
   }
@@ -718,6 +804,9 @@ export class Session implements SessionFace {
     const input = conversationInput({ event, view })
     this.events.push(event)
     this.views.push(view)
+    const bytes = payloadWeight([event, view])
+    this.eventWeights.push(bytes)
+    this.eventBytes += bytes
     if (event.type === 'turn/start') this.firstPromptPendingTurn = false
     const queueChanged = this.queueMirror.acceptDurable(event)
     const publication = this.conversation.append(input)
@@ -732,14 +821,14 @@ export class Session implements SessionFace {
    *  ends and lets a compaction checkpoint resolve its cited summary event. */
   private acceptLiveEvent(event: SessionWireEvent, view?: ToolEventView): void {
     if (this.openState === 'error' || this.openState === 'loading' || this.stitching) {
-      this.liveBuffer.push({ event, view })
+      this.bufferLive(event, view)
       return
     }
     if (this.openState !== 'open') return // cold/error: no window upkeep (history fully backfills on open)
     const tailSeq = this.windowTailSeq()
     if (tailSeq !== null && event.seq <= tailSeq) return // an already committed seq cannot mutate or poison the view
     if (tailSeq !== null && event.seq > tailSeq + 1) {
-      this.liveBuffer.push({ event, view })
+      this.bufferLive(event, view)
       void this.repairGap()
       return
     }
@@ -749,11 +838,61 @@ export class Session implements SessionFace {
       // A terminal protocol failure cannot close only half of the UI. Preserve
       // the last window, retain the carrier for history reconciliation, and
       // reuse the existing visible/retryable history error path.
-      this.liveBuffer.push({ event, view })
+      this.bufferLive(event, view)
       this.failHistory(error)
       return
     }
     this.scheduleConversation(this.appendLive(event, view))
+  }
+
+  private bufferLive(event: SessionWireEvent, view: ToolEventView | undefined): void {
+    const bytes = payloadWeight([event, view])
+    if (this.liveBuffer.length >= ACTIVE_WINDOW.highEvents || this.liveBufferBytes + bytes > ACTIVE_WINDOW.highBytes) {
+      this.failLiveBacklog()
+      return
+    }
+    this.liveBuffer.push({ event, view })
+    this.liveBufferBytes += bytes
+  }
+
+  private failLiveBacklog(error: unknown = new Error('Live history backlog exceeded the UI budget; reload history to reconcile')): void {
+    // The Host journal remains authoritative. Never replay a mutation to
+    // recover UI evidence, or adopt a partial old-generation history read.
+    this.delivery?.clear()
+    this.liveBuffer = []
+    this.liveBufferBytes = 0
+    this.advanceHistoryGeneration()
+    this.openPromise = null
+    this.stitching = false
+    this.loadingOlder = false
+    this.failHistory(error)
+  }
+
+  private trimActiveWindow(): void {
+    if (this.openState !== 'open' || this.loadingOlder || this.stitching || this.openPromise !== null
+      || this.olderPagePinned || this.historyOpenTarget?.kind === 'anchor') return
+    if (this.events.length <= this.trimAfterEvents && this.eventBytes <= this.trimAfterBytes) return
+    // A protected huge turn/dependency chain must not trigger an O(N) policy
+    // scan for every streaming chunk. Retry only after meaningful growth.
+    this.trimAfterEvents = this.events.length + 256
+    this.trimAfterBytes = this.eventBytes + 512 * 1024
+    const cut = activeWindowCut(this.events, this.eventWeights, this.eventBytes)
+    const first = this.events[cut]
+    if (cut === 0 || first === undefined || !this.conversation.canTrimBefore(first.seq)) return
+    const events = this.events.slice(cut), views = this.views.slice(cut)
+    // Stage atomically. Current-turn evidence, in-flight tools and turn-end
+    // artifacts remain intact; older complete turns reload through loadOlder.
+    const staged = this.conversation.stageReplacement(events.map((event, index) => ({ event, view: views[index] })), true, true)
+    Object.assign(this.conversation, staged)
+    this.events = events
+    this.views = views
+    this.eventWeights = this.eventWeights.slice(cut)
+    this.eventBytes = this.eventWeights.reduce((sum, bytes) => sum + bytes, 0)
+    this.baseSeq = events[0]?.seq ?? 0
+    this.trimAfterEvents = ACTIVE_WINDOW.highEvents
+    this.trimAfterBytes = ACTIVE_WINDOW.highBytes
+    this.hasMore = true
+    this.xhHistoryOwner?.changed(this)
   }
 
   /** Route assembler cadence into the Session's existing microtask/RAF notifier. */
@@ -835,7 +974,7 @@ export class Session implements SessionFace {
 
   private async retryHistory(): Promise<void> {
     if (this.events.length) this.xhRestoreBaseSeq = this.baseSeq
-    this.openGeneration++
+    this.advanceHistoryGeneration()
     this.loadingOlder = false
     this.stitching = false
     this.openPromise = null
@@ -862,8 +1001,17 @@ export class Session implements SessionFace {
     if (target?.kind === 'anchor' && (!Number.isSafeInteger(target.seq) || target.seq < 0)) {
       throw new Error('History reading anchor must be a non-negative safe event sequence')
     }
+    if (target?.kind === 'latest' && (this.historyOpenTarget?.kind !== 'latest' || this.olderPagePinned)) {
+      this.olderPagePinned = false
+      this.trimAfterEvents = ACTIVE_WINDOW.highEvents
+      this.trimAfterBytes = ACTIVE_WINDOW.highBytes
+      this.notifier.markDirty()
+    }
     this.historyOpenTarget = target?.kind === 'anchor' ? { kind: 'anchor', seq: target.seq }
       : target === undefined ? undefined : { kind: 'latest' }
+    // A cold reader choosing latest no longer needs the pending older page.
+    // A reconnect with committed history still restores that window atomically.
+    if (this.events.length === 0 && this.historyRestoreTarget() === undefined) this.historyRangeRead?.abort()
   }
 
   private historyRestoreTarget(): number | undefined {
@@ -882,10 +1030,16 @@ export class Session implements SessionFace {
     while (hasMore && entries[0] !== undefined && entries[0].event.seq > target) {
       const beforeSeq = entries[0].event.seq
       let response: RpcResponse<HistoryValue>
-      try { response = await this.history({ beforeSeq, maxMessages: PAGE_MESSAGES }) }
+      const read = new AbortController()
+      this.historyRangeRead = read
+      try { response = await this.history({ beforeSeq, maxMessages: PAGE_MESSAGES }, read.signal) }
       catch (error) {
         if (generation !== this.openGeneration || this.historyRestoreTarget() === undefined) return value
+        // Latest may have been superseded by a new bookmark before abort settled.
+        if (read.signal.aborted) continue
         throw error
+      } finally {
+        if (this.historyRangeRead === read) this.historyRangeRead = undefined
       }
       if (generation !== this.openGeneration) return value
       const { result } = response
@@ -915,13 +1069,17 @@ export class Session implements SessionFace {
   unloadHistory(): boolean {
     if (this.xhHistoryOwner === undefined || this.xhHistoryOwner.protected(this)) return false
     if (this.events.length) this.xhRestoreBaseSeq = this.baseSeq
-    this.openGeneration++
+    this.advanceHistoryGeneration()
     this.openPromise = null
     this.openState = 'cold'
     this.openError = null
+    this.delivery?.clear()
     this.events = []
     this.views = []
+    this.eventWeights = []
+    this.eventBytes = 0
     this.liveBuffer = []
+    this.liveBufferBytes = 0
     this.baseSeq = 0
     this.hasMore = false
     this.subscribedLastSeq = null
@@ -954,6 +1112,7 @@ export class Session implements SessionFace {
       pending: this.pendingCache.value,
       queue: this.queueMirror.snapshot(),
       running: this.running,
+      stopRequested: this.stopRequested,
       subagent: this.address === undefined
         ? null
         : { address: this.address, parentAvailable: this.parentAvailable },
@@ -976,14 +1135,16 @@ export class Session implements SessionFace {
   }
 
   /** Select ordinary or addressed history transport from the stored browser fact. */
-  private history(payload: { beforeSeq?: number; maxMessages?: number }): Promise<RpcResponse<{
+  private history(payload: { beforeSeq?: number; maxMessages?: number }, signal?: AbortSignal): Promise<RpcResponse<{
     events: HistoryEntry[]
     hasMore: boolean
     projections?: ProjectionsBaseline | undefined
   }>> {
+    const readSignal = signal === undefined ? this.historyGeneration.signal
+      : AbortSignal.any([this.historyGeneration.signal, signal])
     return this.address === undefined
-      ? this.api.sessions.history({ sessionId: this.sessionId, ...payload })
-      : this.api.subagents.history({ ...this.address, ...payload })
+      ? this.api.sessions.history({ sessionId: this.sessionId, ...payload }, readSignal)
+      : this.api.subagents.history({ ...this.address, ...payload }, readSignal)
   }
 }
 

@@ -23,3 +23,13 @@ export async function xhForkMessage(hub: InputHub, sessions: ISessions, id: stri
  if (!editor.state.editing) shell.notify('error', editor.state.error || 'Could not prepare fork draft')
  return childId
 }
+
+/** Report a failed message fork without navigating away from its source. */
+export async function xhForkAt(hub: InputHub, sessions: ISessions, id: string, seq: number): Promise<void> {
+ try {
+  const childId = await sessions.fork({ sessionId: id, atSeq: seq, increaseTitle: true })
+  sessions.open(childId)
+ } catch (error: unknown) {
+  hub.shell(id).notify('error', String(error))
+ }
+}

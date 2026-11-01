@@ -1,0 +1,76 @@
+{
+  "engine": "chromium",
+  "kind": "real Runtime/Session/assembler/InputBar + React; isolated synthetic tool loop; immediate stub RPC; no real model/app",
+  "stages": [
+    {
+      "steps": 192,
+      "events": 964,
+      "nodes": 386,
+      "contexts": 389,
+      "fillMs": 734.8000000119209,
+      "gcHeapMiB": 8.846370697021484,
+      "hotPath": {
+        "replays": 264,
+        "resolutions": 651
+      },
+      "idleStopMs": 37.58708800000022,
+      "pressuredStopMs": 188.8838109999997,
+      "burst20Ms": 173.0999999642372,
+      "pressuredSendMs": 176.94651100000192
+    },
+    {
+      "steps": 1088,
+      "events": 5458,
+      "nodes": 2185,
+      "contexts": 2195,
+      "fillMs": 3319.099999964237,
+      "gcHeapMiB": 14.4365234375,
+      "hotPath": {
+        "replays": 264,
+        "resolutions": 651
+      },
+      "idleStopMs": 18.253930999999284,
+      "pressuredStopMs": 140.5880429999961,
+      "burst20Ms": 125.89999997615814,
+      "pressuredSendMs": 154.98577099999966
+    },
+    {
+      "steps": 4160,
+      "events": 20866,
+      "nodes": 8353,
+      "contexts": 8387,
+      "fillMs": 20545,
+      "gcHeapMiB": 30.179195404052734,
+      "hotPath": {
+        "replays": 264,
+        "resolutions": 651
+      },
+      "idleStopMs": 35.370727999994415,
+      "pressuredStopMs": 279.7720299999928,
+      "burst20Ms": 264.39999997615814,
+      "pressuredSendMs": 279.27024900000833
+    },
+    {
+      "steps": 8256,
+      "events": 41410,
+      "nodes": 16577,
+      "contexts": 16643,
+      "fillMs": 53060.5,
+      "gcHeapMiB": 49.30308151245117,
+      "hotPath": {
+        "replays": 264,
+        "resolutions": 651
+      },
+      "idleStopMs": 24.706699000002118,
+      "pressuredStopMs": 455.19029600000067,
+      "burst20Ms": 438,
+      "pressuredSendMs": 461.8883069999865
+    }
+  ],
+  "baselineHeapMiB": 6.500907897949219,
+  "fixtureWindowRelease": {
+    "beforeMiB": 49.509765625,
+    "afterMiB": 10.015853881835938
+  },
+  "errors": []
+}

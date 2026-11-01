@@ -161,6 +161,11 @@ impl PluginManager {
             package_client: Arc::new(SystemPackageClient),
         })
     }
+    /// Stable local namespace for Host-owned session identities; never a model selector.
+    pub fn storage_root(&self) -> &std::path::Path {
+        &self.root
+    }
+
     pub fn with_package_client(mut self, client: Arc<dyn PackageClient>) -> Self {
         self.package_client = client;
         self

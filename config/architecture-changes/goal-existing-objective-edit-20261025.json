@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Expose a strictly scoped existing-Goal objective text editor only after user creation; fence stale definitions and invalidate old acceptance without changing lifecycle authority.",
+  "compatibility": "Existing RPCs, v1/v2 logs, user controls and verification policies remain readable and unchanged. The additive edit_objective v2 operation requires atomic validated snapshot/inbox companions. Old binaries need not understand new operations; cancellation and error outcomes still govern the revised definition.",
+  "paths": {
+    "crates/xharness-session/src/goal.rs": {
+      "before": "67b3eb57e011faa362acef12fce7327be4123e4d85c4f10cd105ee153d0afe93",
+      "after": "92b3740d164f22102f41872ea332aa94cb3baa01036902823711a4a54e94a4c5"
+    },
+    "crates/xharness-session/src/goal_validation.rs": {
+      "before": "db368617475a4626ab25d0896a63aa1985bdded97709c58f5cd1dc70e54fc607",
+      "after": "547357f818ef40c540c194ee205a9a95ceb66dd996828a972f0399e8a7ae69ca"
+    }
+  },
+  "regressions": [
+    "native",
+    "persistence",
+    "windows"
+  ]
+}

@@ -226,7 +226,10 @@ impl JobContinuationController {
     pub async fn recover(&self) -> Result<(), String> {
         let (headers, unreadable) = self
             .store
-            .scan_sessions()
+            // Full enumeration validates every transcript before the idle
+            // check below, defeating the catalogue and blocking cold readers.
+            // Candidates are only headers; unknown/pending sources still load.
+            .scan_startup_candidates()
             .await
             .map_err(|e| e.to_string())?;
         let mut errors: Vec<_> = unreadable.into_iter().map(|u| u.reason).collect();
@@ -296,8 +299,13 @@ impl JobContinuationController {
                 } else {
                     controller.reconcile().await
                 };
-                if let Err(error) = result {
-                    eprintln!("Job continuation reconciliation failed: {error}");
+                if result.is_err() {
+                    xharness_diagnostics::record_failure(
+                        xharness_diagnostics::FailureCode::JobContinuation,
+                    );
+                    xharness_diagnostics::diagnostic_stderr!(
+                        "Job continuation reconciliation failed; retry remains owned by the controller"
+                    );
                 }
             }
         }));

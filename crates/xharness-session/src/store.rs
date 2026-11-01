@@ -21,6 +21,24 @@ pub struct SessionHistoryWindow {
     pub completed_steps: Vec<(u32, u32)>,
 }
 
+/// Application-owned, read-only presentation values at a catalogue cut. This
+/// never certifies runtime recovery or replaces executable/model history.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryPresentation {
+    pub schema: String,
+    pub values: serde_json::Value,
+}
+
+/// One source-validated catalogue/presentation/page transaction. All three
+/// describe the same journal identity, checked under the store's reader lock.
+#[derive(Clone, Debug)]
+pub struct ColdHistoryWindow {
+    pub catalog: SessionCatalogEntry,
+    pub presentation: HistoryPresentation,
+    pub window: SessionHistoryWindow,
+}
+
 /// Disposable application-owned recovery projection, not a partial `Session`.
 /// Execution and model history MUST still use `Store::load`. The schema belongs
 /// to the projection owner; a mismatched schema is a cache miss.
@@ -116,9 +134,42 @@ pub enum StartupCandidate {
     Unreadable(UnreadableSession),
 }
 
+/// Application-owned reducer for public usage views only. A streaming Store
+/// calls this once per batch and never exposes a partially validated snapshot.
+/// Implementations must not retain message text or perform external side effects.
+pub trait CatalogMetricsFold: Send + 'static {
+    fn apply(&mut self, events: &[LoggedEvent]);
+    fn snapshot(&self) -> serde_json::Value;
+}
+
+/// Optional short-lived read reuse. Dropping the guard releases temporary
+/// snapshots; it grants no locks, authority, durability or stale-read immunity.
+pub trait SessionReadScope: Send {}
+impl SessionReadScope for () {}
+
 /// Durable append-only storage seam.
 #[async_trait]
 pub trait Store: Send + Sync + 'static {
+    /// Reuse validated snapshots within an admission or active model round. Stores
+    /// may decline acceleration. Every read/append must still check the current
+    /// source and normal CAS/semantic validation; no lock spans caller awaits.
+    fn read_scope(&self, _session_id: &str) -> Result<Box<dyn SessionReadScope>, StoreError> {
+        Ok(Box::new(()))
+    }
+
+    /// Optional batch-at-a-time repair of a previously source-validated
+    /// catalogue's metrics. Some is returned only after atomically publishing
+    /// the complete snapshot against the identical catalogue and journal.
+    /// None preserves the backend's existing full-load fallback. This is not
+    /// Session semantic validation and MUST NOT create a recovery stamp.
+    async fn repair_catalog_metrics(
+        &self,
+        _expected: SessionCatalogEntry,
+        _fold: Box<dyn CatalogMetricsFold>,
+    ) -> Result<Option<serde_json::Value>, StoreError> {
+        Ok(None)
+    }
+
     /// Optional read-only acceleration. None (including corruption, a torn
     /// tail or exceeded acceleration budget) requires authoritative full replay.
     async fn recovery_tail(
@@ -152,6 +203,19 @@ pub trait Store: Send + Sync + 'static {
         Ok(None)
     }
 
+    /// Read a bounded display page without recovering an Agent. Only a verified
+    /// idle catalogue with the requested presentation schema qualifies. None
+    /// preserves the caller's existing authoritative recovery/history fallback.
+    async fn cold_history_window(
+        &self,
+        _session_id: &str,
+        _schema: &str,
+        _before_seq: Option<u64>,
+        _max_messages: usize,
+    ) -> Result<Option<ColdHistoryWindow>, StoreError> {
+        Ok(None)
+    }
+
     /// Optional fast catalogue lookup. None means missing/stale/unusable and
     /// must never be interpreted as proof that no work needs recovery.
     async fn catalog_entry(
@@ -164,6 +228,16 @@ pub trait Store: Send + Sync + 'static {
     /// Best-effort rebuildable index publication after a verified full replay.
     async fn publish_catalog_entry(&self, _entry: SessionCatalogEntry) -> Result<(), StoreError> {
         Ok(())
+    }
+
+    /// Publish presentation values with the same source-bound catalogue stamp.
+    /// Older backends keep metadata publication and simply miss cold display reads.
+    async fn publish_catalog_presentation(
+        &self,
+        entry: SessionCatalogEntry,
+        _presentation: HistoryPresentation,
+    ) -> Result<(), StoreError> {
+        self.publish_catalog_entry(entry).await
     }
 
     /// Persist the exact tool-returned envelope before publishing a reduced result.
@@ -261,6 +335,15 @@ pub trait Store: Send + Sync + 'static {
 
     /// Atomically register an empty session. Existing ids are never replaced.
     async fn create(&self, header: SessionHeader) -> Result<Session, StoreError>;
+
+    /// Atomically publish a validated, complete new journal without flattening
+    /// its revisions, sequence numbers or timestamps. Existing ids are never
+    /// replaced; unsupported backends must fail before publishing anything.
+    async fn create_seeded(&self, _session: Session) -> Result<Session, StoreError> {
+        Err(StoreError::Backend {
+            message: "atomic seeded session creation is unsupported".into(),
+        })
+    }
 
     /// Load one complete logical snapshot.
     async fn load(&self, session_id: &str) -> Result<Option<Session>, StoreError>;
@@ -410,6 +493,50 @@ impl Store for MemorySessionStore {
             });
         }
         sessions.insert(session.header().id.clone(), session.clone());
+        Ok(session)
+    }
+
+    async fn create_seeded(&self, session: Session) -> Result<Session, StoreError> {
+        let mut sessions = self.sessions.write().await;
+        let id = session.header().id.clone();
+        if sessions.contains_key(&id) {
+            return Err(StoreError::AlreadyExists { session_id: id });
+        }
+        if let Some(crate::EventData::SessionForkOrigin {
+            parent_session_id, ..
+        }) = session.events().last().map(|event| event.data())
+        {
+            let mut archives = self.tool_archives.write().await;
+            let mut staged = HashMap::new();
+            for event in session.events() {
+                let crate::EventData::ToolResult { result, .. } = event.data() else {
+                    continue;
+                };
+                let reference = serde_json::from_str::<serde_json::Value>(&result.content)
+                    .ok()
+                    .and_then(|v| v.get("archive").cloned())
+                    .and_then(|v| serde_json::from_value::<crate::ToolArchiveRef>(v).ok());
+                if let Some(reference) = reference {
+                    let target = (id.clone(), reference.sha256.clone());
+                    if staged.contains_key(&target) {
+                        continue;
+                    }
+                    let text = archives
+                        .get(&(parent_session_id.clone(), reference.sha256.clone()))
+                        .ok_or_else(|| StoreError::Backend {
+                            message: "fork's referenced original tool result is unavailable".into(),
+                        })?;
+                    if crate::ToolArchiveRef::for_text(text)? != reference {
+                        return Err(StoreError::Backend {
+                            message: "fork tool archive reference mismatch".into(),
+                        });
+                    }
+                    staged.insert(target, text.clone());
+                }
+            }
+            archives.extend(staged);
+        }
+        sessions.insert(id, session.clone());
         Ok(session)
     }
 

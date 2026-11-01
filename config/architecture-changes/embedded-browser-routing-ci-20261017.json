@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Enroll the offline browser-routing fixture and behavioral oracle selftests in the existing architecture CI job.",
+  "compatibility": "No existing CI checks, matrix platforms, permissions or required gates are removed or weakened. The added standard-library test makes no model, network, browser or desktop calls and needs no secrets.",
+  "paths": {
+    ".github/workflows/ci.yml": {
+      "before": "d7644bf1a32fa5825a13727cd8878e78e813aecc42f33f71b4f2e14c0c998d8a",
+      "after": "59b10a33da178d71564743884562019134e6a4d8cfe6ab66abeee9d5fbe0db74"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}

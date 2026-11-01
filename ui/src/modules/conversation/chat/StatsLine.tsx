@@ -3,11 +3,11 @@
 // active conversation scrollport (see ConversationRoot data-conversation-scroll).
 
 import { throughput } from '../../shared/reception-metrics'
-import { Fragment, memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Tooltip } from '../primitives'
+import { memo, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { IconChecklistOutline14 } from '../primitives'
 import type { ConversationSnapshot, UseProjection } from "../types/runtime"
 import type { SnapshotSelectorHook } from "../types/slots"
-import type { ContextPressureProjection, TokenUsageProjection } from "../types/wire"
+import type { ContextComposition, ContextPressureProjection, TokenUsageProjection } from "../types/wire"
 import type { ComposerBarProps } from '../contract/slots'
 import { formatTokensPerSecond } from './message-chrome'
 import { assistantStepReading } from './turn-metrics'
@@ -129,33 +129,25 @@ interface ContextOccupancy {
   label: string
   accuracy: string
   stale: boolean
+  composition?: ContextComposition | undefined
 }
 
-/**
- * Approximate context occupancy, using the TUI's integer rounding and upper
- * clamp. The numerator is `projectedTokens` — the provider sample carried
- * forward over the surface's movement since — so compaction shows immediately
- * instead of waiting for the next request to report usage; it falls back to the
- * bare sample only for a log whose projection predates that field. Numerator
- * and capacity remain independent last-wins projection fields, so this is a
- * reference figure rather than an exact measurement of one request (see the
- * token-meter README).
- * @param pressure - the session's context-pressure projection value.
- * @returns occupancy with its numerator and denominator, or null until both values are known.
+/** The ring is a request-bound provider sample, never an admission byte ceiling.
+ * Pending estimates remain separate so preparation/interruptions cannot reprice
+ * an earlier sample or swap its composition with a different request's shares.
  */
 export function contextOccupancy(
   pressure: ContextPressureProjection | undefined,
 ): ContextOccupancy | null {
-  const measured = Number.isFinite(pressure?.pressureTokens)
-  const usedTokens = measured ? pressure?.pressureTokens : pressure?.projectedTokens
-  const accuracy = measured ? (pressure?.pressureAccuracy ?? 'provider_reported') : (pressure?.projectedAccuracy ?? pressure?.accuracy ?? 'estimated')
-  const exact = measured ? accuracy === 'provider_reported' : ['exact_request', 'exact_tokenizer'].includes(accuracy)
-  const stale = pressure?.phase === 'history_changed'
-  const label = (measured ? '最近请求实际输入' : stale ? '最近请求输入计数' : '本次请求输入计数') + (!measured && !exact ? '（估算）' : '') + (stale ? ' · 历史已变化' : '')
-  const contextWindow = pressure?.contextWindow
-  if (usedTokens === undefined || !Number.isFinite(usedTokens) || usedTokens < 0 || contextWindow === undefined || !Number.isFinite(contextWindow) || contextWindow <= 0) return null
-  return { percent: Math.min(100, Math.round(usedTokens / contextWindow * 100)), usedTokens, contextWindow, exact, label, accuracy, stale }
-
+  const current = pressure?.pressureTokens
+  const measured = Number.isSafeInteger(current) && (current ?? -1) >= 0 && (pressure?.pressureAccuracy ?? 'provider_reported') === 'provider_reported'
+  const sample = pressure?.lastMeasured ?? (measured ? { tokens: current, contextWindow: pressure?.contextWindow, composition: pressure?.composition } : undefined)
+  const usedTokens = sample?.tokens, contextWindow = sample?.contextWindow
+  if (usedTokens === undefined || !Number.isSafeInteger(usedTokens) || usedTokens < 0 || contextWindow === undefined || !Number.isSafeInteger(contextWindow) || contextWindow <= 0) return null
+  // Keep the sample's own denominator even if route capacity changes meanwhile.
+  const stale = !measured || pressure?.phase === 'history_changed'
+  const label = '最近请求实际输入' + (stale ? ' · 待更新' : '')
+  return { percent: Math.min(100, Math.round(usedTokens / contextWindow * 100)), usedTokens, contextWindow, exact: true, label, accuracy: 'provider_reported', stale, composition: sample?.composition }
 }
 
 /** Props: the conversation-snapshot selector plus the projection read seat. */
@@ -167,6 +159,28 @@ export interface StatsLineProps {
 }
 
 export const StatsLine = memo(function StatsLine({ useSession, useProjection, t }: StatsLineProps) {
+  const disclosureRef = useRef<HTMLDivElement | null>(null)
+  const [open, setOpen] = useState(false)
+  const panelId = useId()
+  useEffect(() => {
+    if (!open) return
+    const closeOutside = (event: PointerEvent): void => {
+      const disclosure = disclosureRef.current
+      if (disclosure !== null && event.target instanceof Node && !disclosure.contains(event.target)) setOpen(false)
+    }
+    const closeEscape = (event: globalThis.KeyboardEvent): void => {
+      const disclosure = disclosureRef.current
+      if (event.key !== 'Escape' || disclosure === null) return
+      setOpen(false)
+      disclosure.querySelector('button')?.focus()
+    }
+    document.addEventListener('pointerdown', closeOutside)
+    document.addEventListener('keydown', closeEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside)
+      document.removeEventListener('keydown', closeEscape)
+    }
+  }, [open])
   const settledNodes = useSession(s => s.chat.legacy.nodes)
   const usage = useProjection('tokenUsage')
   // Every figure rides the durable sessionStats projection, so paging and
@@ -175,8 +189,11 @@ export const StatsLine = memo(function StatsLine({ useSession, useProjection, t 
   // while no projection value is served.
   const projected = useProjection('sessionStats')
   const stats = useMemo(() => projected ?? deriveStats(settledNodes), [projected, settledNodes])
-  // Pipe-separated groups (figma stats strip); a group with no data drops out whole.
+  // Groups with no data drop out whole; all reported metrics remain available.
   const groups: string[] = []
+  const rateTotals = projected?.activeThroughput ?? stats
+  const rate = throughput(rateTotals.decodeTokens, rateTotals.decodeMs)
+  const rateLabel = rate === null ? null : t('stats.tokensPerSecond', { throughput: formatTokensPerSecond(rate) })
   if (stats.steps > 0) {
     groups.push(t('stats.counts', { turns: stats.turns, steps: stats.steps }))
     const durations: string[] = []
@@ -187,9 +204,7 @@ export const StatsLine = memo(function StatsLine({ useSession, useProjection, t 
     if (stats.ttftSteps > 0) {
       speeds.push(t('stats.ttftAverage', { duration: formatDuration(stats.ttftMs / stats.ttftSteps) }))
     }
-    const rateTotals = projected?.activeThroughput ?? stats
-    const rate = throughput(rateTotals.decodeTokens,rateTotals.decodeMs)
-    if (rate !== null) speeds.push(t('stats.tokensPerSecond', { throughput:formatTokensPerSecond(rate) }))
+    if (rateLabel !== null) speeds.push(rateLabel)
     if (speeds.length > 0) groups.push(speeds.join(' · '))
   }
   // Context occupancy deliberately lives on the composer's ContextMeter ring,
@@ -207,32 +222,18 @@ export const StatsLine = memo(function StatsLine({ useSession, useProjection, t 
       output: formatTokens(usage.outputTokens),
     }))
   }
-  const line = groups.join(' | ')
-  // The row elides with ellipsis when overlong; a delayed hover tooltip carries
-  // the full line, enabled only while content is actually clipped.
-  const rootRef = useRef<HTMLDivElement | null>(null)
-  const [truncated, setTruncated] = useState(false)
-  useLayoutEffect(() => {
-    const el = rootRef.current
-    if (el === null) return
-    const measure = () => { setTruncated(el.scrollWidth > el.clientWidth) }
-    measure()
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(measure)
-    observer.observe(el)
-    return () => { observer.disconnect() }
-  }, [line])
   if (groups.length === 0) return null
+  // Explicit disclosure keeps off-card content accessible in WebKit as well
+  // as Chromium. It owns only open state, never token accounting.
   return (
-    <Tooltip label={line} side="top" delayMs={500} disabled={!truncated}>
-      <div ref={rootRef} className={css.root}>
-        {groups.map((group, i) => (
-          <Fragment key={group}>
-            {i > 0 && <><span className={css.sep} aria-hidden>|</span>{' '}</>}
-            <span>{group}</span>
-          </Fragment>
-        ))}
-      </div>
-    </Tooltip>
+    <div ref={disclosureRef} className={css.root} data-composer-stats data-expanded={open || undefined}>
+      <button type="button" className={css.summary} aria-label={t('stats.title')} title={t('stats.title')}
+        aria-expanded={open} aria-controls={open ? panelId : undefined} onClick={() => {setOpen(!open)}}>
+        <IconChecklistOutline14 />
+      </button>
+      {open && <div id={panelId} className={css.details} role="region" aria-label={t('stats.title')}>
+        {groups.map(group => <div key={group}>{group}</div>)}
+      </div>}
+    </div>
   )
 })

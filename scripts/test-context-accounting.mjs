@@ -1,5 +1,6 @@
+import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
 import {verifyConversationArtifact,legacyConversation} from './conversation-artifact-test.mjs';
-import {verifyConnectionArtifact,exposeConnection} from './connection-artifact-test.mjs';
+import {verifyConnectionArtifact,verifyFixtureConnectionArtifact,exposeConnection} from './connection-artifact-test.mjs';
 import {conversationFixture} from './fixtures/conversation-source-fixture.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -15,15 +16,18 @@ assert.equal(patchContextComposition(golden).toString(),golden.toString());
 const source=bytes.toString().match(/function contextOccupancy\(pressure\) \{[\s\S]*?\n\t\t\}/)?.[0];if(!native)assert.ok(source);
 const fn=native?conversationFixture(bytes.toString(),['contextOccupancy']).api.contextOccupancy:vm.runInNewContext('('+source+')');
 let x=fn({pressureTokens:117446,projectedTokens:415395,contextWindow:1000000});assert.equal(x.usedTokens,117446);assert.equal(x.percent,12);assert.equal(x.exact,true);
-x=fn({projectedTokens:415395,contextWindow:1000000,accuracy:'estimated'});assert.equal(x.exact,false);assert.match(x.label,/估算/);
-x=fn({projectedTokens:117446,contextWindow:1000000,accuracy:'exact_request'});assert.equal(x.exact,true);
+assert.equal(fn({projectedTokens:415395,contextWindow:1000000,accuracy:'estimated'}),null);
+assert.equal(fn({projectedTokens:117446,contextWindow:1000000,accuracy:'exact_request'}),null);
 for(const p of [{}, {projectedTokens:1,contextWindow:0},{projectedTokens:NaN,contextWindow:1},{pressureTokens:-1,contextWindow:100}])assert.equal(fn(p),null);
 assert.equal(fn({pressureTokens:0,contextWindow:100}).usedTokens,0);
 console.log('context accounting: actual/estimate/unknown/zero/capacity/idempotence passed');
-const connection=readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-connection/client.js',import.meta.url),'utf8');
+const productionConnection=verifyConnectionArtifact();
+assert.doesNotMatch(productionConnection,/FixtureApiClient|function contextPressureOf\(/,'release connection excludes fixture reducers');
+assert.throws(()=>exposeConnection(productionConnection,['contextPressureOf']),/explicit fixture build/);
+const connection=verifyFixtureConnectionArtifact();
 const connectionGolden=readFileSync(new URL('../ui/reference/master-a613970/plugins/@xharness/dsh-client-connection/client.js',import.meta.url));assert.equal(patchContextCompositionConnection(connectionGolden).toString(),connectionGolden.toString());
 const replaySource=connection.slice(connection.indexOf('function contextPressureOf(log) {'),connection.indexOf('\n\t\tfunction projectionValuesOf'));
-let connectionRegistration;let replay;if(connection.startsWith('// Generated')){vm.runInNewContext(exposeConnection(verifyConnectionArtifact(),['contextPressureOf']),{window:{__ModuleLoader__:{load:r=>connectionRegistration=r}},console,URL,AbortController,setTimeout,clearTimeout});replay=connectionRegistration.factory(id=>id==='@xharness/cordis'?{Service:class{}}:{}).contextPressureOf;}else replay=vm.runInNewContext('('+replaySource+')',{usageSampleOf:e=>e.type==='assistant/chunk'?{...e.data,usage:e.data.chunk.usage}:undefined});
+let connectionRegistration;let replay;if(connection.startsWith('// Generated')){vm.runInNewContext(exposeConnection(connection,['contextPressureOf'],{variant:'fixture'}),{window:{__ModuleLoader__:{load:r=>connectionRegistration=r}},console,URL,AbortController,setTimeout,clearTimeout});replay=connectionRegistration.factory(id=>id==='zod'?sharedVendors.zod:id==='@xharness/cordis'?{Service:class{}}:{}).contextPressureOf;}else replay=vm.runInNewContext('('+replaySource+')',{usageSampleOf:e=>e.type==='assistant/chunk'?{...e.data,usage:e.data.chunk.usage}:undefined});
 const event=(type,data)=>({type,data});
 const start=step=>event('step/start',{turn:1,step});
 const usage=(step,n)=>event('assistant/chunk',{turn:1,step,chunk:{type:'usage',usage:{inputTokens:n,cacheReadTokens:100,outputTokens:0}}});
@@ -43,15 +47,16 @@ for(const accuracy of ['estimated','calibrated']) {
  assert.equal(p.pressureAccuracy,'provider_reported');assert.equal(p.projectedAccuracy,accuracy);
  assert.equal(fn(p).accuracy,'provider_reported');
  p={...p,pressureTokens:undefined};
- assert.equal(fn(p).exact,false);assert.equal(fn(p).accuracy,accuracy);
+ assert.equal(fn(p).exact,true);assert.equal(fn(p).accuracy,'provider_reported');
+ assert.equal(fn(p).usedTokens,300,'lastMeasured remains distinct from preflight');
  const stale=replay([...h,event('compaction/summary',{}),usage(1,200)]);
- assert.equal(stale.phase,'history_changed');assert.equal(fn(stale).stale,true);assert.match(fn(stale).label,/历史已变化/);
+ assert.equal(stale.phase,'history_changed');assert.equal(fn(stale).stale,true);assert.match(fn(stale).label,/待更新/);
  assert.equal(stale.projectedTokens,600,'no invented post-compaction prediction');
 }
 const noUsage=replay([start(1),event('request/header',{header:{options:{tokenBudget:{context_window_tokens:1000,accuracy:'exact_tokenizer',estimate:{total_input_tokens:200}}}}}),event('turn/end',{})]);
-assert.equal(noUsage.phase,'unmeasured');assert.equal(fn(noUsage).exact,true);assert.equal(noUsage.pressureTokens,undefined);
-assert.equal(fn({projectedTokens:100,contextWindow:1000,accuracy:'provider_reported'}).exact,false,'legacy shared accuracy cannot turn a preflight estimate into an exact count');
-assert.equal(fn({projectedTokens:1100,contextWindow:1000,projectedAccuracy:'estimated'}).percent,100);
+assert.equal(noUsage.phase,'unmeasured');assert.equal(fn(noUsage),null);assert.equal(noUsage.pressureTokens,undefined);
+assert.equal(fn({projectedTokens:100,contextWindow:1000,accuracy:'provider_reported'}),null,'legacy shared accuracy cannot turn a preflight estimate into an exact count');
+assert.equal(fn({projectedTokens:1100,contextWindow:1000,projectedAccuracy:'estimated'}),null);
 console.log('context precision: independent readings / calibrated / compaction / late usage / legacy / failed request passed');
 
 // The composer control must retain the same 28px slot while a new step clears
@@ -75,6 +80,7 @@ const zh={
   'context.aria':'上下文已用 {percent}',
   'context.pending':'正在计算上下文',
   'context.unavailable':'暂无上下文读数',
+  'context.unmeasured':'尚无实测用量',
 };
 function renderMeter(pressure,locale=zh) {
   const tree=meter({useProjection:key=>key==='contextPressure'?pressure:undefined,
@@ -93,15 +99,15 @@ assert.equal(pending.button.props['aria-haspopup'],undefined);
 assert.match(pending.circle.props.strokeDasharray,/^0 /);
 const estimate=renderMeter({contextWindow:1000,projectedTokens:400,projectedAccuracy:'estimated',phase:'in_flight'});
 assert.equal(estimate.button.props.disabled,false);
-assert.equal(estimate.button.props['aria-label'],'上下文已用 ≈40%');
-assert.match(estimate.circle.props.strokeDasharray,/^[1-9]/);
+assert.equal(estimate.button.props['aria-label'],'正在计算上下文');
+assert.match(estimate.circle.props.strokeDasharray,/^0 /,'no byte estimate on main ring');
 const nextStep=renderMeter({contextWindow:1000,phase:'preparing'});
 assert.equal(nextStep.tree.props.className,estimate.tree.props.className);
 assert.equal(nextStep.button.props.disabled,true,'never reuse the previous step as current');
 assert.doesNotMatch(nextStep.button.props['aria-label'],/40%/);
 const changedModel=renderMeter({});
 assert.equal(changedModel.button.props.disabled,true);
-assert.equal(changedModel.button.props['aria-label'],'暂无上下文读数');
+assert.equal(changedModel.button.props['aria-label'],'尚无实测用量');
 const missingCapacity=renderMeter({pressureTokens:500,composition:{systemTokens:50,totalInputTokens:50,accuracy:'estimated'}});
 assert.equal(missingCapacity.button.props.disabled,true,'composition alone cannot establish capacity');
 assert.match(missingCapacity.circle.props.strokeDasharray,/^0 /);
@@ -122,8 +128,8 @@ assert.equal(arcs[4].props.stroke,'#a78bfa');
 assert.equal(arcs[5].props.stroke,'#9b9b9b');
 assert.equal(arcs.reduce((sum,arc)=>sum+Number(arc.props.strokeDasharray.split(' ')[0]),0),Math.PI*5.5);
 const en=renderMeter({}, {'context.aria':'{percent} of context used',
-  'context.pending':'Calculating context usage','context.unavailable':'Context usage unavailable'});
-assert.equal(en.button.props['aria-label'],'Context usage unavailable');
+  'context.pending':'Calculating context usage','context.unavailable':'Context usage unavailable','context.unmeasured':'No measured input yet'});
+assert.equal(en.button.props['aria-label'],'No measured input yet');
 assert.match(bundle,/['"]context\.pending['"]:\s*['"]正在计算上下文['"]/);
 assert.match(bundle,/['"]context\.pending['"]:\s*['"]Calculating context usage['"]/);
 const graph=JSON.parse(readFileSync(new URL('../ui/dist/client-graph.json',import.meta.url)));
@@ -132,3 +138,58 @@ assert.equal(entry.rev,createHash('sha256').update(bytes).digest('hex').slice(0,
 const html=readFileSync(new URL('../ui/dist/index.html',import.meta.url),'utf8');
 assert.ok(html.includes(entry.url));
 console.log('context meter: stable slot / no stale reading / unavailable / measured / bilingual / revision passed');
+
+// Authorship is independent of role, and old role-only snapshots are never
+// relabelled as human-authored. Execute the actual shipped expanded panel.
+const expanded=conversationFixture(bundle,['ContextMeter','en'],{react:{useState:()=>[true,()=>{}]}}).api;
+function textOf(node) {
+  if(node===null||node===undefined||typeof node==='boolean')return '';
+  if(typeof node==='string'||typeof node==='number')return String(node);
+  if(Array.isArray(node))return node.map(textOf).join('');
+  return textOf(node.props?.children);
+}
+function descendants(node,type,result=[]) {
+  if(Array.isArray(node)){for(const child of node)descendants(child,type,result);return result;}
+  if(!node||typeof node!=='object')return result;
+  if(node.type===type)result.push(node);
+  descendants(node.props?.children,type,result);return result;
+}
+function categoryPanel(composition) {
+ const tree=expanded.ContextMeter({useProjection:()=>({contextWindow:1000,pressureTokens:500,pressureAccuracy:'provider_reported',composition}),t:key=>expanded.en[key]??key});
+ const labels=descendants(tree,'dt').map(textOf), amounts=descendants(tree,'dd').map(textOf);
+ return {tree,labels,amounts};
+}
+const origins={attributionVersion:2,systemTokens:5,userTokens:2,agentReportTokens:40,runtimeContextTokens:20,checkpointTokens:10,unattributedTokens:3,assistantTokens:10,toolResultTokens:5,toolDefinitionTokens:4,protocolTokens:1,totalInputTokens:100,accuracy:'estimated'};
+const authored=categoryPanel(origins);
+assert.deepEqual(authored.labels,['System prompt','Your messages','Agent reports','Runtime context','Checkpoints','Unattributed context','Assistant','Tool results','Tools','Protocol overhead']);
+assert.equal(authored.amounts[1],'≈10');assert.equal(authored.amounts[2],'≈200');
+assert.equal(authored.amounts.reduce((sum,value)=>sum+Number(value.slice(1)),0),500,'rows scale to the measured total, not cumulative billing');
+const legacyPanel=categoryPanel(composition);
+assert.ok(legacyPanel.labels.includes('User-role history (source unknown)'));
+assert.ok(!legacyPanel.labels.includes('Your messages'),'legacy role totals cannot claim human authorship');
+const absentHuman=categoryPanel({...origins,userTokens:0});
+assert.ok(!absentHuman.labels.includes('Your messages'));
+assert.ok(absentHuman.labels.includes('Agent reports'));
+const invalidPanel=categoryPanel({...origins,userTokens:NaN,agentReportTokens:Infinity,runtimeContextTokens:-1});
+assert.ok(!invalidPanel.labels.includes('Your messages'));assert.ok(!invalidPanel.labels.includes('Agent reports'));assert.ok(!invalidPanel.labels.includes('Runtime context'));
+const newEvents=[start(1),event('request/header',{header:{options:{tokenBudget:{contextWindowTokens:1000,estimate:{totalInputTokens:100}},contextComposition:origins}}}),usage(1,400),event('user/message',{})];
+const newReplay=replay(newEvents);
+assert.equal(JSON.stringify(newReplay.composition),JSON.stringify(origins));
+assert.equal(newReplay.pressureTokens,500);assert.equal(newReplay.phase,'history_changed');
+assert.equal(replay([...newEvents,start(2)]).composition,undefined);
+console.log('context provenance: human / agent / runtime / checkpoint / unknown / legacy / invalid / measured total / replay passed');
+
+// Reproduce jev's 7.32K -> 315K estimate without repricing the ring or its shares.
+const jev=[...history,start(2),event('request/header',{header:{options:{tokenBudget:{contextWindowTokens:1000,accuracy:'conservative_upper_bound',estimate:{totalInputTokens:315420}},contextComposition:{toolResultTokens:285416}}}})];
+for(const tail of [[],[event('turn/end',{})],[event('compaction/summary',{})]]) {
+ const value=replay([...jev,...tail]);
+ assert.equal(value.lastMeasured.tokens,300);
+ assert.equal(fn(value).usedTokens,300);
+ assert.equal(fn(value).stale,true);
+ const panel=expanded.ContextMeter({useProjection:()=>value,t:key=>expanded.en[key]??key});
+ assert.match(textOf(panel),/Admission byte ceiling \(not measured\)/);
+ assert.match(textOf(panel),/315K/);
+ assert.doesNotMatch(textOf(panel),/≈30%/);
+}
+assert.equal(replay([...jev,event('session/model-selected',{})]).lastMeasured,undefined);
+console.log('context stability: measured identity + interrupted byte ceiling + compaction + model isolation passed');

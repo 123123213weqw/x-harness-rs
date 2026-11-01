@@ -82,6 +82,24 @@ try {
   assert.equal(await page.evaluate(() => calls.some(x => x.command === 'desktop_browser_access')), false)
   assert.equal(await page.evaluate(() => calls.some(x => /inspect|perform/.test(x.command))), false, 'binding itself must not execute a model action')
 
+  // A redundant geometry sample during grant acknowledgement must not revoke
+  // an unchanged visible owner. Observe every IPC, not only the final state.
+  await page.evaluate(() => { holdGrant = true; grantStarted = false; setSession('session-layout') })
+  await page.waitForFunction(() => grantStarted)
+  const layoutStart = await page.evaluate(() => calls.length)
+  await page.evaluate(() => window.dispatchEvent(new Event('resize')))
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  await page.evaluate(() => releaseGrant())
+  await page.waitForFunction(() => lease?.owner === 'session-layout')
+  const reloads = await page.evaluate(() => calls.filter(x => x.command === 'desktop_browser_action').length)
+  await page.getByRole('button', { name: '刷新', exact: true }).click()
+  await page.waitForFunction(count => calls.filter(x => x.command === 'desktop_browser_action').length > count, reloads)
+  assert.equal(await page.evaluate(start => calls.slice(start).some(x =>
+    x.command === 'desktop_browser_activate' && x.args.tabId === null), layoutStart), false,
+  'a superseding visible layout sample must not revoke its acknowledged grant')
+  await page.evaluate(() => setSession('session-parent'))
+  await page.waitForFunction(() => lease?.owner === 'session-parent')
+
   // Hidden native pages cannot cover local/global overlays or remain agent-accessible.
   await page.getByRole('button', { name: '下载记录', exact: true }).click()
   await page.waitForFunction(() => active === null && lease === null)
@@ -92,7 +110,7 @@ try {
   await page.getByRole('button', { name: '下载记录', exact: true }).click()
   await page.waitForFunction(() => active === 'browser:1' && lease?.owner === 'session-parent')
   await page.evaluate(() => {
-    const modal = document.createElement('div'); modal.role = 'dialog'; modal.textContent = 'fixture modal';
+    const modal = document.createElement('div'); modal.role = 'dialog'; modal.setAttribute('aria-modal', 'true'); modal.textContent = 'fixture modal';
     document.querySelector('[data-shell-overlay]').append(modal)
   })
   await page.waitForFunction(() => active === null && lease === null)
@@ -106,6 +124,28 @@ try {
   })
   await page.waitForFunction(() => active === null && lease === null)
   await page.evaluate(() => document.getElementById('global-model-menu').remove())
+  await page.waitForFunction(() => active === 'browser:1' && lease?.owner === 'session-parent')
+
+  // A chat-local nonmodal dialog must keep the acknowledged owner and expiry,
+  // not merely restore a freshly delegated lease after flashing the page blank.
+  const nonmodalStart = await page.evaluate(() => calls.length)
+  const originalLease = await page.evaluate(() => lease)
+  await page.evaluate(() => {
+    const panel = document.createElement('div'); panel.id = 'chat-local-dialog'
+    panel.role = 'dialog'; panel.setAttribute('aria-modal', 'false'); panel.textContent = 'Context usage'
+    panel.style.cssText = 'position:fixed;left:650px;top:180px;width:200px;height:120px'
+    document.body.append(panel)
+  })
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  const actions = await page.evaluate(() => calls.filter(x => x.command === 'desktop_browser_action').length)
+  await page.getByRole('button', { name: '刷新', exact: true }).click()
+  await page.waitForFunction(count => calls.filter(x => x.command === 'desktop_browser_action').length > count, actions)
+  assert.equal(await page.evaluate(() => active), 'browser:1')
+  assert.deepEqual(await page.evaluate(() => lease), originalLease, 'a non-overlapping dialog must preserve the same access lease')
+  assert.equal(await page.evaluate(start => calls.slice(start).some(x => x.command === 'desktop_browser_delegate' || x.command === 'desktop_browser_navigate' || (x.command === 'desktop_browser_activate' && x.args.tabId === null)), nonmodalStart), false)
+  await page.evaluate(() => document.getElementById('chat-local-dialog').style.left = '300px')
+  await page.waitForFunction(() => active === null && lease === null)
+  await page.evaluate(() => document.getElementById('chat-local-dialog').remove())
   await page.waitForFunction(() => active === 'browser:1' && lease?.owner === 'session-parent')
 
   // The same visible tab is rebound to the actual selected chat, not inherited.

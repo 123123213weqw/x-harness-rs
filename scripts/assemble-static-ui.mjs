@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Self-contained XHarness UI assembly. All inputs live under this repository's
 // ui/ tree; product modules and the browser platform are built from source.
+import { assertVariant, assertProductionSources, moduleRowsForVariant } from './ui-build-variant.mjs'
 import { execFileSync } from 'node:child_process'
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve, sep, basename } from 'node:path'
@@ -17,18 +18,22 @@ import { run as checkFileDisplayContract } from './generate-file-display-contrac
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const ui = join(repoRoot, 'ui')
 const args = process.argv.slice(2)
-let output = join(ui, 'dist'), check = false, hasOutput = false
+let output = join(ui, 'dist'), check = false, hasOutput = false, variant = 'production', hasVariant = false
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--out-dir' && !hasOutput && args[i + 1]) { output = resolve(args[++i]); hasOutput = true }
+  else if (args[i] === '--variant' && !hasVariant && args[i + 1]) { variant = args[++i]; hasVariant = true }
   else if (args[i] === '--check' && !check) check = true
-  else throw Error('usage: assemble-static-ui.mjs [--out-dir PATH] [--check]; no external source directory is accepted')
+  else throw Error('usage: assemble-static-ui.mjs [--out-dir PATH] [--variant production|fixture] [--check]; no external source directory is accepted')
 }
+assertVariant(variant)
+if (variant === 'fixture' && (!hasOutput || output === join(ui, 'dist'))) throw Error('Fixture builds require a separate --out-dir outside the repository')
 if (output === repoRoot || repoRoot.startsWith(output + sep) || (output.startsWith(repoRoot + sep) && output !== join(ui, 'dist'))) throw Error('Output would overwrite repository inputs')
 if (existsSync(output) && lstatSync(output).isSymbolicLink()) throw Error('Output must not be a symlink')
 if (existsSync(output) && !lstatSync(output).isDirectory()) throw Error('Output must be a directory')
 mkdirSync(dirname(output), { recursive: true })
 output = join(realpathSync(dirname(output)), basename(output))
 if (output === repoRoot || repoRoot.startsWith(output + sep) || (output.startsWith(repoRoot + sep) && output !== join(ui, 'dist'))) throw Error('Output parent aliases repository inputs')
+if (variant === 'fixture' && output === join(ui, 'dist')) throw Error('Fixture output aliases production output')
 if (!check && output !== join(ui, 'dist') && existsSync(output)) {
   const marker = join(output, OUTPUT_MARKER)
   if (!existsSync(marker) || JSON.parse(readFileSync(marker, 'utf8')).builder !== 'xharness-self-contained-ui') throw Error('Refusing to replace an unowned output directory')
@@ -44,9 +49,11 @@ if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.modules) || !manifes
 if (manifest.modules.some(row => !['source-module', 'plugin-api-ts'].includes(row.kind))) throw Error('Production modules must compile from owned TypeScript source')
 if (manifest.bootTemplate?.source !== 'src/index.template.html' || manifest.platform?.kind !== 'source-platform') throw Error('Production boot must compile the owned browser platform')
 if (manifest.assets.some(row => row.source.startsWith('legacy/')) || manifest.frozenOverrides !== undefined) throw Error('Legacy references are test-only, not production assembly inputs')
-const sourceModules = compileSourceModules(ui, manifest.modules.filter(row => row.kind === 'source-module'))
+const moduleRows = moduleRowsForVariant(manifest.modules, variant)
+const sourceModules = compileSourceModules(ui, moduleRows.filter(row => row.kind === 'source-module'), {variant})
+if (variant === 'production') assertProductionSources(manifest.assets.map(row => row.source))
 const scriptAssets = compileScriptAssets(ui, manifest.assets.filter(row => row.kind === 'script-ts'))
-const modules = orderModules(manifest.modules.map(row => sourceModules.has(row.id)
+const modules = orderModules(moduleRows.map(row => sourceModules.has(row.id)
   ? { ...row, external: [...new Set([...(row.external ?? []), ...sourceModules.get(row.id).external])] }
   : row))
 const startupStyle = readInput(ui, {source:'src/startup/surface.raw.css'}).toString('utf8')
@@ -62,6 +69,10 @@ const desktopHtml = replaceOnce(replaceOnce(desktopTemplate, '__XHARNESS_STARTUP
 const desktopOutput = join(repoRoot, 'apps/desktop/frontend/index.html')
 if (manifest.platform !== undefined && manifest.platform.kind !== 'source-platform') throw Error('Invalid source platform kind')
 const platform = manifest.platform ? compilePlatformUi(ui, manifest.platform) : undefined
+if (variant === 'production') assertProductionSources([
+  ...[...scriptAssets.values()].flatMap(result => result.sources.map(row => row.source)),
+  ...(platform?.inputs.map(row => row.source) ?? []),
+])
 const stage = mkdtempSync(join(dirname(output), '.xharness-ui-stage-'))
 try {
   const files = new Map(), entries = []
@@ -108,7 +119,7 @@ try {
   const graph = { rev: revision(JSON.stringify(entries)), entries }
   put('client-graph.json', `${JSON.stringify(graph, null, 2)}\n`)
   put('index.html', renderBoot(template, graph, files, platform ? {...platform, preloadBootBytes: platform.inlineBootBytes.toString('utf8')} : undefined))
-  put(OUTPUT_MARKER, `${JSON.stringify({ schemaVersion: 1, builder: 'xharness-self-contained-ui' })}\n`)
+  put(OUTPUT_MARKER, `${JSON.stringify({ schemaVersion: 1, builder: 'xharness-self-contained-ui', variant, moduleSources: Object.fromEntries([...sourceModules].map(([id, result]) => [id, result.sources])) })}\n`)
   const inventory = Object.fromEntries([...files].sort(([a], [b]) => a.localeCompare(b, 'en')).map(([path, bytes]) => [path, { sha256: sha256(bytes), bytes: bytes.length }]))
   put('asset-manifest.json', `${JSON.stringify({ schemaVersion: 1, files: inventory }, null, 2)}\n`)
   for (const [path, bytes] of files) {
@@ -134,5 +145,5 @@ try {
       finally { rmSync(desktopStage, {recursive:true,force:true}) }
     }
   }
-  console.log(`XHarness UI ${check ? 'verified' : 'built'}: ${entries.length} modules, ${files.size - entries.length} assets; repository inputs only`)
+  console.log(`XHarness UI ${variant} ${check ? 'verified' : 'built'}: ${entries.length} modules, ${files.size - entries.length} assets; repository inputs only`)
 } finally { if (existsSync(stage)) rmSync(stage, { recursive: true }) }

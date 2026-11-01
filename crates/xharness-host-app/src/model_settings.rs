@@ -1,4 +1,13 @@
 //! Native composition of reusable Host model settings and credential storage.
+#[cfg(any(target_os = "macos", all(test, unix)))]
+mod helper_authorize;
+#[cfg(any(target_os = "macos", all(test, unix)))]
+mod local_credentials;
+#[cfg(target_os = "macos")]
+pub async fn authorize_local_helper(arguments: &[std::ffi::OsString]) -> Result<usize, String> {
+    helper_authorize::authorize(arguments).await
+}
+
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -20,6 +29,10 @@ pub trait CredentialStore: Send + Sync + 'static {
 pub struct NativeCredentialStore {
     service: String,
     gate: Arc<std::sync::Mutex<()>>,
+    #[cfg(target_os = "macos")]
+    helper: Option<local_credentials::LocalHelper>,
+    #[cfg(target_os = "macos")]
+    helper_gate: tokio::sync::Mutex<()>,
 }
 
 impl NativeCredentialStore {
@@ -39,6 +52,10 @@ impl NativeCredentialStore {
         Ok(Self {
             service: format!("com.xlang.xharness.{namespace}.{digest:x}"),
             gate: Arc::new(std::sync::Mutex::new(())),
+            #[cfg(target_os = "macos")]
+            helper: local_credentials::LocalHelper::load(&path)?,
+            #[cfg(target_os = "macos")]
+            helper_gate: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -70,6 +87,11 @@ fn store_error() -> String {
 #[async_trait]
 impl CredentialStore for NativeCredentialStore {
     async fn get(&self, reference: &str) -> Result<Option<String>, String> {
+        #[cfg(target_os = "macos")]
+        if let Some(helper) = &self.helper {
+            let _guard = self.helper_gate.lock().await;
+            return helper.invoke("get", &self.service, reference, None).await;
+        }
         self.entry(reference, |entry| match entry.get_password() {
             Ok(value) => Ok(Some(value)),
             keyring_result => match keyring_result {
@@ -80,6 +102,14 @@ impl CredentialStore for NativeCredentialStore {
         .await
     }
     async fn set(&self, reference: &str, value: &str) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        if let Some(helper) = &self.helper {
+            let _guard = self.helper_gate.lock().await;
+            return helper
+                .invoke("set", &self.service, reference, Some(value))
+                .await
+                .map(|_| ());
+        }
         let value = value.to_owned();
         self.entry(reference, move |entry| {
             entry.set_password(&value).map_err(|_| store_error())
@@ -87,6 +117,14 @@ impl CredentialStore for NativeCredentialStore {
         .await
     }
     async fn delete(&self, reference: &str) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        if let Some(helper) = &self.helper {
+            let _guard = self.helper_gate.lock().await;
+            return helper
+                .invoke("delete", &self.service, reference, None)
+                .await
+                .map(|_| ());
+        }
         self.entry(reference, |entry| match entry.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             _ => Err(store_error()),
@@ -326,6 +364,22 @@ impl ModelSettingsBackend for NativeModelSettings {
             None => Ok(json!({"configured":false,"writable":true})),
         }
     }
+    async fn write_auxiliary_credential(
+        &self,
+        reference: &str,
+        value: Option<&str>,
+    ) -> Result<bool, String> {
+        if self.environment_key(reference).is_some() {
+            return Err("An environment/process credential overrides this reference; change it outside the app".into());
+        }
+        if let Some(value) = value {
+            validate_credential_value(value)?;
+            self.credentials.set(reference, value).await?;
+        } else {
+            self.credentials.delete(reference).await?;
+        }
+        Ok(true)
+    }
     async fn set_credential(
         &self,
         reference: &str,
@@ -335,9 +389,7 @@ impl ModelSettingsBackend for NativeModelSettings {
         if self.environment_key(reference).is_some() {
             return Err("An environment/process credential overrides this reference; change it outside the app".to_owned());
         }
-        if value.trim() != value || value.len() > 4096 || value.chars().any(char::is_control) {
-            return Err("API key contains whitespace/control characters or is too long".to_owned());
-        }
+        validate_credential_value(value)?;
         let registry = self
             .prepare_with_key(section, Some((reference, Some(value))), false)
             .await?;
@@ -449,12 +501,40 @@ impl ModelSettingsBackend for NativeModelSettings {
                     if let Some(value) = configured.or_else(|| remote_profiles.get(id).cloned()) {
                         item["reasoning"] = value;
                     }
+                    let configured_model = profile
+                        .filter(|p| p.base_url == base && p.api == api)
+                        .and_then(|p| p.models.iter().find(|model| model.id == id));
+                    let upstream = configured_model
+                        .and_then(|m| m.upstream_model.as_deref())
+                        .unwrap_or(id);
+                    let images = crate::input_compat::resolve(
+                        base,
+                        api,
+                        upstream,
+                        configured_model.and_then(|m| m.image_input),
+                    );
+                    if let Some(supported) = images.supported {
+                        item["imageInput"] = json!(supported);
+                    }
+                    item["imageInputCapability"] = images.provenance;
                     item
                 })
             })
             .take(512)
             .collect::<Vec<_>>();
         Ok(json!({"models":models}))
+    }
+}
+
+fn validate_credential_value(value: &str) -> Result<(), String> {
+    if value.is_empty()
+        || value.trim() != value
+        || value.len() > 4096
+        || value.chars().any(char::is_control)
+    {
+        Err("API key contains whitespace/control characters or is too long".into())
+    } else {
+        Ok(())
     }
 }
 

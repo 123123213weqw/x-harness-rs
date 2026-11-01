@@ -1,0 +1,208 @@
+
+SWARM_REPEAT_RUN 1
+   Compiling xharness-host v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/durable-swarm-20261015/crates/xharness-host)
+
+running 2 tests
+test swarm::tests::malformed_and_cross_team_membership_fail_closed ... ok
+    Finished `test` profile [unoptimized] target(s) in 35.38s
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/xharness_control-4bca2a41375a7778)
+test swarm::tests::lifecycle_membership_and_revision_are_validated_on_replay ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/control.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/control-520461fe85b6138c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+
+running 6 tests
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/xharness_host-a90550539cc74d3c)
+test delegation::swarm_tests::swarm_retry_after_lost_flush_ack_returns_committed_identity_not_new_candidate ... ok
+test delegation::swarm_tests::swarm_delegation_identity_respects_forks_and_missing_workers_are_not_recreated ... ok
+test delegation::swarm_tests::swarm_concurrent_stale_updates_have_one_winner_and_no_session_writes ... ok
+test delegation::swarm_tests::swarm_lifecycle_cas_authorization_and_pause_do_not_change_chat_dispatch ... ok
+test delegation::swarm_tests::swarm_interrupted_tool_stays_unresolved_until_explicit_existing_runtime_resume ... ok
+test delegation::swarm_tests::swarm_disk_restart_preserves_identity_members_results_and_exact_rpc_receipts ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 351 filtered out; finished in 2.30s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+
+SWARM_REPEAT_RUN 2
+     Running tests/basic_host.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/basic_host-0013feafe14b1f7d)
+     Running tests/session_import.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/session_import-7b1a0d3c4a3e0899)
+    Finished `test` profile [unoptimized] target(s) in 0.18s
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/xharness_control-4bca2a41375a7778)
+
+running 2 tests
+test swarm::tests::lifecycle_membership_and_revision_are_validated_on_replay ... ok
+test swarm::tests::malformed_and_cross_team_membership_fail_closed ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+
+running 6 tests
+     Running tests/control.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/control-520461fe85b6138c)
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/xharness_host-a90550539cc74d3c)
+test delegation::swarm_tests::swarm_retry_after_lost_flush_ack_returns_committed_identity_not_new_candidate ... ok
+test delegation::swarm_tests::swarm_concurrent_stale_updates_have_one_winner_and_no_session_writes ... ok
+test delegation::swarm_tests::swarm_delegation_identity_respects_forks_and_missing_workers_are_not_recreated ... ok
+test delegation::swarm_tests::swarm_lifecycle_cas_authorization_and_pause_do_not_change_chat_dispatch ... ok
+test delegation::swarm_tests::swarm_interrupted_tool_stays_unresolved_until_explicit_existing_runtime_resume ... ok
+test delegation::swarm_tests::swarm_disk_restart_preserves_identity_members_results_and_exact_rpc_receipts ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 351 filtered out; finished in 2.29s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
+
+
+running 0 tests
+     Running tests/basic_host.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/basic_host-0013feafe14b1f7d)
+     Running tests/session_import.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/session_import-7b1a0d3c4a3e0899)
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+
+SWARM_REPEAT_RUN 3
+    Finished `test` profile [unoptimized] target(s) in 0.18s
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/xharness_control-4bca2a41375a7778)
+
+running 2 tests
+test swarm::tests::lifecycle_membership_and_revision_are_validated_on_replay ... ok
+test swarm::tests::malformed_and_cross_team_membership_fail_closed ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+
+running 6 tests
+     Running tests/control.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/control-520461fe85b6138c)
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/xharness_host-a90550539cc74d3c)
+test delegation::swarm_tests::swarm_retry_after_lost_flush_ack_returns_committed_identity_not_new_candidate ... ok
+test delegation::swarm_tests::swarm_delegation_identity_respects_forks_and_missing_workers_are_not_recreated ... ok
+test delegation::swarm_tests::swarm_concurrent_stale_updates_have_one_winner_and_no_session_writes ... ok
+test delegation::swarm_tests::swarm_lifecycle_cas_authorization_and_pause_do_not_change_chat_dispatch ... ok
+test delegation::swarm_tests::swarm_interrupted_tool_stays_unresolved_until_explicit_existing_runtime_resume ... ok
+test delegation::swarm_tests::swarm_disk_restart_preserves_identity_members_results_and_exact_rpc_receipts ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 351 filtered out; finished in 2.30s
+
+     Running tests/basic_host.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/basic_host-0013feafe14b1f7d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
+
+     Running tests/session_import.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/session_import-7b1a0d3c4a3e0899)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+
+SWARM_REPEAT_RUN 4
+    Finished `test` profile [unoptimized] target(s) in 0.18s
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/xharness_control-4bca2a41375a7778)
+
+running 2 tests
+test swarm::tests::lifecycle_membership_and_revision_are_validated_on_replay ... ok
+test swarm::tests::malformed_and_cross_team_membership_fail_closed ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/control.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/control-520461fe85b6138c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/xharness_host-a90550539cc74d3c)
+
+running 6 tests
+test delegation::swarm_tests::swarm_retry_after_lost_flush_ack_returns_committed_identity_not_new_candidate ... ok
+test delegation::swarm_tests::swarm_concurrent_stale_updates_have_one_winner_and_no_session_writes ... ok
+test delegation::swarm_tests::swarm_delegation_identity_respects_forks_and_missing_workers_are_not_recreated ... ok
+test delegation::swarm_tests::swarm_lifecycle_cas_authorization_and_pause_do_not_change_chat_dispatch ... ok
+test delegation::swarm_tests::swarm_interrupted_tool_stays_unresolved_until_explicit_existing_runtime_resume ... ok
+test delegation::swarm_tests::swarm_disk_restart_preserves_identity_members_results_and_exact_rpc_receipts ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 351 filtered out; finished in 2.27s
+
+     Running tests/basic_host.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/basic_host-0013feafe14b1f7d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+
+SWARM_REPEAT_RUN 5
+     Running tests/session_import.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/session_import-7b1a0d3c4a3e0899)
+    Blocking waiting for file lock on build directory
+    Finished `test` profile [unoptimized] target(s) in 26.98s
+
+running 2 tests
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/xharness_control-4bca2a41375a7778)
+test swarm::tests::lifecycle_membership_and_revision_are_validated_on_replay ... ok
+test swarm::tests::malformed_and_cross_team_membership_fail_closed ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/control.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/control-520461fe85b6138c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+
+running 6 tests
+test delegation::swarm_tests::swarm_retry_after_lost_flush_ack_returns_committed_identity_not_new_candidate ... ok
+test delegation::swarm_tests::swarm_concurrent_stale_updates_have_one_winner_and_no_session_writes ... ok
+test delegation::swarm_tests::swarm_delegation_identity_respects_forks_and_missing_workers_are_not_recreated ... ok
+test delegation::swarm_tests::swarm_lifecycle_cas_authorization_and_pause_do_not_change_chat_dispatch ... ok
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/xharness_host-a90550539cc74d3c)
+test delegation::swarm_tests::swarm_interrupted_tool_stays_unresolved_until_explicit_existing_runtime_resume ... ok
+test delegation::swarm_tests::swarm_disk_restart_preserves_identity_members_results_and_exact_rpc_receipts ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 351 filtered out; finished in 2.31s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
+
+     Running tests/basic_host.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/basic_host-0013feafe14b1f7d)
+     Running tests/session_import.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/session_import-7b1a0d3c4a3e0899)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+SWARM_REPEAT_SUCCESS

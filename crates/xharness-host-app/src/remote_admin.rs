@@ -1,5 +1,21 @@
 //! Loopback desktop administration extension. No Bot/mobile credential is valid
 //! here; no request bodies/secrets are sent through the RPC debug recorder.
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::let_underscore_must_use,
+    unused_must_use
+)]
+#![cfg_attr(
+    not(test),
+    forbid(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        unused_must_use
+    )
+)]
+
 use crate::{
     channel_accounts::{AccountManager, ChannelFailure, ConnectionState},
     remote_control::RemoteControl,
@@ -93,9 +109,10 @@ pub fn remote_admin_routes(state: RemoteAdminState) -> Router {
 }
 fn failure(status: StatusCode, code: &str) -> Response {
     let mut response = (status, Json(json!({"ok":false,"error":{"code":code}}))).into_response();
-    response
-        .headers_mut()
-        .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        header::HeaderValue::from_static("no-store"),
+    );
     response
 }
 async fn guard(State(state): State<RemoteAdminState>, request: Request, next: Next) -> Response {
@@ -164,9 +181,10 @@ async fn guard(State(state): State<RemoteAdminState>, request: Request, next: Ne
         return failure(StatusCode::UNSUPPORTED_MEDIA_TYPE, "json_required");
     }
     let mut response = next.run(request).await;
-    response
-        .headers_mut()
-        .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        header::HeaderValue::from_static("no-store"),
+    );
     response
 }
 // No Debug/Serialize derive: a setup token must never enter a trace/response.

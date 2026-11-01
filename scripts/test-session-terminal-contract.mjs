@@ -8,7 +8,7 @@ import { createRequire } from 'node:module'
 import vm from 'node:vm'
 import { compile, json } from './conversation-test-harness.mjs'
 import { terminalHarness, terminalRow as row, terminalEvent as ev, terminalPrefix as prefix } from './session-terminal-test-harness.mjs'
-import { generateTerminalContract, run } from './generate-session-terminal-contract.mjs'
+import { generateTerminalContract, generateWireContract, run } from './generate-session-terminal-contract.mjs'
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/session-terminal.json', import.meta.url)))
 const contract = JSON.parse(readFileSync(new URL('../protocol/session-terminal.schema.json', import.meta.url)))
@@ -198,4 +198,17 @@ test('malformed terminal can recover from authoritative history; duplicate and f
   await active.resync()
   assert.equal(active.getSnapshot().openState, 'error')
   assert.equal(active.getSnapshot().chat, before)
+})
+
+test('wire lowering handles nullable numeric bounds and refuses unsafe uint64 values',()=>{
+ const require=createRequire(new URL('../ui/package.json',import.meta.url)),ts=require('typescript'),module={exports:{}}
+ const source=generateWireContract({contract:'numeric-test',schemas:{Count:{type:'integer',format:'uint64',minimum:0},Maybe:{type:['integer','null'],format:'uint32',minimum:1,maximum:3}}},{source:'fixture',command:'test',prefix:'NUMERIC'})
+ const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
+ vm.runInNewContext(js,{exports:module.exports,require,Number})
+ const {CountSchema,MaybeSchema}=module.exports
+ assert.equal(CountSchema.safeParse(Number.MAX_SAFE_INTEGER).success,true)
+ for(const value of [-1,0.5,2**53])assert.equal(CountSchema.safeParse(value).success,false)
+ assert.equal(MaybeSchema.safeParse(null).success,true);assert.equal(MaybeSchema.safeParse(2).success,true)
+ for(const value of [0,4,1.5])assert.equal(MaybeSchema.safeParse(value).success,false)
+ for(const schema of [{type:['integer','null'],format:'uint64',pattern:'x'},{type:'number',format:'uint64'}])assert.throws(()=>generateWireContract({contract:'bad',schemas:{Bad:schema}},{source:'fixture',command:'test',prefix:'BAD'}))
 })

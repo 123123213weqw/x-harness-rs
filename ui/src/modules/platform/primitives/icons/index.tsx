@@ -1,6 +1,7 @@
 /**
- * ic_ds_* icon set for the dsh web UI. All glyphs render fill="currentColor"
- * and take {size, className}. Batch A mirrors the deepsuite icon library
+ * ic_ds_* icon set for the dsh web UI. Glyphs inherit currentColor
+ * and take {size, className}. Core icons use fill; file-type additions use stroke.
+ * Batch A mirrors the deepsuite icon library
  * (same figma source); batch B glyphs are harness-only figma extracts.
  */
 import type { IconProps } from './props'
@@ -870,3 +871,8 @@ export const IconArchiveOutline20 = ({ size = 20, className }: IconProps) => (
     <path d="M12.7962 12.5661V11.0832H7.20548V12.5661L12.7962 12.5661Z" fill="currentColor" />
   </svg>
 )
+
+// Format-specific attachment glyphs share the same size/className contract.
+export {IconDocumentOutline24,IconPresentationOutline24,IconSpreadsheetOutline24,IconPdfOutline24} from './file-types'
+
+export {IconPhotoOutline24,IconMovieOutline24,IconAudioOutline24,IconDatabaseOutline24,IconMarkdownOutline24,IconFileOutline24} from './file-types'

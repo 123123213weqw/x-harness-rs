@@ -243,6 +243,7 @@ pub enum ContinueReason {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PauseReason {
+    /// Historical pause reason only. New decisions never emit it.
     RoundBudget,
     Cancelled,
     ExecutionError,
@@ -447,6 +448,8 @@ pub struct GoalRoundClaim {
 #[serde(rename_all = "snake_case")]
 pub enum GoalExecutionOperation {
     Enable,
+    /// Revise only an existing objective, preserving user lifecycle authorization.
+    EditObjective,
     Enqueue,
     Claim,
     Settle,

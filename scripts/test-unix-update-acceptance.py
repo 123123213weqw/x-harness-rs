@@ -10,6 +10,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import shutil
 import ssl
 import stat
@@ -29,6 +30,63 @@ SPEC.loader.exec_module(m)
 
 
 class HarnessTests(unittest.TestCase):
+    @staticmethod
+    def install_call_arguments(source):
+        """Inspect these controlled Rust fixtures without compiling Rust locally."""
+        arguments = []
+        for match in re.finditer(r'updater::desktop_install_update\s*\(', source):
+            start = match.end()
+            depth = 1
+            fields = []
+            field = start
+            for index in range(start, len(source)):
+                character = source[index]
+                if character == '(':
+                    depth += 1
+                elif character == ')':
+                    depth -= 1
+                    if depth == 0:
+                        fields.append(source[field:index].strip())
+                        arguments.append(fields)
+                        break
+                elif character == ',' and depth == 1:
+                    fields.append(source[field:index].strip())
+                    field = index + 1
+            else:
+                raise AssertionError('Unterminated desktop_install_update fixture call')
+        return arguments
+
+    def assert_fixture_install_contract(self, source, expected_count):
+        calls = self.install_call_arguments(source)
+        self.assertEqual(len(calls), expected_count)
+        for arguments in calls:
+            self.assertEqual(len(arguments), 4, 'Fixture must pass the placement argument')
+            self.assertEqual(arguments[:2], ['app.clone()', 'app.state()'])
+            self.assertIn(arguments[2], ('true', 'false'))
+            self.assertEqual(arguments[3], 'None', 'Unix fixtures retain current-placement behavior')
+        # Keep both the rejected no-consent and confirmed-install paths exercised.
+        self.assertTrue(any(arguments[2] == 'false' for arguments in calls))
+        self.assertTrue(any(arguments[2] == 'true' for arguments in calls))
+
+    def test_native_driver_install_calls_match_production_signature(self):
+        updater = (m.REPO / 'apps/desktop/src-tauri/src/updater.rs').read_text()
+        signature = re.search(r'pub async fn desktop_install_update\((.*?)\)\s*->',
+                              updater, re.DOTALL)
+        self.assertIsNotNone(signature)
+        parameters = re.findall(r'^\s*([a-z_]+)\s*:', signature.group(1), re.MULTILINE)
+        self.assertEqual(parameters, ['app', 'state', 'confirm_stop', 'placement'])
+        self.assertRegex(signature.group(1), r'placement:\s*Option<String>')
+        for name, count in [('unix-update-driver.rs', 4), ('linux-update-driver.rs', 3)]:
+            with self.subTest(fixture=name):
+                source = (HERE / 'fixtures' / name).read_text()
+                self.assert_fixture_install_contract(source, count)
+                # Reproduce the old three-argument call: the ordinary PR contract
+                # suite must fail before the native rehearsal reaches rustc.
+                stale = source.replace('app.state(), true, None)', 'app.state(), true)', 1)
+                self.assertNotEqual(stale, source)
+                with self.assertRaisesRegex(AssertionError, 'placement argument'):
+                    self.assert_fixture_install_contract(stale, count)
+
     def test_reqwest_existing_features_are_preserved_and_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
             desktop = pathlib.Path(tmp)
@@ -516,8 +574,9 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
             shutil.copy2(m.REPO / name, target)
         (source / '.env').write_text('NEVER_COPY=secret')
         (source / 'signer.key').write_text('NEVER_COPY_PRIVATE_KEY')
-        (source / 'ui/dist').mkdir(parents=True, exist_ok=True)
-        (source / 'ui/dist/index.html').write_text('<html>fixture</html>')
+        shutil.copytree(m.REPO / 'ui/dist', source / 'ui/dist', dirs_exist_ok=True)
+        original_ui = {p.relative_to(source / 'ui/dist'): m.digest(p)
+                       for p in (source / 'ui/dist').rglob('*') if p.is_file()}
         hashes = {name: m.digest(source / name) for name in files}
         _, _, pub = self.key_material()
         root = self.directory / 'prepared'
@@ -526,6 +585,8 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         with contextlib.redirect_stdout(io.StringIO()):
             m.prepare(args)
         self.assertEqual(hashes, {name: m.digest(source / name) for name in files})
+        self.assertEqual(original_ui, {p.relative_to(source / 'ui/dist'): m.digest(p)
+                                     for p in (source / 'ui/dist').rglob('*') if p.is_file()})
         self.assertFalse((root / 'source/.env').exists())
         self.assertFalse((root / 'source/signer.key').exists())
         self.assertTrue((root / 'source/ui/dist/index.html').exists())
@@ -537,6 +598,7 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         desktop = root / 'source/apps/desktop/src-tauri'
         config = m.read_json(desktop / 'tauri.conf.json')
         self.assertFalse(config['bundle']['createUpdaterArtifacts'])
+        self.assertEqual(config['build']['beforeBuildCommand'], 'node ../../scripts/check-production-ui.mjs')
         self.assertEqual(config['version'], '0.0.901')
         updater = (desktop / 'src/updater.rs').read_text()
         self.assertIn('configure_client(crate::rehearsal::tls_client)', updater)
@@ -548,6 +610,61 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         self.assertIn('ISOLATED_UNIX_UPDATE_ONLY', (desktop / 'src/rehearsal.rs').read_text())
         self.assertEqual(m.read_json(root / 'build-env.json')['XHARNESS_UPDATER_PUBKEY'], pub.read_text())
         self.assertEqual(m.read_json(root / 'rehearsal.json')['target_version'], '0.2.6')
+
+    def test_disposable_ui_refresh_preserves_production_gate_and_untouched_assets(self):
+        ui = self.directory / 'base-ui'
+        shutil.copytree(m.REPO / 'ui/dist', ui)
+        before = {p.relative_to(ui).as_posix(): p.read_bytes() for p in ui.rglob('*') if p.is_file()}
+        m.prepare_base_ui(ui)
+        m.run(['node', m.REPO / 'scripts/check-production-ui.mjs', ui])
+        after = {p.relative_to(ui).as_posix(): p.read_bytes() for p in ui.rglob('*') if p.is_file()}
+        self.assertEqual(set(before), set(after))
+        self.assertEqual({name for name in before if before[name] != after[name]},
+                         {'desktop-updater.js', 'index.html', 'asset-manifest.json'})
+        new_hash = m.digest(ui / 'desktop-updater.js')
+        self.assertIn('/desktop-updater.js?rev=' + new_hash[:16], (ui / 'index.html').read_text())
+        self.assertEqual(m.read_json(ui / 'asset-manifest.json')['files']['desktop-updater.js'],
+                         {'sha256': new_hash, 'bytes': len(after['desktop-updater.js'])})
+        # The former mutation, without an inventory refresh, must still fail.
+        legacy = self.directory / 'unrefreshed-base'
+        shutil.copytree(m.REPO / 'ui/dist', legacy)
+        m.isolate_base_updater_timers(legacy / 'desktop-updater.js')
+        with self.assertRaises(subprocess.CalledProcessError):
+            m.run(['node', m.REPO / 'scripts/check-production-ui.mjs', legacy])
+
+    def test_disposable_ui_refresh_never_launders_invalid_input_or_anchor_drift(self):
+        for case in ('stale-updater', 'unrelated-asset', 'fixture', 'missing-inventory',
+                     'html-anchor', 'timer-anchor'):
+            with self.subTest(case=case):
+                ui = self.directory / case
+                shutil.copytree(m.REPO / 'ui/dist', ui)
+                if case == 'missing-inventory':
+                    (ui / 'asset-manifest.json').unlink()
+                elif case == 'stale-updater':
+                    with (ui / 'desktop-updater.js').open('ab') as file:
+                        file.write(b'\n// unverified change')
+                elif case == 'unrelated-asset':
+                    (ui / 'desktop-titlebar.js').write_text('unverified change')
+                else:
+                    if case == 'fixture':
+                        name = '.xharness-ui-output.json'
+                        value = m.read_json(ui / name)
+                        value['variant'] = 'fixture'
+                        m.write_json(ui / name, value)
+                    elif case == 'html-anchor':
+                        name = 'index.html'
+                        (ui / name).write_text((ui / name).read_text().replace('/desktop-updater.js?rev=', '/other.js?rev='))
+                    else:
+                        name = 'desktop-updater.js'
+                        (ui / name).write_text((ui / name).read_text().replace('initialTimer = window.setTimeout', 'initialTimer = otherTimer'))
+                    # Valid hashes do not authorize fixture provenance or new anchors.
+                    inventory = m.read_json(ui / 'asset-manifest.json')
+                    inventory['files'][name] = {'sha256': m.digest(ui / name), 'bytes': (ui / name).stat().st_size}
+                    m.write_json(ui / 'asset-manifest.json', inventory)
+                before = {p.relative_to(ui): p.read_bytes() for p in ui.rglob('*') if p.is_file()}
+                with self.assertRaises((ValueError, subprocess.CalledProcessError)):
+                    m.prepare_base_ui(ui)
+                self.assertEqual(before, {p.relative_to(ui): p.read_bytes() for p in ui.rglob('*') if p.is_file()})
 
     def test_base_timer_isolation_rejects_missing_duplicate_or_changed_anchors(self):
         source = (m.REPO / 'ui/dist/desktop-updater.js').read_text()

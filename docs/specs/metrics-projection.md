@@ -154,7 +154,16 @@ Host 从权威日志重建并实时发布：
 - `contextWindow`：最近一条 `request/context` 的模型容量；
 - 新日志以 `request/context` 为真源；没有该事件的旧日志允许从
   `request/header.options.tokenBudget.contextWindowTokens` 恢复一次兼容分母；
-- 前端优先使用 `projectedTokens`，否则回退 `pressureTokens`，并绘制无文字占用圆环。
+- 主圆环只显示 Provider 实测输入；`projectedTokens` 只能进入独立的请求计数详情，
+  不得在请求发出、失败或中断时替代实测，也不得以动画或数值钳制伪造稳定。
+- 新增可选 `lastMeasured: { tokens, contextWindow, measurement, composition }`：在有效 Usage
+  到达时绑定该请求的容量、标识及分类权重。下一步准备、取消、历史编辑或压缩均保留该样本，
+  UI 标记“待更新”；新的有效 Usage 才更新，模型切换立即清空。旧字段的当前请求语义不变。
+- 没有实测则显示“尚无实测用量”，不把零填充圆环解释成 0% 实测；容量变更也不得重定价
+  旧样本，旧样本使用其绑定分母，分类权重不得套用下一请求的权重。
+- `projectedAccuracy: conservative_upper_bound` 明确表示未经校准的字节准入保守上界，
+  不是 Tokenizer 预测；`calibrated`、`estimated` 与精确计数分别标识。所有硬限额、
+  8 条相似样本校准门槛、图片独立预算及输出预留保持不变。
 
 ## 五、后端模块设计
 

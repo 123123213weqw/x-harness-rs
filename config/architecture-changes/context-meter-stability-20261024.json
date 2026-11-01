@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Keep a request-bound provider sample across admission, interruption and history changes so the context ring never alternates measured tokens with byte ceilings.",
+  "compatibility": "Existing pressureTokens/projectedTokens semantics and durable events remain unchanged. lastMeasured is additive and optional; old private checkpoints default to no retained sample. Startup typed-log replay reconstructs it. No persisted sessions, calibration samples or admission limits are rewritten.",
+  "paths": {
+    "crates/xharness-projection/src/metrics.rs": {
+      "before": "de1f99f1e011bd39cc652ad5d5682cd12b787f80108b78cc0a221bb0289687cc",
+      "after": "4bd23804437b0b79b58bd8343d703465d133bc6efe550d1673cc7d99c367a56e"
+    }
+  },
+  "regressions": [
+    "native",
+    "windows",
+    "wire"
+  ]
+}

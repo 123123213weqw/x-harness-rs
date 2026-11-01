@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "feature": "swarm-task-board-ui",
+  "recordedAt": "2026-10-16T13:04:19.545179+00:00",
+  "branch": "feat/swarm-task-board-20261016",
+  "preview": "http://127.0.0.1:3292/",
+  "provider": "synthetic RPC fixture; no credentials or paid model requests",
+  "validation": {
+    "contractsNavigationTypePolicyPassed": 46,
+    "chromium": "passed",
+    "webkit": "passed",
+    "generatedUi": "60 modules, 190 assets; strict source build and check passed",
+    "architecture": "passed with follow-up base 8a1fe4b2; no gate weakened",
+    "backendInputsUnchanged": true,
+    "screenshots": "actual source component; synthetic data; desktop light, assignment light, result dark and mobile dark visually reviewed"
+  },
+  "verified": [
+    "Explicit add/claim actions use swarm/tasks; viewing creates no work.",
+    "Task dependency blocking and retained result history.",
+    "Lost write acknowledgement does not trigger duplicate mutation.",
+    "Board revision changes synchronize metadata before team pause/resume.",
+    "Pagination rejects mixed revisions and appends a consistent next page.",
+    "Untrusted task strings render as text, not HTML.",
+    "Offline reads block writes until explicit refresh.",
+    "Root scope changes reject late reads.",
+    "Ordinary conversation draft preserved on close/reopen.",
+    "Responsive rail supports docked panes, mobile and Escape."
+  ],
+  "notClaimed": [
+    "Live Host-to-model UI assignment acceptance",
+    "Automatic task pickup or coordinator tool integration",
+    "Automatic result acceptance",
+    "Native macOS/Windows desktop acceptance",
+    "Publishing, merging or installing software"
+  ],
+  "sourceSha256": {
+    "ui/src/modules/swarm/client.ts": "45747b1232a6e77504151d6ccc345574ebf871426a6d4213bb8c0aa26505a9da",
+    "ui/src/modules/swarm/index.tsx": "5dea93dc7d2e6f62dd41ec19768f8da0528d554c0be3bb1cbdd706aafe350629",
+    "ui/src/modules/swarm/TaskBoard.tsx": "33ca33c1cd709961aa4c09e97cfccfffd0a35fe078ee3e07194a827f99224cbe",
+    "ui/src/modules/swarm/Swarm.css": "270a910ca1c0472c94974ca691533fe7df0c5ed503f5d09c4176f22a9036526a",
+    "scripts/test-swarm-client.mjs": "f96a7c25a70a07650065a28b19bfbc545e2237ac48020833aa9602cc55ed4c5e",
+    "scripts/test-swarm-ui-browser.mjs": "11b992b3d362d099e056c7d54c73b5d9b133225a368a139415df26d845009082",
+    "scripts/fixtures/swarm-preview.js": "70e574df4c534f732ca52cf006e710696fb62ddcd356753954d2976374a11ad9",
+    "scripts/preview-swarm.mjs": "567d5635676df0948af2ebb983f000aaa757585335946b367b693930a6ec9600",
+    "docs/specs/swarm-task-board-ui.md": "642615be59f853b2cb387901fc3513dfbfa9a97228bc301d5c166a22db656df9",
+    "ui/dist/asset-manifest.json": "e5e2584070b4f0a14447a1d4f77f7e609a2d8609fe24d617612b85d58662bbf9",
+    "ui/dist/client-graph.json": "a01b2b259b7b728b0aa112e2759e2040e7b79a1cb225382ee829676e4c32acd2",
+    "ui/dist/index.html": "b3898d9433c1310a0f92d7e72ad603429c65ba3e7a3d1a9aed91401844f24633",
+    "ui/dist/plugins/@xlang/xharness-client-ui-swarm/client.js": "074ba4177b2d7842201588f781a295565407968bb125ae9433ef2e2019a1d5cf"
+  },
+  "evidenceSha256": {
+    "contracts.log": "b7b7e006fc6451a382375fc0879f1b27d898e614d8dc9c5206e0a40edbd37356",
+    "architecture.log": "2f1d0ba50d77f1bb6bbcfbc4c5ec7dc01ee4d61bb7ce40753f612dcb1808f9ab",
+    "webkit.log": "2ca00c9814f706e34a3938a608149b0bae88ea590c29ca97d50baf7edf369e29",
+    "chromium.log": "03742405b2eb1740e302e08e4bd97d4db9430e389a8d919264f102c30a93fb20",
+    "tasks-light.png": "722f7aa555530e46e314ba8b475b0d5b6e58eeb7598cd7ce2c4e51abaf158257",
+    "task-assignment-light.png": "6c25417aca5730b609b54c462b9f35d84bb1b682a85a7f6cd6103ba71d5d35da",
+    "result-dark.png": "21ecb650dd2e1765d9b910105e26255a0a9739d391302218f5fad95a68a72718",
+    "tasks-mobile-dark.png": "e26054b4b9e1288436af18d25f744152b9d779072bd852d986b4e2a6c76f3386",
+    "build.log": "a0967c20bf42014a627b11e1977e6a276b56c6057cf12a9c55e3a675897df483"
+  },
+  "logNormalization": "Only trailing whitespace normalized; messages and test results unchanged."
+}

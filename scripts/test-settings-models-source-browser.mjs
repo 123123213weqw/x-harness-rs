@@ -26,9 +26,21 @@ try{
  assert.deepEqual(await page.evaluate(()=>models[1].reasoning),{defaultEffort:'low',efforts:[{id:'off'},{id:'high'}]});assert.equal(await page.evaluate(()=>models[0].contextWindow),32768);
  // Actual capability controls preserve absent vs explicitly false and reject read-only writes.
  assert.equal(await page.evaluate(()=>models[1].imageInput),true);assert.equal(await page.evaluate(()=>models[2].imageInput),false);
- await page.getByRole('button',{name:'modelAdvanced 1',exact:true}).click();const capability=page.getByRole('checkbox',{name:'支持图片输入 1',exact:true});assert.equal(await capability.isChecked(),false);await page.getByText('视觉能力未声明；请确认模型 API 支持后启用。',{exact:true}).waitFor();
- await capability.check();assert.equal(await page.evaluate(()=>models[0].imageInput),true);assert.deepEqual(await page.evaluate(()=>models[0].unknown),{keep:true});await capability.uncheck();assert.equal(await page.evaluate(()=>models[0].imageInput),false);await page.getByText('不支持视觉时明确报错，不自动丢弃图片。',{exact:true}).waitFor();
- await page.evaluate(()=>{modelsDisabled=true;render()});assert.equal(await capability.isDisabled(),true);assert.equal(await capability.isChecked(),false);await page.evaluate(()=>{modelsDisabled=false;render()});
+ await page.getByRole('button',{name:'modelAdvanced 1',exact:true}).click();
+ if(process.env.UI_TEST_IMPL!=='legacy'){
+  const capability=page.getByRole('combobox',{name:'Image input 1',exact:true});
+  assert.equal(await capability.inputValue(),'auto');
+  await capability.selectOption('enabled');assert.equal(await page.evaluate(()=>models[0].imageInput),true);
+  assert.deepEqual(await page.evaluate(()=>models[0].unknown),{keep:true});
+  await capability.selectOption('disabled');assert.equal(await page.evaluate(()=>models[0].imageInput),false);
+  await capability.selectOption('auto');assert.equal(await page.evaluate(()=>models[0].imageInput),null);
+  await page.evaluate(()=>{modelsDisabled=true;render()});assert.equal(await capability.isDisabled(),true);
+  await page.evaluate(()=>{modelsDisabled=false;render()});
+ }else{
+  const capability=page.getByRole('checkbox',{name:'支持图片输入 1',exact:true});
+  await capability.check();assert.equal(await page.evaluate(()=>models[0].imageInput),true);
+  await capability.uncheck();assert.equal(await page.evaluate(()=>models[0].imageInput),false);
+ }
  // Explicit local-server recipes: selecting alone must not edit a draft.
  if(process.env.UI_TEST_IMPL!=='legacy'){
   const recipe=page.getByRole('combobox',{name:'reasoningRecipe 1',exact:true});
@@ -118,5 +130,5 @@ try{
   const saved=await page.evaluate(()=>calls.find(c=>c[0]==='mutate')[1].ops.find(op=>op.path.at(-1)==='models').value[0]);
   assert.equal(saved.maxTokens,32000);assert.equal(saved.minimumOutputTokens,8192);assert.deepEqual(saved.unknown,{keep:true});
  }
- await page.evaluate(()=>root.unmount());assert.deepEqual(errors,[]);console.log(`${engine} ${process.env.UI_TEST_IMPL??'source'}: discovery/reasoning/imageInput capability checkbox/read-only, capacity buffers/reindex, probe failure, custom partial retry, minimal edits, conflicts/read-only passed`);
+ await page.evaluate(()=>root.unmount());assert.deepEqual(errors,[]);console.log(`${engine} ${process.env.UI_TEST_IMPL??'source'}: discovery/reasoning/imageInput Auto/Enabled/Disabled capability/read-only, capacity buffers/reindex, probe failure, custom partial retry, minimal edits, conflicts/read-only passed`);
 }finally{await browser.close()}

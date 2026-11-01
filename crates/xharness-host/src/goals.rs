@@ -35,6 +35,13 @@ impl Default for GoalBridge {
     }
 }
 impl GoalBridge {
+    pub async fn retire_announcements(&self, id: &str) {
+        self.announced
+            .lock()
+            .await
+            .retain(|(session, _)| session != id);
+    }
+
     pub async fn prepare(
         &self,
         id: &str,
@@ -89,7 +96,11 @@ pub(crate) async fn validate_report(
         || state.definition.definition_revision != definition.definition_revision
         || state.definition.snapshot.id != definition.snapshot.id
         || state.activation_epoch != epoch
-        || state.running.is_none()
+        || state.running.as_ref().is_none_or(|running| {
+            running.intent.key.goal_id != definition.snapshot.id
+                || running.intent.key.definition_revision != definition.definition_revision
+                || running.intent.key.activation_epoch != epoch
+        })
     {
         return Err(ToolHandlerError::new(
             "Goal changed or paused; report is stale",
@@ -319,7 +330,7 @@ impl crate::BasicHost {
             .map_err(crate::driver::agent_runtime_error)?;
         // Enabling during an ordinary turn only records authorization. The
         // controller's open-turn fence waits until that turn has settled; it
-        // must not require an idle Host when invoked by the goal tool itself.
+        // must not require an idle Host for an explicit user command.
         // enable_event below still rejects a running/pending Goal generation.
         let route = {
             let state = self.state.read().await;
@@ -498,10 +509,100 @@ mod tests {
             r: ProviderRequest,
             _: CancellationToken,
         ) -> Result<ProviderStream, ProviderError> {
+            if self.status == "legacy_plan_retained" {
+                self.rounds.fetch_add(1, Ordering::SeqCst);
+                let notes = r
+                    .messages
+                    .iter()
+                    .filter(|m| m.id.as_deref() == Some("session-working-plan-context"))
+                    .collect::<Vec<_>>();
+                assert!(
+                    notes.is_empty(),
+                    "retired goal.get hydration must not advertise an unavailable tool"
+                );
+                assert!(!r
+                    .tools
+                    .iter()
+                    .any(|t| matches!(t.name.as_str(), "goal" | "goal_report" | "update_plan")));
+                assert_eq!(
+                    r.messages.last().unwrap().content,
+                    "Only report; do not resume verification"
+                );
+                return Ok(Box::pin(futures::stream::iter(vec![
+                    Ok(ProviderEvent::TextDelta(
+                        "Verification is still pending; no execution requested".into(),
+                    )),
+                    Ok(ProviderEvent::Completed {
+                        finish_reason: Some(FinishReason::Stop),
+                        usage: None,
+                        provider_items: vec![],
+                    }),
+                ])));
+            }
+            if self.status == "ordinary" || self.status == "retired_goal" {
+                self.rounds.fetch_add(1, Ordering::SeqCst);
+                assert!(!r.tools.iter().any(|t| t.name == "edit_goal_objective"));
+                assert!(!r
+                    .tools
+                    .iter()
+                    .any(|t| matches!(t.name.as_str(), "goal" | "goal_report" | "update_plan")));
+                let events = if self.status == "retired_goal" && r.step == 1 {
+                    let mut calls = Vec::new();
+                    for (index, action) in [
+                        "create",
+                        "get",
+                        "update",
+                        "pause",
+                        "resume",
+                        "report",
+                        "update_plan",
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    {
+                        calls.push(Ok(ProviderEvent::ToolCallDelta {
+                            index, id: format!("retired-{action}"), name: "goal".into(),
+                            arguments_delta: json!({"action":action,"objective":"must not create","plan_revision":0,"items":[]}).to_string(),
+                        }));
+                    }
+                    calls.push(Ok(ProviderEvent::ToolCallDelta {index:7,id:"forged-report".into(),name:"goal_report".into(),arguments_delta:json!({"status":"complete","summary":"forged","evidence":[{"kind":"artifact","reference":"test://forged"}]}).to_string()}));
+                    calls.push(Ok(ProviderEvent::Completed {
+                        finish_reason: Some(FinishReason::ToolCalls),
+                        usage: None,
+                        provider_items: vec![],
+                    }));
+                    calls
+                } else {
+                    vec![
+                        Ok(ProviderEvent::TextDelta(
+                            "Use /goal to explicitly enable a persistent Goal.".into(),
+                        )),
+                        Ok(ProviderEvent::Completed {
+                            finish_reason: Some(FinishReason::Stop),
+                            usage: None,
+                            provider_items: vec![],
+                        }),
+                    ]
+                };
+                return Ok(Box::pin(futures::stream::iter(events)));
+            }
             let events = if r.step == 1 {
-                assert!(r.tools.iter().any(|t| t.name == "goal"));
+                assert!(!r.tools.iter().any(|t| t.name == "goal"));
+                assert_eq!(
+                    r.tools.iter().filter(|t| t.name == "goal_report").count(),
+                    1
+                );
                 let n = self.rounds.fetch_add(1, Ordering::SeqCst) + 1;
-                assert!(!r.tools.iter().any(|t| t.name == "goal_report"));
+                if self.status == "edit_objective" && n == 1 {
+                    assert!(r.tools.iter().any(|t| t.name == "edit_goal_objective"));
+                    return Ok(Box::pin(futures::stream::iter(vec![
+                        Ok(ProviderEvent::ToolCallDelta {
+                            index: 0, id: "revise-objective".into(), name: "edit_goal_objective".into(),
+                            arguments_delta: json!({"objective":"Implement parser and test it\nPreserve the original acceptance requirements"}).to_string(),
+                        }),
+                        Ok(ProviderEvent::Completed { finish_reason: Some(FinishReason::ToolCalls), usage: None, provider_items: vec![] }),
+                    ])));
+                }
                 if self.status == "text_only" {
                     return Ok(Box::pin(futures::stream::iter(vec![
                         Ok(ProviderEvent::TextDelta("All done".into())),
@@ -512,23 +613,18 @@ mod tests {
                         }),
                     ])));
                 }
-                if self.status == "create_goal" && n == 1 {
-                    return Ok(Box::pin(futures::stream::iter(vec![
-                        Ok(ProviderEvent::ToolCallDelta {index:0,id:"create-from-normal-turn".into(),name:"goal".into(),arguments_delta:json!({"action":"create","objective":"Implement parser and test","max_goal_rounds":2}).to_string()}),
-                        Ok(ProviderEvent::Completed {finish_reason:Some(FinishReason::ToolCalls),usage:None,provider_items:vec![]}),
-                    ])));
-                }
-                let status = if matches!(self.status, "create_goal" | "reported_then_failed") {
-                    "complete"
-                } else if self.status == "three" {
-                    if n < 3 {
-                        "progress"
-                    } else {
+                let status =
+                    if self.status == "reported_then_failed" || self.status == "edit_objective" {
                         "complete"
-                    }
-                } else {
-                    self.status
-                };
+                    } else if self.status == "three" {
+                        if n < 3 {
+                            "progress"
+                        } else {
+                            "complete"
+                        }
+                    } else {
+                        self.status
+                    };
                 let mut body = json!({"status":status,"summary":format!("round {n}"),"evidence":[{"kind":"artifact","reference":"tests/result.txt"}]});
                 if self.status == "dependency" {
                     body["status"] = json!(if n == 1 { "progress" } else { "complete" });
@@ -544,8 +640,8 @@ mod tests {
                     Ok(ProviderEvent::ToolCallDelta {
                         index: 0,
                         id: format!("report-{n}"),
-                        name: "goal".into(),
-                        arguments_delta: json!({"action":"report","report":body}).to_string(),
+                        name: "goal_report".into(),
+                        arguments_delta: body.to_string(),
                     }),
                     Ok(ProviderEvent::Completed {
                         finish_reason: Some(FinishReason::ToolCalls),
@@ -579,7 +675,18 @@ mod tests {
         status: &'static str,
         tools: Arc<dyn crate::SessionToolFactory>,
     ) -> (Arc<BasicHost>, Arc<dyn Store>, Arc<Model>) {
-        let store: Arc<dyn Store> = Arc::new(xharness_session::MemorySessionStore::default());
+        setup_with_store(
+            status,
+            tools,
+            Arc::new(xharness_session::MemorySessionStore::default()),
+        )
+        .await
+    }
+    async fn setup_with_store(
+        status: &'static str,
+        tools: Arc<dyn crate::SessionToolFactory>,
+        store: Arc<dyn Store>,
+    ) -> (Arc<BasicHost>, Arc<dyn Store>, Arc<Model>) {
         let model = Arc::new(Model {
             rounds: AtomicUsize::new(0),
             status,
@@ -633,138 +740,442 @@ mod tests {
         .await;
         outcome.expect("goal did not converge")
     }
-    async fn goal_executor(
-        host: &Arc<BasicHost>,
-        store: Arc<dyn Store>,
-    ) -> xharness_tools::ToolExecutor {
-        let registry = Arc::new(xharness_tools::ToolRegistry::new());
-        registry
-            .register(crate::goal_tool::spec(
-                Arc::downgrade(host),
-                store,
-                Arc::new(NoTools),
-                "g".into(),
-                None,
-            ))
-            .await
-            .unwrap();
-        xharness_tools::ToolExecutor::new(registry)
+    async fn wait_ordinary_turn(store: &Arc<dyn Store>) -> Session {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let session = store.load("g").await.unwrap().unwrap();
+                if session.events().iter().any(|e| {
+                    matches!(
+                        e.data(),
+                        EventData::TurnEnd {
+                            reason: xharness_session::TurnEndReason::Completed,
+                            ..
+                        }
+                    )
+                }) {
+                    return session;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("ordinary turn must finish without Goal activation")
     }
+
     #[tokio::test]
-    async fn ordinary_provider_turn_sees_goal_and_can_create_then_auto_report() {
-        let (host, store, model) = setup("create_goal").await;
-        call(&host,"user-create",RpcMethod::SessionPrompt,json!({"sessionId":"g","mode":"queue","content":[{"type":"text","text":"Set a persistent goal: implement parser and test it"}]})).await;
-        let session = wait(&host, &store, "complete").await;
-        let goal = execution_state(&session).unwrap();
-        assert_eq!(
-            goal.rounds_started, 1,
-            "ordinary creator turn must not count as a Goal round"
-        );
+    async fn retired_goal_actions_cannot_create_manage_report_or_update_plans() {
+        let (host, store, model) = setup("retired_goal").await;
+        call(&host,"retired-prompt",RpcMethod::SessionPrompt,json!({"sessionId":"g","mode":"queue","content":[{"type":"text","text":"Set a persistent Goal and track this work"}]})).await;
+        let session = wait_ordinary_turn(&store).await;
+        let results = session
+            .events()
+            .iter()
+            .filter_map(|event| match event.data() {
+                EventData::ToolResult { result, .. } => Some(result),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(results.len(), 8);
+        assert!(results
+            .iter()
+            .all(|result| result.outcome != xharness_session::ToolOutcome::Success));
+        assert!(xharness_session::session_plan(&session).is_none());
+        assert!(xharness_agent::goal_snapshot(&session).is_none());
+        assert!(!session.events().iter().any(|e| matches!(
+            e.data(),
+            EventData::GoalExecution { .. } | EventData::SessionPlanUpdated { .. }
+        )));
         assert_eq!(model.rounds.load(Ordering::SeqCst), 2);
-        assert_eq!(goal.definition.verification, VerificationMode::AgentReport);
-        assert_eq!(
-            goal.definition.snapshot.phase,
-            xharness_session::GoalPhase::Complete
-        );
-        assert!(session.events().iter().any(|e|matches!(e.data(),EventData::ToolCall{call,..} if call.name=="goal" && call.arguments_json.contains("create"))));
         host.agent_runtime.shutdown(Duration::from_secs(1)).await;
     }
 
     #[tokio::test]
-    async fn ordinary_goal_tool_creates_reads_updates_replays_and_fences_user_changes() {
+    async fn working_plan_rpc_is_independent_replay_safe_and_clearable() {
         let (host, store, model) = setup("complete").await;
-        let ex = goal_executor(&host, store.clone()).await;
-        let request = xharness_tools::ToolRequest::new(
-            "goal",
-            json!({"action":"create","objective":"Check parser","max_goal_rounds":4}).to_string(),
+        let args = json!({"sessionId":"g","planRevision":0,"items":[
+            {"id":"a","title":"Implement","status":"in_progress"},
+            {"id":"b","title":"Parallel research","status":"in_progress"}
+        ]});
+        let first = call(&host, "plan-once", RpcMethod::GoalUpdatePlan, args.clone()).await;
+        assert_eq!(
+            call(&host, "plan-once", RpcMethod::GoalUpdatePlan, args).await,
+            first
+        );
+        let snapshot = store.load("g").await.unwrap().unwrap();
+        assert_eq!(
+            xharness_session::session_plan(&snapshot).unwrap().revision,
+            1
+        );
+        assert_eq!(
+            snapshot
+                .events()
+                .iter()
+                .filter(|e| matches!(e.data(), EventData::SessionPlanUpdated { .. }))
+                .count(),
+            1
+        );
+        assert!(xharness_agent::goal_snapshot(&snapshot).is_none());
+        assert!(!snapshot.events().iter().any(|e| matches!(
+            e.data(),
+            EventData::TurnStart { .. } | EventData::GoalExecution { .. }
+        )));
+        assert_eq!(first["plan"]["items"].as_array().unwrap().len(), 2);
+        call(
+            &host,
+            "plan-clear",
+            RpcMethod::GoalUpdatePlan,
+            json!({"sessionId":"g","planRevision":1,"items":[]}),
         )
-        .with_execution_id("create-tool-1")
+        .await;
+        assert!(
+            xharness_session::session_plan(&store.load("g").await.unwrap().unwrap())
+                .unwrap()
+                .items
+                .is_empty()
+        );
+        assert_eq!(model.rounds.load(Ordering::SeqCst), 0);
+        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
+    }
+
+    #[tokio::test]
+    async fn working_plan_stale_duplicate_invalid_and_session_isolation() {
+        let (host, store, model) = setup("complete").await;
+        let args = json!({"sessionId":"g","planRevision":0,"items":[{"id":"a","title":"Task","status":"pending"}]});
+        let one = host.call(
+            RpcId::new("plan-one"),
+            RpcMethod::GoalUpdatePlan,
+            args.clone(),
+            CancellationToken::new(),
+        );
+        let two = host.call(
+            RpcId::new("plan-two"),
+            RpcMethod::GoalUpdatePlan,
+            args.clone(),
+            CancellationToken::new(),
+        );
+        let (a, b) = tokio::join!(one, two);
+        assert_ne!(
+            matches!(a, RpcResult::Success { .. }),
+            matches!(b, RpcResult::Success { .. })
+        );
+        assert!(
+            matches!(if matches!(a,RpcResult::Failure{..}) {a} else {b}, RpcResult::Failure {error} if error.code == xharness_api::RpcErrorCode::SessionConflict)
+        );
+        for invalid in [
+            json!([{"id":"a","title":"Task","status":"completed"},{"id":"a","title":"Duplicate","status":"pending"}]),
+            json!([{"id":"a","title":" ","status":"pending"}]),
+            json!([{"id":"a","title":"Task","status":"made_up"}]),
+        ] {
+            let result = host
+                .call(
+                    RpcId::new(format!("bad-{}", invalid)),
+                    RpcMethod::GoalUpdatePlan,
+                    json!({"sessionId":"g","planRevision":1,"items":invalid}),
+                    CancellationToken::new(),
+                )
+                .await;
+            assert!(matches!(result, RpcResult::Failure { .. }));
+        }
+        call(
+            &host,
+            "second-session",
+            RpcMethod::SessionCreate,
+            json!({"sessionId":"other"}),
+        )
+        .await;
+        call(
+            &host,
+            "other-plan",
+            RpcMethod::GoalUpdatePlan,
+            json!({"sessionId":"other","planRevision":0,"items":[]}),
+        )
+        .await;
+        let source = store.load("g").await.unwrap().unwrap();
+        assert_eq!(
+            xharness_session::session_plan(&source).unwrap().items.len(),
+            1
+        );
+        assert_eq!(model.rounds.load(Ordering::SeqCst), 0);
+        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
+    }
+
+    #[tokio::test]
+    async fn working_plan_never_resumes_paused_or_completes_existing_goal() {
+        let (host, store, model) = setup("complete").await;
+        let created = call(&host,"disabled-goal",RpcMethod::GoalCreate,json!({"sessionId":"g","objective":"Wait for explicit resume","executionEnabled":false})).await;
+        call(
+            &host,
+            "pause-first",
+            RpcMethod::GoalPause,
+            json!({"sessionId":"g","ref":created["ref"]}),
+        )
+        .await;
+        let before = xharness_agent::goal_snapshot(&store.load("g").await.unwrap().unwrap());
+        call(&host,"completed-plan",RpcMethod::GoalUpdatePlan,json!({"sessionId":"g","planRevision":0,"items":[{"id":"a","title":"Plan done","status":"completed"}]})).await;
+        let after = xharness_agent::goal_snapshot(&store.load("g").await.unwrap().unwrap());
+        assert_eq!(before, after);
+        assert_eq!(model.rounds.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            host.state.read().await.sessions["g"].projection_values()["taskPlan"]["items"][0]
+                ["status"],
+            "completed"
+        );
+        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
+    }
+
+    #[tokio::test]
+    async fn legacy_plan_jsonl_restore_retains_state_without_retired_tool_context() {
+        let root = std::env::temp_dir().join(format!(
+            "xh-plan-context-cold-{}-{}",
+            std::process::id(),
+            crate::state::now_ms()
+        ));
+        let store: Arc<dyn Store> =
+            Arc::new(xharness_session_jsonl::JsonlSessionStore::new(&root).unwrap());
+        let (host, _, model) =
+            setup_with_store("legacy_plan_retained", Arc::new(NoTools), store.clone()).await;
+        call(&host, "context-persist", RpcMethod::GoalUpdatePlan, json!({"sessionId":"g","planRevision":0,"items":[{"id":"verify","title":"Persisted verification","status":"pending"}]})).await;
+        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
+        drop(host);
+        drop(store);
+        // A fresh store instance, Host and runtime read the on-disk journal.
+        let store: Arc<dyn Store> =
+            Arc::new(xharness_session_jsonl::JsonlSessionStore::new(&root).unwrap());
+        let runtime = Arc::new(DurableLoopAgentRuntime::new(
+            "test",
+            "goal",
+            Some(model.clone()),
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            store.clone(),
+            Arc::new(xharness_agent::MemoryLeaseManager::default()),
+            2048,
+        ));
+        let mut config = HostConfig::new(std::env::temp_dir());
+        config.provider_id = "test".into();
+        config.model_id = "goal".into();
+        let host = BasicHost::with_agent_runtime(config, runtime);
+        host.restore_from_store(store.clone()).await.unwrap();
+        assert_eq!(
+            model.rounds.load(Ordering::SeqCst),
+            0,
+            "restore alone never starts a model call"
+        );
+        call(&host, "context-report", RpcMethod::SessionPrompt, json!({"sessionId":"g","mode":"queue","content":[{"type":"text","text":"Only report; do not resume verification"}]})).await;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let session = store.load("g").await.unwrap().unwrap();
+                if session
+                    .events()
+                    .iter()
+                    .any(|e| matches!(e.data(), EventData::TurnEnd { .. }))
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
         .unwrap();
-        let first = ex.execute(request.clone()).await;
-        assert!(first.is_ok(), "{first:?}");
-        wait(&host, &store, "complete").await;
-        let replay = ex.execute(request).await;
-        assert!(replay.is_ok(), "{replay:?}");
-        assert_eq!(first.output, replay.output);
-        let get = ex
-            .execute(xharness_tools::ToolRequest::new(
-                "goal",
-                r#"{"action":"get"}"#,
-            ))
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let session = store.load("g").await.unwrap().unwrap();
+        assert_eq!(
+            model.rounds.load(Ordering::SeqCst),
+            1,
+            "a pending plan never continues the ordinary turn"
+        );
+        assert_eq!(
+            xharness_session::session_plan(&session).unwrap().revision,
+            1
+        );
+        assert!(session
+            .derive_messages()
+            .iter()
+            .all(|m| m.id.as_deref() != Some("session-working-plan-context")));
+        assert!(xharness_agent::goal_snapshot(&session).is_none());
+        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
+        drop(host);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn working_plan_jsonl_cold_restore_and_receipt_do_not_start_work() {
+        let root = std::env::temp_dir().join(format!(
+            "xh-plan-cold-{}-{}",
+            std::process::id(),
+            crate::state::now_ms()
+        ));
+        let store: Arc<dyn Store> =
+            Arc::new(xharness_session_jsonl::JsonlSessionStore::new(&root).unwrap());
+        let (host, _, model) = setup_with_store("complete", Arc::new(NoTools), store.clone()).await;
+        call(&host,"cold-plan",RpcMethod::GoalUpdatePlan,json!({"sessionId":"g","planRevision":0,"items":[{"id":"a","title":"Persisted","status":"in_progress"}]})).await;
+        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
+        drop(host);
+        let runtime = Arc::new(DurableLoopAgentRuntime::new(
+            "test",
+            "goal",
+            Some(model.clone()),
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            store.clone(),
+            Arc::new(xharness_agent::MemoryLeaseManager::default()),
+            2048,
+        ));
+        let mut config = HostConfig::new(std::env::temp_dir());
+        config.provider_id = "test".into();
+        config.model_id = "goal".into();
+        let restored = BasicHost::with_agent_runtime(config, runtime);
+        restored.restore_from_store(store.clone()).await.unwrap();
+        restored.sync_authoritative_session("g").await.unwrap();
+        assert_eq!(
+            restored.state.read().await.sessions["g"].projection_values()["taskPlan"]["items"][0]
+                ["title"],
+            "Persisted"
+        );
+        let result = call(&restored,"cold-plan",RpcMethod::GoalUpdatePlan,json!({"sessionId":"g","planRevision":0,"items":[{"id":"a","title":"Persisted","status":"in_progress"}]})).await;
+        assert_eq!(result["plan"]["revision"], 1);
+        assert_eq!(model.rounds.load(Ordering::SeqCst), 0);
+        restored
+            .agent_runtime
+            .shutdown(Duration::from_secs(1))
             .await;
-        let value: Value = serde_json::from_str(&get.output.as_ref().unwrap().content).unwrap();
-        assert_eq!(value["goal"]["objective"], "Check parser");
-        assert_eq!(value["execution"]["state"], "complete");
-        let old_ref = value["ref"].clone();
-        let edit = ex
-            .execute(xharness_tools::ToolRequest::new(
-                "goal",
-                json!({"action":"update","ref":old_ref,"max_goal_rounds":8}).to_string(),
-            ))
-            .await;
-        assert!(edit.is_ok(), "{edit:?}");
+        drop(restored);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn natural_language_request_does_not_implicitly_create_a_goal() {
+        let (host, store, model) = setup("ordinary").await;
+        call(&host,"user-text",RpcMethod::SessionPrompt,json!({"sessionId":"g","mode":"queue","content":[{"type":"text","text":"Set a persistent goal: implement parser and test it"}]})).await;
+        let session = wait_ordinary_turn(&store).await;
+        assert!(execution_state(&session).is_none());
+        assert!(xharness_agent::goal_snapshot(&session).is_none());
+        assert_eq!(model.rounds.load(Ordering::SeqCst), 1);
+        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
+    }
+
+    #[tokio::test]
+    async fn slash_goal_create_runs_with_scoped_report_and_existing_objective_tools() {
+        let (host, store, model) = setup("complete").await;
+        let result = host.call_dynamic(
+            RpcId::new("slash-create"), "commands/execute",
+            json!({"args":{"agentId":"g","line":"/goal Implement parser and test it","images":[]}}),
+            CancellationToken::new(),
+        ).await.unwrap();
+        assert!(
+            matches!(result,RpcResult::Success{value:Some(ref v)} if v["result"]["kind"]=="success"),
+            "{result:?}"
+        );
+        let session = wait(&host, &store, "complete").await;
+        let state = execution_state(&session).unwrap();
+        assert_eq!(
+            state.definition.snapshot.objective,
+            "Implement parser and test it"
+        );
+        assert_eq!(state.rounds_started, 1);
+        assert_eq!(model.rounds.load(Ordering::SeqCst), 1);
+        assert!(!session
+            .events()
+            .iter()
+            .any(|event| matches!(event.data(),EventData::ToolCall{call,..} if call.name=="goal")));
+        assert!(session.events().iter().any(
+            |event| matches!(event.data(),EventData::ToolCall{call,..} if call.name=="goal_report")
+        ));
+        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
+    }
+
+    #[tokio::test]
+    async fn slash_goal_then_real_model_edit_projects_text_and_reassesses_next_round() {
+        let (host, store, model) = setup("edit_objective").await;
+        let result = host.call_dynamic(
+            RpcId::new("slash-edit-fixture"), "commands/execute",
+            json!({"args":{"agentId":"g","line":"/goal Implement parser and test it","images":[]}}),
+            CancellationToken::new(),
+        ).await.unwrap();
+        assert!(matches!(result, RpcResult::Success { .. }));
+        let session = wait(&host, &store, "complete").await;
+        let state = execution_state(&session).unwrap();
+        assert_eq!(model.rounds.load(Ordering::SeqCst), 2);
+        assert_eq!(state.rounds_started, 2);
+        assert_eq!(state.activation_epoch, 1);
+        assert_eq!(state.definition.verification, VerificationMode::AgentReport);
+        assert_eq!(
+            host.state.read().await.goals["g"].objective,
+            state.definition.snapshot.objective
+        );
+        assert!(state
+            .definition
+            .snapshot
+            .objective
+            .contains("Preserve the original acceptance requirements"));
+        let settled = session
+            .events()
+            .iter()
+            .filter_map(|e| match e.data() {
+                EventData::GoalExecution { change }
+                    if change.operation == GoalExecutionOperation::Settle =>
+                {
+                    change.state.latest_turn.clone()
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(settled.len(), 2);
+        assert!(settled[0].report.is_none());
+        assert_eq!(
+            settled[1].report.as_ref().unwrap().status,
+            GoalReportStatus::Complete
+        );
+        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
+    }
+
+    #[tokio::test]
+    async fn user_goal_controls_are_replay_safe_and_fence_stale_changes() {
+        let (host, store, model) = setup("complete").await;
+        let args = json!({"sessionId":"g","objective":"Check parser","maxGoalRounds":4});
+        let created = call(&host, "user-create", RpcMethod::GoalCreate, args.clone()).await;
         wait(&host, &store, "complete").await;
-        let stale = ex
-            .execute(xharness_tools::ToolRequest::new(
-                "goal",
-                json!({"action":"resume","ref":old_ref}).to_string(),
-            ))
+        assert_eq!(
+            call(&host, "user-create", RpcMethod::GoalCreate, args).await,
+            created
+        );
+        let goal = host.state.read().await.goals["g"].clone();
+        let old_ref = json!({"id":goal.id,"revision":goal.revision});
+        call(
+            &host,
+            "user-edit",
+            RpcMethod::GoalEdit,
+            json!({"sessionId":"g","ref":old_ref,"maxGoalRounds":8}),
+        )
+        .await;
+        let stale = host
+            .call(
+                RpcId::new("stale-user-resume"),
+                RpcMethod::GoalResume,
+                json!({"sessionId":"g","ref":old_ref}),
+                CancellationToken::new(),
+            )
             .await;
         assert!(
             !stale.is_ok(),
-            "stale tool must not overwrite user/CAS changes"
+            "a stale control must not overwrite newer settings"
         );
         let current = host.state.read().await.goals["g"].clone();
         assert_eq!(current.max_goal_rounds, 8);
         assert_eq!(current.phase, xharness_session::GoalPhase::Complete);
-        assert_eq!(current.execution.as_ref().unwrap()["enabled"], false);
-        let resume = ex
-            .execute(xharness_tools::ToolRequest::new(
-                "goal",
-                json!({"action":"resume","ref":{"id":current.id,"revision":current.revision}})
-                    .to_string(),
-            ))
-            .await;
-        assert!(resume.is_ok(), "{resume:?}");
+        call(
+            &host,
+            "user-resume",
+            RpcMethod::GoalResume,
+            json!({"sessionId":"g","ref":{"id":current.id,"revision":current.revision}}),
+        )
+        .await;
         let reopened = wait(&host, &store, "complete").await;
         assert_eq!(model.rounds.load(Ordering::SeqCst), 2);
         assert_eq!(execution_state(&reopened).unwrap().rounds_started, 2);
         assert!(execution_state(&reopened).unwrap().activation_epoch > 1);
-        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
-    }
-    #[tokio::test]
-    async fn ordinary_goal_tool_rejects_invalid_actions_identity_and_cancel_without_mutation() {
-        let (host, store, _) = setup("complete").await;
-        let ex = goal_executor(&host, store).await;
-        for args in [
-            json!({"action":"get","session_id":"other"}),
-            json!({"action":"complete"}),
-            json!({"action":"clear"}),
-            json!({"action":"create","objective":"   "}),
-            json!({"action":"create","objective":"x","max_goal_rounds":0}),
-            json!({"action":"create","objective":"x","executionEnabled":false}),
-            json!({"action":"pause"}),
-            json!({"action":"get","objective":"mixed fields"}),
-            json!({"action":"report","report":{"status":"complete","summary":"done","evidence":[{"kind":"artifact","reference":"test.py"}]}}),
-        ] {
-            let result = ex
-                .execute(xharness_tools::ToolRequest::new("goal", args.to_string()))
-                .await;
-            assert!(!result.is_ok(), "{args}: {result:?}");
-        }
-        let cancel = CancellationToken::new();
-        cancel.cancel();
-        let result = ex
-            .execute(
-                xharness_tools::ToolRequest::new(
-                    "goal",
-                    json!({"action":"create","objective":"must not create"}).to_string(),
-                )
-                .with_cancellation(cancel),
-            )
-            .await;
-        assert!(!result.is_ok());
-        assert!(!host.state.read().await.goals.contains_key("g"));
         host.agent_runtime.shutdown(Duration::from_secs(1)).await;
     }
 
@@ -941,21 +1352,22 @@ mod tests {
         host.agent_runtime.shutdown(Duration::from_secs(1)).await;
     }
     #[tokio::test]
-    async fn slash_command_uses_real_goal_rpc_and_budget_stops_without_fake_completion() {
-        let (host, store, _) = setup("progress").await;
+    async fn legacy_round_limit_is_inert_and_retired_budget_command_cannot_mutate_goal() {
+        let (host, store, _) = setup("three").await;
         let created = call(
             &host,
             "create",
             RpcMethod::GoalCreate,
-            json!({"sessionId":"g","objective":"Keep checking","maxGoalRounds":2}),
+            json!({"sessionId":"g","objective":"Keep checking","maxGoalRounds":1}),
         )
         .await;
         assert!(created["ref"].is_object());
-        let session = wait(&host, &store, "paused").await;
-        assert_eq!(
-            execution_projection(&session)["pauseReason"],
-            "round_budget"
-        );
+        let session = wait(&host, &store, "complete").await;
+        let execution = execution_state(&session).unwrap();
+        assert_eq!(execution.rounds_started, 3);
+        assert_eq!(execution.definition.snapshot.max_goal_rounds, 1);
+        assert!(execution.pause_reason.is_none());
+        let before_command = crate::restore::restored_goal(&session).unwrap();
         let result = host
             .call_dynamic(
                 RpcId::new("show"),
@@ -965,7 +1377,8 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(result.is_ok());
+        assert!(matches!(result, RpcResult::Success {value: Some(ref v)}
+            if v["result"]["text"].as_str().is_some_and(|text| text.contains("3 rounds") && !text.contains("3/1"))));
         let invalid = host
             .call_dynamic(
                 RpcId::new("invalid-budget"),
@@ -988,11 +1401,13 @@ mod tests {
             .await
             .unwrap();
         assert!(
-            matches!(edited,RpcResult::Success{value:Some(ref v)} if v["result"]["kind"]=="success")
+            matches!(edited,RpcResult::Success{value:Some(ref v)} if v["result"]["kind"]=="error" && v["result"]["text"].as_str().unwrap().contains("statistics only"))
         );
         let goal = crate::restore::restored_goal(&store.load("g").await.unwrap().unwrap()).unwrap();
-        assert_eq!(goal.max_goal_rounds, 4);
-        assert_eq!(goal.rounds_started, 2);
+        assert_eq!(goal.max_goal_rounds, 1);
+        assert_eq!(goal.rounds_started, 3);
+        assert_eq!(goal.revision, before_command.revision);
+        assert_eq!(goal.phase, GoalPhase::Complete);
         host.agent_runtime.shutdown(Duration::from_secs(1)).await;
     }
     #[tokio::test]
@@ -1009,12 +1424,11 @@ mod tests {
         let state = execution_state(&session).unwrap();
         let registry = Arc::new(xharness_tools::ToolRegistry::new());
         registry
-            .register(crate::goal_tool::spec(
-                Arc::downgrade(&host),
+            .register(crate::goal_report_tool::spec(
                 store.clone(),
                 Arc::new(NoTools),
                 "g".into(),
-                Some((state.definition, state.activation_epoch)),
+                (state.definition, state.activation_epoch),
             ))
             .await
             .unwrap();
@@ -1026,8 +1440,8 @@ mod tests {
         ] {
             let r = ex
                 .execute(xharness_tools::ToolRequest::new(
-                    "goal",
-                    json!({"action":"report","report":body}).to_string(),
+                    "goal_report",
+                    body.to_string(),
                 ))
                 .await;
             assert!(!r.is_ok(), "late or invalid report must fail");

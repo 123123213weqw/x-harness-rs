@@ -1,5 +1,6 @@
 import styles from './ModelSelect.css'
 export const css = {
+  compact: "AbPDjW_compact", modelIcon: "AbPDjW_modelIcon",
   sourceBadge: "AbPDjW_sourceBadge", separator: "AbPDjW_separator", backChevron: "AbPDjW_backChevron",
 			"cell": "AbPDjW_cell",
 			"cellChevron": "AbPDjW_cellChevron",

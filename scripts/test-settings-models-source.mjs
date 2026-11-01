@@ -138,3 +138,10 @@ test('adaptive output cross-field checks reject stale hidden minima without reje
  assert.equal(check([{id:'m',upstreamModel:'different',minimumOutputTokens:8192}],{},defaults).key,'modelOutputBudgetInvalid');
  assert.equal(check([{id:'m',minimumOutputTokens:8192}],{maxTokens:16384}),undefined);
 });
+
+test('documented image discovery stays Auto instead of freezing catalog metadata as an override',()=>{
+ const adopt=apis[1].plugin.adopt;
+ const row=adopt({id:'vision',imageInput:true,imageInputCapability:{source:'documented'}});
+ assert.equal(row.imageInput,undefined);
+ assert.equal(adopt({id:'vision',imageInput:false,imageInputCapability:{source:'configured'}}).imageInput,false);
+});

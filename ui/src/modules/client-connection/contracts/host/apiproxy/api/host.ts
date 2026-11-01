@@ -52,6 +52,7 @@ export interface HostApi {
     attachedSessions: number
     home: string
     canOpenPath: boolean
+    canRevealPath?: boolean | undefined
   }>>
 
   /**
@@ -92,7 +93,7 @@ export interface HostApi {
    * `/api` request.
    */
   openPath(
-    request: RpcRequest<{ path: string }>,
+    request: RpcRequest<{ path: string; mode?: 'open' | 'reveal' | undefined }>,
     signal: AbortSignal,
   ): Promise<RpcResponse<{ opened: true }>>
 }

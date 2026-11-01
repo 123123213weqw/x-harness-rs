@@ -88,12 +88,25 @@ export function ValueField(props: FieldProps & {
 }
 
 /**
- * A write-only credential control. The value never rides a response, so the
- * control reports only whether one is configured and starts blank; a blank
- * draft writes nothing, which keeps the stored key rather than clearing it.
- * @param props - the field's copy, its staged text, and the configured state.
+ * A staged boolean control. Only the card's Save action writes the setting.
+ * @param props - the field's copy, staged value, and edit action.
  * @returns the labelled control.
  */
+export function BooleanField(props: Pick<FieldProps, 'id' | 'label' | 'hint' | 'text' | 'disabled' | 'onEdit'>) {
+  return (
+    <div className={css.field}>
+      <div className={css.head}>
+        <label className={css.label} htmlFor={props.id}>{props.label}</label>
+        <input id={props.id} type="checkbox" role="switch" checked={props.text !== 'false'}
+          aria-describedby={`${props.id}-hint`} disabled={props.disabled}
+          onChange={event => { props.onEdit(String(event.target.checked)) }} />
+      </div>
+      <p id={`${props.id}-hint`} className={css.hint}>{props.hint}</p>
+    </div>
+  )
+}
+
+/** Write-only credential control: blank drafts preserve the stored key. */
 export function SecretField(props: Pick<FieldProps, 'id' | 'label' | 'hint' | 'text' | 'disabled' | 'onEdit'> & {
   /** Whether the Host reports a configured credential for this reference. */
   configured: boolean

@@ -1,6 +1,13 @@
 //! One lazy model tool bridges built-in Host UI and enabled plugin servers.
 //! Schemas are discovered on demand rather than injected into every request.
 
+mod browser_boundary;
+#[cfg(test)]
+mod browser_e2e;
+#[cfg(test)]
+mod extension_e2e;
+mod media;
+
 use std::{sync::Arc, time::Duration};
 
 use crate::builtin_ui::{self, BuiltinUi};
@@ -109,8 +116,42 @@ fn call_output(result: Value) -> Result<ToolOutput, ToolHandlerError> {
     }
 }
 
-fn config(spec: McpServerSpec) -> Result<StdioServerConfig, ToolHandlerError> {
-    let env = spec.resolved_env().map_err(error)?;
+fn config(
+    mut spec: McpServerSpec,
+    owner: &str,
+    store: &std::path::Path,
+) -> Result<StdioServerConfig, ToolHandlerError> {
+    spec.env.retain(|name, _| {
+        !name
+            .to_ascii_uppercase()
+            .starts_with("XHARNESS_BROWSER_CONTEXT_")
+    });
+    let mut env = spec.resolved_env().map_err(error)?;
+    // Reserved identity comes from the executing Host, never plugin configuration
+    // or model arguments. Include the store namespace to isolate local instances.
+    if spec.plugin == browser_boundary::EXTENSION_PLUGIN && spec.server == "browser" {
+        use sha2::{Digest, Sha256};
+        let namespace = std::fs::canonicalize(store).map_err(error)?;
+        let mut hash = Sha256::new();
+        hash.update(namespace.to_string_lossy().as_bytes());
+        hash.update([0]);
+        hash.update(owner.as_bytes());
+        env.insert(
+            "XHARNESS_BROWSER_CONTEXT_ID".into(),
+            format!("{:x}", hash.finalize()),
+        );
+        env.insert(
+            "XHARNESS_BROWSER_CONTEXT_LABEL".into(),
+            format!(
+                "XHarness · {}",
+                owner
+                    .chars()
+                    .filter(|c| !c.is_control())
+                    .take(64)
+                    .collect::<String>()
+            ),
+        );
+    }
     Ok(StdioServerConfig {
         plugin: spec.plugin,
         server: spec.server,
@@ -133,7 +174,7 @@ fn spec(
     ToolSpec::new(
         ToolDefinition::new(
             "plugin_mcp",
-            "Use built-in UI display (plugin=builtin, server=ui, tool=display) on Web or desktop, user-enabled local MCP servers and, when running in the desktop, its native browser (discoverable with zero tabs; use control to open a page) under the existing tool approval policy. action=list without plugin lists enabled plugins; with plugin lists its servers; with plugin and server lists a compact tool index. action=describe returns one tool's input schema. action=call invokes one tool by plugin, server and tool name. Servers start lazily and are isolated per chat.",
+            format!("{}{}", "Discover and control XHarness's embedded browser when available; display files or invoke enabled MCP. list -> plugins, +plugin -> servers, +server -> tools; describe loads schema; call invokes. File display: builtin/ui/display. Schemas load lazily; do not bypass approvals.\nEmbedded browser: Discover availability first; zero open tabs does not mean unavailable. An explicit request to open or view a page requires opening it. Use web_fetch for lightweight public-page reading when opening or rendering is not requested. For JS/interaction, discover embedded before desktop automation; after empty/title-only fetches, check the embedded browser before ending an unresolved page-reading request. Use computer for desktop applications or an explicitly requested external browser. Respect explicit browser choices. Report unavailability/failure; never claim a page opened without a successful result.", browser_boundary::GUIDANCE),
             json!({"type":"object","properties":{
                 "action":{"type":"string","enum":["list","describe","call"]},
                 "plugin":{"type":"string"},"server":{"type":"string"},"tool":{"type":"string"},
@@ -156,10 +197,28 @@ fn spec(
                     // Reserved host namespace cannot be impersonated by an installed plugin.
                     plugins.retain(|plugin| plugin != builtin_ui::PLUGIN);
                     if ui.is_some() { plugins.push(builtin_ui::PLUGIN.into()); }
+                    let mut capabilities = Vec::new();
                     if let Some(native) = &native {
-                        if native.available(&owner, &context.cancellation).await { plugins.push(crate::native_browser::PLUGIN.into()); }
+                        if native.available(&owner, &context.cancellation).await {
+                            plugins.push(crate::native_browser::PLUGIN.into());
+                            capabilities.push(browser_boundary::embedded_capability());
+                        }
                     }
-                    return Ok(ToolOutput::text(json!({"plugins":plugins}).to_string()));
+                    if plugins.iter().any(|plugin| plugin == browser_boundary::HEADLESS_PLUGIN) {
+                        if let Some(manager) = &manager {
+                            if let Some(capability) = browser_boundary::headless_capability(manager).await {
+                                capabilities.push(capability);
+                            }
+                        }
+                    }
+                    if plugins.iter().any(|plugin| plugin == browser_boundary::EXTENSION_PLUGIN) {
+                        if let Some(manager) = &manager {
+                            if let Some(capability) = browser_boundary::extension_capability(manager).await {
+                                capabilities.push(capability);
+                            }
+                        }
+                    }
+                    return Ok(ToolOutput::text(json!({"plugins":plugins,"capabilities":capabilities}).to_string()));
                 }
                 let plugin = plugin.ok_or_else(|| error("plugin required"))?;
                 if plugin == builtin_ui::PLUGIN {
@@ -228,7 +287,7 @@ fn spec(
                         return Ok(ToolOutput::text(json!({"plugin":plugin,"servers":previews.iter().map(|p| &p.server).collect::<Vec<_>>()}).to_string()));
                     }
                     let server = server.ok_or_else(|| error("server required"))?;
-                    let config = config(manager.mcp_server(plugin, server).await.map_err(error)?)?;
+                    let config = config(manager.mcp_server(plugin, server).await.map_err(error)?, &owner, manager.storage_root())?;
                     let tools = runtime.list_tools_with_lease(&owner, &config, &lease).await.map_err(error)?;
                     if action == "describe" {
                         let name = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
@@ -245,10 +304,10 @@ fn spec(
                 let server = args.get("server").and_then(Value::as_str).ok_or_else(|| error("server required"))?;
                 let tool = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
                 let parameters = args.get("arguments").and_then(Value::as_object).cloned().unwrap_or_else(Map::new);
-                let config = config(manager.mcp_server(plugin, server).await.map_err(error)?)?;
+                let config = config(manager.mcp_server(plugin, server).await.map_err(error)?, &owner, manager.storage_root())?;
                 let call = runtime.call_tool_with_lease(&owner, &config, tool, parameters, &lease);
                 tokio::select! {
-                    result = call => call_output(result.map_err(error)?),
+                    result = call => media::project(result.map_err(error)?, media.as_deref(), &context.cancellation).await,
                     _ = context.cancellation.cancelled() => {
                         runtime.disconnect_plugin(plugin).await;
                         Err(error("MCP call cancelled"))
@@ -264,6 +323,86 @@ fn spec(
 mod tests {
     use super::*;
     use xharness_tools::{ToolExecutor, ToolRegistry, ToolRequest};
+
+    #[test]
+    fn extension_identity_is_host_owned_stable_and_store_scoped() {
+        let root = std::env::temp_dir().join(format!("xh-binding-{}", std::process::id()));
+        let other = root.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        let spec = McpServerSpec {
+            plugin: "browser-extension".into(),
+            server: "browser".into(),
+            digest: "fixture".into(),
+            command: "node".into(),
+            args: vec![],
+            cwd: root.clone(),
+            env: std::collections::BTreeMap::from([
+                (
+                    "XHARNESS_BROWSER_CONTEXT_ID".into(),
+                    "${UNSET_UNTRUSTED_SELECTOR}".into(),
+                ),
+                ("xharness_browser_context_label".into(), "spoof".into()),
+                ("NORMAL".into(), "kept".into()),
+            ]),
+        };
+        let one = config(spec.clone(), "chat-a", &root).unwrap();
+        assert_eq!(one.env["NORMAL"], "kept");
+        assert!(!one.env.contains_key("xharness_browser_context_label"));
+        let key = "XHARNESS_BROWSER_CONTEXT_ID";
+        assert_eq!(one.env[key].len(), 64);
+        assert_eq!(
+            one.env[key],
+            config(spec.clone(), "chat-a", &root).unwrap().env[key]
+        );
+        assert_ne!(
+            one.env[key],
+            config(spec.clone(), "chat-b", &root).unwrap().env[key]
+        );
+        assert_ne!(
+            one.env[key],
+            config(spec.clone(), "chat-a", &other).unwrap().env[key]
+        );
+        let mut unrelated = spec;
+        unrelated.plugin = "other".into();
+        assert!(!config(unrelated, "chat-a", &root)
+            .unwrap()
+            .env
+            .contains_key(key));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn absent_bridge_does_not_advertise_a_browser_or_inject_schemas() {
+        let binding = bind(None, None, None, None, "owner".into(), true, None);
+        let registry = Arc::new(ToolRegistry::new());
+        registry.register(binding.spec).await.unwrap();
+        let definitions = registry.definitions().await;
+        assert_eq!(definitions.len(), 1);
+        let description = &definitions[0].description;
+        assert!(description
+            .starts_with("Discover and control XHarness's embedded browser when available"));
+        for rule in [
+            "Embedded browser:",
+            "Discover availability first",
+            "zero open tabs does not mean unavailable",
+            "An explicit request to open or view a page requires opening it",
+            "Use web_fetch for lightweight public-page reading when opening or rendering is not requested",
+            "Use computer for desktop applications or an explicitly requested external browser",
+            "check the embedded browser before ending an unresolved page-reading request",
+            "Respect explicit browser choices",
+            "never claim a page opened without a successful result",
+            "do not bypass approvals",
+        ] {
+            assert!(description.contains(rule), "missing browser guidance: {rule}");
+        }
+        let executor = ToolExecutor::new(registry).with_guards(vec![binding.guard]);
+        let result = executor
+            .execute(ToolRequest::new("plugin_mcp", r#"{"action":"list"}"#))
+            .await;
+        assert!(result.is_ok(), "{result:?}");
+        let index: Value = serde_json::from_str(&result.output.unwrap().content).unwrap();
+        assert_eq!(index, json!({"plugins":[],"capabilities":[]}));
+    }
 
     #[tokio::test]
     async fn automatic_browser_binding_does_not_bypass_tool_approval() {

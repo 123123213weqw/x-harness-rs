@@ -1,0 +1,46 @@
+{
+  "base": "0f2b20000873f7af32dd5fb80f83d6a3b358ad4a",
+  "remote": "WZU_Server",
+  "remote_source": "~/codex-build/x-harness-rs/mixed-calibration-20261018",
+  "no_local_rust_compilation": true,
+  "baseline_red": {
+    "new_starvation_regressions_failed": 2,
+    "evidence": "Before production edits, both new tests remained at 734086 despite eight completed mixed observations."
+  },
+  "offline_rust": {
+    "passed": 404,
+    "failed": 0,
+    "ignored": 2,
+    "command": "cargo test --locked -p xharness-token -p xharness-provider-openai -p xharness-context -p xharness-core"
+  },
+  "clippy": "cargo clippy --locked -p xharness-token -p xharness-provider-openai --all-targets -- -D warnings: passed",
+  "architecture": "dependency boundary and exact-base freeze passed; 30 architecture selftests passed",
+  "format_and_diff": "cargo fmt --all -- --check and git diff --check passed",
+  "source_sha256": {
+    "crates/xharness-token/src/calibration.rs": "66ebea43d6b94b18462367ee521b76acaa5a534d47418a65a21f5bb8153377db",
+    "crates/xharness-token/src/calibration/mixed.rs": "8cc7ed95cae0782978b63d6bdc1d331bc8902ce4a695232e30b91a471943400f",
+    "crates/xharness-token/src/calibration/mixed_tests.rs": "3f534d9ba946c4280029592de80e3120d1fc72634a5080cb37d1be0ec48936c3",
+    "crates/xharness-provider-openai/tests/protocol.rs": "73e8bccec8531c2babdc942dd1eab3f3c0b61fe26d91ea9be89c09aff8143b95",
+    "crates/xharness-provider-openai/tests/protocol/mixed_calibration.rs": "935630c7a1d6929d790a33722d9c492ed8807ab236d6d6e7b9c22aab2015773e",
+    "crates/xharness-provider-openai/tests/protocol/mixed_calibration_live.rs": "d3f7b28d5c19b4a54c162f42873eabcfb53e8c2ac97777fbbe8eb55c4a8ce361"
+  },
+  "remote_source_hashes_match": true,
+  "live": {
+    "final_source_run_requests": 20,
+    "protocols": [
+      "chat_completions",
+      "responses"
+    ],
+    "restart_after_completed_requests_per_protocol": 8,
+    "all_reported_inputs_within_estimate": true,
+    "description": "Two complete synthetic-only runs, 20 requests per run; final source run stored in live-deepseek.json. Complete reported input includes cache. No private prompt or image was sent. Accounting acceptance, not model-quality, latency or billing-cost acceptance."
+  },
+  "limitations": [
+    "Recorded request audit capture was disabled: numeric reconstruction, not byte-identical private replay.",
+    "Requires eight comparable mixed observations; cold starts and incompatible distributions still fall back conservatively.",
+    "Independent image allowance is still added in full, so mixed estimates remain estimated, not exact.",
+    "Cache snapshot v2 reads v1; an older binary cold-starts this disposable cache on downgrade.",
+    "Linux remote validation does not replace fresh Windows/macOS/current-head CI."
+  ],
+  "deployment": "No installed application, running Host, agent, real conversation, settings or live cache was modified."
+}

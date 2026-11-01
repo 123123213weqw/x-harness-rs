@@ -310,6 +310,63 @@ async fn escaped_session_holding_output_is_a_bounded_cleanup_failure() {
     wait_until_dead(u32::try_from(escaped.as_raw()).unwrap()).await;
 }
 
+#[cfg(target_os = "linux")]
+async fn escaped_session_holding_one_output(closed_stream: &str) {
+    struct Cleanup(u32);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = kill(Pid::from_raw(self.0 as i32), Signal::SIGKILL);
+        }
+    }
+
+    for stop in ["exit", "timeout", "cancel"] {
+        let dir = TestDir::new();
+        let pid_file = dir.path().join("escaped.pid");
+        let script = "setsid /bin/sh -c 'if [ \"$2\" = stdout ]; then exec 1>/dev/null; else exec 2>/dev/null; fi; printf \"%s\" \"$$\" > \"$1\"; exec /bin/sleep 30' escaped \"$1\" \"$2\" & while [ ! -s \"$1\" ]; do /bin/sleep 0.01; done; if [ \"$3\" = exit ]; then exit 0; fi; exec /bin/sleep 30";
+        let mut spec = SpawnSpec::new("/bin/sh", dir.path())
+            .args([
+                OsString::from("-c"),
+                script.into(),
+                "xharness-asymmetric-output".into(),
+                pid_file.clone().into_os_string(),
+                closed_stream.into(),
+                stop.into(),
+            ])
+            .capture_drain_grace(Duration::from_millis(80));
+        if stop == "timeout" {
+            spec = spec.timeout(Duration::from_millis(500));
+        }
+        let handle = ProcessRuntime::new().spawn(spec).unwrap();
+        let cleanup = Cleanup(wait_for_pid_file(&pid_file).await);
+        if stop == "cancel" {
+            handle.cancellation().cancel();
+        }
+        let result = tokio::time::timeout(Duration::from_secs(3), handle.wait()).await;
+        drop(cleanup);
+        assert!(
+            matches!(
+                result,
+                Ok(Err(
+                    xharness_process::ProcessError::CaptureDrainTimedOut { .. }
+                ))
+            ),
+            "closed={closed_stream}, stop={stop}: {result:?}"
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn escaped_stderr_after_stdout_eof_is_a_cleanup_error_not_a_supervisor_panic() {
+    escaped_session_holding_one_output("stdout").await;
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn escaped_stdout_after_stderr_eof_is_a_cleanup_error_not_a_supervisor_panic() {
+    escaped_session_holding_one_output("stderr").await;
+}
+
 #[tokio::test]
 async fn capture_is_bounded_and_never_splits_valid_unicode() {
     let dir = TestDir::new();

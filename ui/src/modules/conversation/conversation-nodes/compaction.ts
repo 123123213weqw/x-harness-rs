@@ -13,7 +13,7 @@ function fallbackState(context: ConversationNodeContext<CompactionEvidence>): Co
 
 /** Automatic compaction progress, recovery and landed checkpoint contribution. */
 export const compactionDefinition: ConversationNodeDefinition<CompactionEvidence> = {
-  historyReuse: 'local', kind: 'compaction', target: 'chat',
+  historyReuse: 'local', locationReuse: 'events', kind: 'compaction', target: 'chat',
   match: (event, view) => {
     if (view?.for === 'compaction') {
       const presentation = projectedCompactionView(view)

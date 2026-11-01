@@ -3980,6 +3980,372 @@
         "UI_TEST_BROWSER": "webkit"
       },
       "weight": 90
+    },
+    {
+      "id": "contract-98",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "scripts/test-swarm-client.mjs"
+      ],
+      "env": {},
+      "weight": 2
+    },
+    {
+      "id": "browser-234",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-swarm-ui-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      },
+      "weight": 20
+    },
+    {
+      "id": "browser-235",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-swarm-ui-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      },
+      "weight": 20
+    },
+    {
+      "id": "browser-226",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-message-rail-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 60
+    },
+    {
+      "id": "browser-227",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-message-rail-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 60
+    },
+    {
+      "id": "browser-232",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-progress-runtime-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 60
+    },
+    {
+      "id": "browser-233",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-progress-runtime-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 60
+    },
+    {
+      "id": "browser-230",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-composer-layout-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 30
+    },
+    {
+      "id": "browser-231",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-composer-layout-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 30
+    },
+    {
+      "id": "contract-170",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-ui-fixture-boundary.mjs"
+      ],
+      "env": {},
+      "weight": 30
+    },
+    {
+      "id": "contract-171",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-new-session-reuse.mjs"
+      ],
+      "env": {},
+      "weight": 30
+    },
+    {
+      "id": "browser-236",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-new-session-reuse-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 45
+    },
+    {
+      "id": "browser-237",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-new-session-reuse-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 45
+    },
+    {
+      "id": "contract-172",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-loading-indicator.mjs"
+      ],
+      "env": {},
+      "weight": 5
+    },
+    {
+      "id": "browser-238",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-loading-indicator-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 10
+    },
+    {
+      "id": "browser-239",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-loading-indicator-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 10
+    },
+    {
+      "id": "browser-240",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-produced-file-actions-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 15
+    },
+    {
+      "id": "browser-241",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-produced-file-actions-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 15
+    },
+    {
+      "id": "contract-173",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-produced-file-native-wire.mjs"
+      ],
+      "env": {},
+      "weight": 20
+    },
+    {
+      "id": "browser-242",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-browser-component-picker.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 15
+    },
+    {
+      "id": "browser-243",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-browser-component-picker.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 15
+    },
+    {
+      "id": "browser-244",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-browser-picker-ui.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 15
+    },
+    {
+      "id": "browser-245",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-browser-picker-ui.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 15
+    },
+    {
+      "id": "contract-174",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "scripts/test-active-session-working-set.mjs"
+      ],
+      "env": {},
+      "weight": 40
+    },
+    {
+      "id": "browser-246",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-active-session-working-set-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 120
+    },
+    {
+      "id": "browser-247",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-active-session-working-set-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 120
+    },
+    {
+      "id": "contract-175",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-retained-pages.mjs",
+        "scripts/test-chat-structure.mjs"
+      ],
+      "env": {},
+      "weight": 15
+    },
+    {
+      "id": "browser-248",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-session-recovery-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 20
+    },
+    {
+      "id": "browser-249",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-session-recovery-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 20
+    },
+    {
+      "id": "browser-250",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-workspace-retention-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 20
+    },
+    {
+      "id": "browser-251",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-workspace-retention-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 20
     }
   ]
 }

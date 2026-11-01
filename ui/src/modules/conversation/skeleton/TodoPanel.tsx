@@ -78,22 +78,14 @@ function StatusGlyph({ status }: { status: TodoItem['status'] }) {
   }
 }
 
-/** Header summary: "·"-joined per-status counts; zero-count segments are omitted as noise (a non-empty list keeps at least one). */
-function progressLabel(todos: readonly TodoItem[], t: TodoPanelProps['t']): string {
+/** Compact completed/total summary; item states remain in the ordered list. */
+function progressLabel(todos: readonly TodoItem[]): string {
   const done = todos.filter(item => item.status === 'completed').length
-  const active = todos.filter(item => item.status === 'in_progress').length
-  const pending = todos.length - done - active
-  // En spaces (U+2002): HTML collapses runs of ASCII spaces, so widening the
-  // separator breathing room needs a literal wide space.
-  return [
-    ...done > 0 ? [t('todo.progress.done', { done })] : [],
-    ...active > 0 ? [t('todo.progress.active', { active })] : [],
-    ...pending > 0 ? [t('todo.progress.pending', { pending })] : [],
-  ].join('\u2002·\u2002')
+  return `${done}/${todos.length}`
 }
 
 export function TodoPanel({ todos, t }: TodoPanelProps) {
-  const [collapsed, setCollapsed] = useState(true)
+  const [collapsed, setCollapsed] = useState(false)
   if (todos.length === 0) return null
 
   return (
@@ -107,7 +99,7 @@ export function TodoPanel({ todos, t }: TodoPanelProps) {
         >
           <span className={css.lead} aria-hidden><IconChecklistOutline14 /></span>
           <span className={css.title}>{t('todo.title')}</span>
-          <span className={css.progress}>{progressLabel(todos, t)}</span>
+          <span className={css.progress}>{progressLabel(todos)}</span>
           <span className={css.chevron} aria-hidden>
             {collapsed ? <IconChevronUpOutline14 /> : <IconChevronDownOutline14 />}
           </span>

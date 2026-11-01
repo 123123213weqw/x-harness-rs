@@ -1,3 +1,4 @@
+import {checkProductionUi} from './check-production-ui.mjs'
 /** Same-run build reuse only, never an across-commit compiler cache. */
 import assert from 'node:assert/strict'
 import { lstatSync, readFileSync, writeFileSync } from 'node:fs'
@@ -16,6 +17,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const [mode, path] = process.argv.slice(2)
   assert.ok(['--write', '--verify'].includes(mode) && path, 'Usage: ci-ui-artifact.mjs --write|--verify RECEIPT')
   const root = fileURLToPath(new URL('../', import.meta.url))
+  checkProductionUi(resolve(root, 'ui/dist'))
   if (mode === '--write') writeFileSync(path, JSON.stringify(receipt(root, process.env.GITHUB_SHA), null, 2) + '\n')
   else verify(root, JSON.parse(readFileSync(path)), process.env.GITHUB_SHA)
 }

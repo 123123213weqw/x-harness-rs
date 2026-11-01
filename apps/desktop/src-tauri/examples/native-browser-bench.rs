@@ -3,6 +3,8 @@
 #[path = "../src/browser.rs"]
 #[allow(dead_code)]
 mod browser;
+#[path = "../src/browser_activity.rs"]
+mod browser_activity;
 #[path = "../src/browser_bridge.rs"]
 mod browser_bridge;
 #[path = "../src/browser_delegation.rs"]
@@ -11,10 +13,18 @@ mod browser_delegation;
 mod browser_inspect;
 #[path = "../src/browser_lifecycle.rs"]
 mod browser_lifecycle;
+#[path = "../src/browser_login.rs"]
+mod browser_login;
 #[path = "../src/browser_native/mod.rs"]
 mod browser_native;
 #[path = "../src/browser_perform.rs"]
 mod browser_perform;
+#[path = "../src/browser_picker.rs"]
+mod browser_picker;
+#[path = "../src/browser_request.rs"]
+mod browser_request;
+#[path = "../src/lifecycle_trace.rs"]
+mod lifecycle_trace;
 #[path = "../src/native_startup.rs"]
 mod native_startup;
 
@@ -67,6 +77,7 @@ fn main() {
             browser_delegation::desktop_browser_delegate,
             browser_delegation::desktop_browser_access,
             browser_inspect::desktop_browser_inspect,
+            browser_picker::desktop_browser_pick,
             browser_perform::desktop_browser_perform
         ])
         .setup(move |app| {
@@ -79,6 +90,7 @@ fn main() {
                 let result: Result<(), String> = async {
                     let state = app.state::<browser_bridge::BrowserBridge>();
                     let connection = state.start(&app).await?;
+                    assert!(state.is_started());
                     let mut options = std::fs::OpenOptions::new();
                     options.write(true).create_new(true);
                     #[cfg(unix)]

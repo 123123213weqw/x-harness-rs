@@ -57,7 +57,7 @@ export function updateRetryState(state: RetryState | undefined, match: Parameter
 }
 /** Producer-correlated model retry chain Definition. */
 export const retryDefinition: ConversationNodeDefinition<RetryState | undefined> = {
-  historyReuse: 'local', kind: 'model-retry', target: 'chat',
+  historyReuse: 'local', locationReuse: 'events', kind: 'model-retry', target: 'chat',
   match: event => {
     if (!isSessionEvent(event, 'llm/retry') && !isSessionEvent(event, 'llm/retry-started')) return null
     const id = event.data.retryId

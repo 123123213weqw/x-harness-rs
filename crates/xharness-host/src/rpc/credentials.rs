@@ -78,13 +78,22 @@ async fn set(host: &BasicHost, payload: &Value) -> Result<Value, RpcError> {
         let section = host.state.read().await.settings[crate::MODEL_SETTINGS_NAMESPACE]
             .value
             .clone();
+        if unreferenced_by_models(&section, &reference)
+            && backend
+                .write_auxiliary_credential(&reference, Some(&value))
+                .await
+                .map_err(crate::model_settings::model_settings_error)?
+        {
+            publish_credential_change(host, &reference, false);
+            return Ok(json!({}));
+        }
         backend.activate(
             backend
                 .set_credential(&reference, &value, &section)
                 .await
                 .map_err(crate::model_settings::model_settings_error)?,
         );
-        publish_model_settings(host);
+        publish_credential_change(host, &reference, true);
         return Ok(json!({}));
     }
 
@@ -106,13 +115,22 @@ async fn unset(host: &BasicHost, payload: &Value) -> Result<Value, RpcError> {
         let section = host.state.read().await.settings[crate::MODEL_SETTINGS_NAMESPACE]
             .value
             .clone();
+        if unreferenced_by_models(&section, &reference)
+            && backend
+                .write_auxiliary_credential(&reference, None)
+                .await
+                .map_err(crate::model_settings::model_settings_error)?
+        {
+            publish_credential_change(host, &reference, false);
+            return Ok(json!({}));
+        }
         backend.activate(
             backend
                 .unset_credential(&reference, &section)
                 .await
                 .map_err(crate::model_settings::model_settings_error)?,
         );
-        publish_model_settings(host);
+        publish_credential_change(host, &reference, true);
         return Ok(json!({}));
     }
 
@@ -153,10 +171,26 @@ fn apply_memory_mutation(
     }
 }
 
-fn publish_model_settings(host: &BasicHost) {
+fn unreferenced_by_models(section: &Value, reference: &str) -> bool {
+    crate::parse_model_settings(section).is_ok_and(|document| {
+        document
+            .providers
+            .values()
+            .all(|profile| profile.api_key_env.as_deref() != Some(reference))
+    })
+}
+
+fn publish_credential_change(host: &BasicHost, reference: &str, models_changed: bool) {
+    if models_changed {
+        host.push_host(json!({
+            "type": "host/remote-event",
+            "event": "settings/document-updated",
+            "args": [crate::MODEL_SETTINGS_NAMESPACE],
+        }));
+    }
     host.push_host(json!({
         "type": "host/remote-event",
-        "event": "settings/document-updated",
-        "args": [crate::MODEL_SETTINGS_NAMESPACE],
+        "event": "credentials/updated",
+        "args": [reference],
     }));
 }

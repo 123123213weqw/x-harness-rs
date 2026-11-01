@@ -16,10 +16,13 @@ Pruner 已实现；按模型本地精确 Tokenizer、手动 Compact 与持久 Sp
 - `ContextSurface`：模型可见消息、源消息数量、Policy 名称/版本和 Surface Edit。
 - `SurfaceEdit`：用半开源区间记录 Tool Result Prune、历史压缩或自定义替换。
 - `IdentityContextPolicy`：嵌入式兼容策略，逐字完整重放。
-- `ToolResultPruningContextPolicy`：正式 Host 的兼容类型名，当前实际投影身份为
-  `context-history-pruning/v3`。超过 8,192 字符的 Tool Message 会转换成确定性的
-  `tool_result_pruned/v1` Head/Tail Envelope，并清理旧 Turn reasoning；所有工具参数和
-  Provider Replay Item 逐字保留，不再投影大型文件变更参数。原 Session 事件与 Provider Call ID 始终不变。
+- `ToolResultPruningContextPolicy`: the production policy is
+  `context-history-pruning/v4`. Historical tool messages over 8,192 characters
+  receive deterministic `tool_result_pruned/v1` head/tail envelopes. The newest
+  contiguous tool batch stays intact when each encoded result fits the execution
+  byte limit supplied by Core; absent that limit, legacy pruning applies.
+  Older-turn reasoning may be removed; tool arguments, provider replay items,
+  immutable session events and provider call IDs remain unchanged.
 
 Core 在任何 Provider I/O 前调用 Policy、验证 Surface 结构，并把 Policy、源/可见消息数量及
 Edit 写入 `request/header.options.context`。随后 `xharness-token::TokenGuard` 对冻结 Surface 和
@@ -121,11 +124,21 @@ selected_output_tokens = min(
 4. 相同 Tool Call 的压缩结果必须稳定；禁止依据进程随机状态改变内容。
 5. Tool Call/Result 配对和 Provider 原生 Call ID 不得因压缩断裂。
 
-Durable Core 在发布大结果前先通过 `Store::archive_tool_result` 保存完整 `ToolResult` JSON
-（含 content/error/truncated/metadata）。触发大小为序列化字节数超过
-`min(tool_result_limit_bytes, 8192)`。小结果沿用原格式；大结果保存成功后才生成
-`head_tail/v1` 片段，模型可见 JSON 包含独立 `archive` 字段（sha256、bytes、read_with、format），
-片段和引用共同遵守相同字节预算。后续请求侧 Pruner 保留引用，不将其埋入被裁剪文本。
+Durable Core archives the complete original `ToolResult` JSON before publishing
+any result larger than `min(tool_result_limit_bytes, 8192)` serialized bytes.
+The archival threshold is not the model-output limit: the model-facing envelope,
+including its independent `archive` reference (sha256, bytes, read_with, format),
+uses the configured `tool_result_limit_bytes` budget. Results that fit this budget
+remain intact; only oversized results receive a `head_tail/v1` excerpt. A bounded
+native-browser/MCP page therefore retains its complete JSON, frame fence, node
+refs and renderer-owned pagination cursors on the next model request.
+
+Core forwards the same byte limit to request-side pruning. Only the trailing tool
+batch is protected within that limit; after another assistant/user message it
+becomes eligible for ordinary history pruning. Oversized results and callers
+without an explicit limit retain pruning, and archive references remain outside
+excerpts. This exemption never bypasses the whole-request token guard or changes
+durable history, browser permissions, frame validation or tool execution.
 
 JSONL Store 将原文写入 `tool-results/<sha256(session-id)>/<sha256(payload)>.json`，原文不进入
 热日志/快照缓存。先独占创建临时文件、sync，再以 hard-link 原子无覆盖发布，验证摘要后返回引用。
@@ -177,10 +190,11 @@ WZU_4080 的 llama-server 使用 `-c 53248`。一个 Web Turn 的原始消息约
 
 ## 当前实现差距
 
-- 正式 Host 已安装 `ToolResultPruningContextPolicy`（`context-history-pruning/v3`）；只裁剪 Tool
-  Result 和旧 Turn reasoning，工具参数保持原样。独立 Durable Compact
-  Coordinator 按 0.8 阈值、0.16 尾部、8,192 摘要上限自动改写当前 Session Surface，并在每次
-  成功后重新计量。
+- The production Host uses `ToolResultPruningContextPolicy`
+  (`context-history-pruning/v4`): bounded fresh tool batches are preserved,
+  historical results and old-turn reasoning remain prunable, and tool arguments
+  remain intact. The separate durable compaction coordinator still remeasures
+  the request after a successful compaction.
 - `compaction/start|summary|end|prune`、Checkpoint Replace、Web 投影和未闭合 Start 恢复已
   落地；请求侧 Pruner、大工具结果 Spill 与可恢复的手动 `/compact` 已接入，Pruner 的持久
   Replace 与全 SIGKILL 切点矩阵尚未完成。

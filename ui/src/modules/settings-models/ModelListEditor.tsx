@@ -146,11 +146,14 @@ function capacitySpelling(value: number | undefined): string {
 
 /** Adopt a candidate, keeping whatever capacities the provider disclosed. */
 export function adopt(candidate: DiscoveredModelView): ModelDraft {
+  const capability = candidate.imageInputCapability
+  const documented = typeof capability === 'object' && capability !== null
+    && 'source' in capability && capability.source === 'documented'
   return {
     id: candidate.id,
     ...(candidate.reasoning === undefined ? {} : { reasoning: candidate.reasoning }),
     ...candidate.name === undefined ? {} : { name: candidate.name },
-    ...(typeof candidate.imageInput === 'boolean' ? { imageInput: candidate.imageInput } : {}),
+    ...(typeof candidate.imageInput === 'boolean' && !documented ? { imageInput: candidate.imageInput } : {}),
     ...candidate.contextWindow === undefined ? {} : { contextWindow: candidate.contextWindow },
     ...candidate.maxTokens === undefined ? {} : { maxTokens: candidate.maxTokens },
   }
@@ -214,7 +217,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     })
   }
 
-  const patch = (index: number, next: Record<string, string | number | boolean | undefined>): void => {
+  const patch = (index: number, next: Record<string, string | number | boolean | null | undefined>): void => {
     onChange(models.map((model, at) => {
       if (at !== index) return model
       // Rebuilt rather than spread over: an emptied optional field has to leave
@@ -441,17 +444,19 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                   </div>
                 ) : null}
                 <label className={styles['modelField']}>
-                  <span>支持图片输入</span>
-                  <input
-                    type="checkbox"
+                  <span>Image input</span>
+                  <select
+                    className={styles['input']}
                     disabled={disabled}
-                    checked={model['imageInput'] === true}
-                    aria-label={`支持图片输入 ${index + 1}`}
-                    onChange={event => { patch(index, { imageInput: event.target.checked }) }}
-                  />
-                  <small>{model['imageInput'] === undefined
-                    ? '视觉能力未声明；请确认模型 API 支持后启用。'
-                    : '不支持视觉时明确报错，不自动丢弃图片。'}</small>
+                    value={model['imageInput'] === true ? 'enabled' : model['imageInput'] === false ? 'disabled' : 'auto'}
+                    aria-label={`Image input ${index + 1}`}
+                    onChange={event => { patch(index, { imageInput: event.target.value === 'auto' ? null : event.target.value === 'enabled' }) }}
+                  >
+                    <option value="auto">Auto (documented capability)</option>
+                    <option value="enabled">Enabled (explicit override)</option>
+                    <option value="disabled">Disabled</option>
+                  </select>
+                  <small>Auto uses an exact catalog match. Unknown routes reject images; explicitly enable a verified local vision model.</small>
                 </label>
                 <label className={styles['modelField']}>
                   <span className={styles['modelFieldLabel']}>{t('modelContextWindow')}</span>

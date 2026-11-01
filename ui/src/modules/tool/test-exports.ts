@@ -15,3 +15,5 @@ export {ToolCallTree} from './tool/ToolCallTree'
 export {XHReviewDiffBlock} from './tool/components/ReviewDiffBlock'
 
 export * from './tool/models/agent-communication-model'
+
+export * from './tool/models/shell-error-summary'

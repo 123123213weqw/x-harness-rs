@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "scope": "Option 1 frontend, typed lifecycle adapter and isolated preview; not an autonomous Swarm loop",
+  "base": "58012c7a9e272b363ad3086053fafb7ed99c3f60",
+  "createdAt": "2026-10-15T15:33:27.278040+00:00",
+  "sourceSha256": {
+    "ui/src/modules/swarm/client.ts": "3f93f600c26f010df3f4fb08be00d460edd5f7adb48574869f84dcf8802171fa",
+    "ui/src/modules/swarm/index.tsx": "8add74038676cd443e73f88444a78208e18a3a926c7c7f7f19bb15c65411acda",
+    "ui/src/modules/swarm/Swarm.css": "526e629ab606516359032d7f2835759d19818c38fcdfffe3309100e765960f2d",
+    "ui/src/modules/layout/AppFrame.tsx": "d05944f3ecae2b93722aba6034b432e04f27b58733f6ba2c23358c97fc18c343",
+    "ui/src/modules/layout/index.ts": "d086fa2d12d278f73451f0daedbde9362ebd30a18e3e2d4e035b5bf3ac8a81bf",
+    "ui/src/modules/layout/shell-navigation.ts": "ede0774f204f202bf92dc2be74a3a1bff8dbddf6c471a6f0e07c0ae8616c6869",
+    "ui/modules.json": "6d5d910e3180ee5dc2e468458bc6e51cd6db06931eecc1dcd7c38d3a4a80f809",
+    "scripts/test-swarm-client.mjs": "b63edde6fb5f98fa3d6da6149785262ed96d439fd18e8741e3f0a8280de321dc",
+    "scripts/test-swarm-ui-browser.mjs": "b47ec29e16382fe7bdbbb7439ac0467800e6e73ad06bb8c7b2046cf6199171ad",
+    "scripts/test-owned-ui-boot-browser.mjs": "96b062775478e5aaec738b8803645c478ac6cbda2799662362cc12f6dc187466",
+    "scripts/test-shell-navigation.mjs": "6bd9bc4e4b8208ab292deb902942157a6dc6db5504e2fee829402bb9b232069e",
+    "scripts/fixtures/swarm-preview.js": "5ade1db2a69e3e2ed35af585cba9d9a9f9d5ffb48a98416ae22e142a90213e6c",
+    "scripts/preview-swarm.mjs": "567d5635676df0948af2ebb983f000aaa757585335946b367b693930a6ec9600",
+    "scripts/fixtures/reviewed-ui-additions.mjs": "145eb7fdebf3027e2fc589cfb9758d3cb57552dad4654ae0fbc8cf97d7d0ef31",
+    "scripts/ci/ui-plan.json": "354c62886613c452e6adba83753e2ff75e8ed35a1be915213c4ead0c4904ea6f"
+  },
+  "results": {
+    "strictSourceBuild": "passed",
+    "generatedBuildCheck": "passed",
+    "clientNavigationTypeAndCiContracts": {
+      "passed": 58,
+      "failed": 0
+    },
+    "componentBrowserEngines": [
+      "chromium",
+      "webkit"
+    ],
+    "fullGraphAndImmutableOrdinaryChatParity": [
+      "chromium",
+      "webkit"
+    ],
+    "visualQa": "passed",
+    "architecture": "passed"
+  },
+  "notClaimed": [
+    "real-model orchestration",
+    "autonomous coordinator loop",
+    "live worker-event subscription",
+    "release or deployed native build",
+    "UI-to-live-Host end-to-end acceptance"
+  ],
+  "backendEvidence": "../durable-swarm-lifecycle-20261015/acceptance.json"
+}

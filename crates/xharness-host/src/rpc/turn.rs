@@ -44,6 +44,15 @@ pub(crate) async fn prompt(
     }
     let fingerprint = prompt_fingerprint(&mode, &content, client_time_zone.as_deref());
     let _admission_guard = host.lock_admission(&session_id).await;
+    // Reuse only source-validated cuts during this receipt. The scope neither
+    // serializes other writers nor skips CAS/validation/fsync and is released
+    // on success, error or cancellation before returning to the caller.
+    let _read_scope = host
+        .agent_runtime
+        .admission_read_scope(&session_id)
+        // Optional cache setup cannot turn a valid retry into a new error.
+        // Authoritative operations below still enforce every store failure.
+        .unwrap_or_else(|_| Box::new(()));
     if duplicate_admission(host, &session_id, rpc_id.as_str(), &fingerprint).await? {
         return Ok(json!({"accepted": true}));
     }
@@ -68,28 +77,13 @@ pub(crate) async fn prompt(
             part.get("type").and_then(Value::as_str),
             Some("image" | "image_ref")
         )
-    }) {
-        let state = host.state.read().await;
-        if let Some(session) = state.sessions.get(&session_id) {
-            let unsupported = state
-                .settings
-                .get(crate::MODEL_SETTINGS_NAMESPACE)
-                .and_then(|ns| ns.value["providers"][&session.model.provider]["models"].as_array())
-                .and_then(|models| {
-                    models
-                        .iter()
-                        .find(|m| m["id"].as_str() == Some(&session.model.model))
-                })
-                .and_then(|model| model["imageInput"].as_bool())
-                == Some(false);
-            if unsupported {
-                return Err(rpc_error(
-                    RpcErrorCode::AttachmentError,
-                    "current model does not support images",
-                    json!({"reason":"MODEL_DOES_NOT_SUPPORT_IMAGES"}),
-                ));
-            }
-        }
+    }) && !host.session_accepts_images(&session_id).await
+    {
+        return Err(rpc_error(
+            RpcErrorCode::AttachmentError,
+            "current model does not support images or image capability is unknown; configure image input for this exact route",
+            json!({"reason":"MODEL_DOES_NOT_SUPPORT_IMAGES"}),
+        ));
     }
 
     // Attachment materialization is deliberately after receipt lookup:
@@ -121,17 +115,47 @@ pub(crate) async fn duplicate_admission(
     rpc_id: &str,
     fingerprint: &str,
 ) -> Result<bool, RpcError> {
-    let state = host.state.read().await;
-    let session = state
-        .sessions
-        .get(session_id)
-        .ok_or_else(|| session_not_found(session_id))?;
-    let Some(previous) = session.admissions.get(rpc_id) else {
+    let cached = {
+        let state = host.state.read().await;
+        state
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| session_not_found(session_id))?
+            .admissions
+            .get(rpc_id)
+            .cloned()
+    };
+    let receipt = if cached.is_some() || !host.agent_runtime.has_authoritative_sessions() {
+        cached
+    } else {
+        // A bounded hot-cache miss is unknown, never proof of non-admission.
+        // Inspect durable metadata without rebuilding or cloning prompt bodies.
+        let durable = host
+            .agent_runtime
+            .authoritative_session(session_id)
+            .await
+            .map_err(crate::driver::agent_runtime_error)?
+            .ok_or_else(|| RpcError::internal("durable admission journal unavailable"))?;
+        let receipt = crate::restore::restored_admission(&durable, rpc_id);
+        if let Some(receipt) = &receipt {
+            host.state
+                .write()
+                .await
+                .sessions
+                .get_mut(session_id)
+                .ok_or_else(|| session_not_found(session_id))?
+                .admissions
+                .insert(rpc_id.to_owned(), receipt.clone());
+        }
+        receipt
+    };
+    let Some(previous) = receipt else {
         return Ok(false);
     };
     if previous.fingerprint.as_deref() == Some(fingerprint) {
         return Ok(true);
     }
+
     Err(rpc_error(
         RpcErrorCode::SessionConflict,
         "rpc id was already admitted with a different prompt payload",
@@ -536,6 +560,7 @@ pub(crate) async fn send_control(
     session_id: &str,
     command: LoopCommand,
 ) -> Result<(), RpcError> {
+    host.reconcile_closed_drivers(Some(session_id)).await;
     let cancel_is_idempotent =
         matches!(&command, LoopCommand::Cancel | LoopCommand::InterruptByUser);
     // Order stop with queue admission and the paused-to-running handoff.
@@ -558,31 +583,68 @@ pub(crate) async fn send_control(
         .control
         .clone();
     let Some(control) = control else {
-        return Ok(());
+        let running = host
+            .state
+            .read()
+            .await
+            .sessions
+            .get(session_id)
+            .is_some_and(|s| s.running);
+        return if running {
+            Err(RpcError::internal(
+                "session driver unavailable; execution outcome unknown",
+            ))
+        } else {
+            Ok(())
+        };
     };
     let (acknowledgement, accepted) = oneshot::channel();
-    if control
-        .send(DriverCommand {
+    let sent = tokio::time::timeout(
+        crate::driver_control::ACK_TIMEOUT,
+        control.send(DriverCommand {
             command,
             input_metadata: None,
             acknowledgement,
-        })
-        .await
-        .is_err()
-    {
-        return if cancel_is_idempotent {
-            Ok(())
-        } else {
-            Err(RpcError::internal("session driver is no longer available"))
-        };
-    }
+        }),
+    )
+    .await;
     drop(admission_guard);
-    match accepted.await {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(LoopControlError::Closed)) | Err(_) if cancel_is_idempotent => Ok(()),
-        Ok(Err(error)) => Err(RpcError::internal(error.to_string())),
+    if !matches!(sent, Ok(Ok(()))) {
+        return verified_closed_control(host, session_id, cancel_is_idempotent).await;
+    }
+
+    match tokio::time::timeout(crate::driver_control::ACK_TIMEOUT, accepted).await {
+        Ok(Ok(Ok(()))) => Ok(()),
+        Ok(Ok(Err(LoopControlError::Closed))) | Ok(Err(_)) => {
+            verified_closed_control(host, session_id, cancel_is_idempotent).await
+        }
+        Ok(Ok(Err(error))) => Err(RpcError::internal(error.to_string())),
         Err(_) => Err(RpcError::internal(
-            "session driver closed without acknowledgement",
+            "control acknowledgement timed out; execution outcome unknown; not retried",
         )),
+    }
+}
+
+async fn verified_closed_control(host: &BasicHost, id: &str, stop: bool) -> Result<(), RpcError> {
+    host.reconcile_closed_drivers(Some(id)).await;
+    let running = host
+        .state
+        .read()
+        .await
+        .sessions
+        .get(id)
+        .is_some_and(|s| s.running);
+    if stop
+        && (!running
+            || matches!(
+                host.agent_runtime.observe_session(id).await,
+                Ok(crate::runtime::SessionObservation::Idle)
+            ))
+    {
+        Ok(())
+    } else {
+        Err(RpcError::internal(
+            "session driver closed without confirming control; execution outcome unknown",
+        ))
     }
 }

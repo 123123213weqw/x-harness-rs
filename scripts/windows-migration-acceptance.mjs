@@ -11,6 +11,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { checkStaged } from './windows-cache-rehearsal.mjs'
 import { attachmentState, preparationAction, UpdatePreparationError } from './native-desktop-attachment.mjs'
+import { currentInstallation } from './native-update-installation.mjs'
 import { verifyPackage } from './verify-updater-package.mjs'
 
 assert.equal(process.env.GITHUB_ACTIONS, 'true', 'CI only')
@@ -260,6 +261,22 @@ async function run() {
     assert.equal(result.result.ok, true, `RPC ${method} failed`)
     return result.result.value
   }
+  async function installationChoice(page) {
+    const status = await invoke(page, 'desktop_status')
+    const choice = await currentInstallation(command => invoke(page, command), status, installDir, cacheRehearsal)
+    recordPageEvent({ kind: 'installation-preflight', version: status.version, plan: choice.plan, placement: choice.args.placement })
+    return choice
+  }
+  async function guardSnapshot(page, cache) {
+    const status = await invoke(page, 'desktop_status')
+    assert.equal(status.hostRunning, true, 'Rejected install must preserve the live Host')
+    assert.ok(JSON.stringify(await rpc(page, 'session.list', {})).includes(sessionId), 'Rejected install lost the retained session')
+    if (cacheRehearsal || status.updatePreflightSupported === true) assert.ok(existsSync(cache), 'Current updater lost its durable package')
+    return { version: status.version, hostEndpoint: status.hostEndpoint,
+      executableSha256: hash(join(installDir, 'xharness-desktop.exe')),
+      journalSha256: hash(join(data, 'state', 'sessions', sessionId + '.jsonl')),
+      packageSha256: existsSync(cache) ? hash(cache) : null, retained: retained.map(file => ({ name: file.name, sha256: hash(join(data, file.name)) })) }
+  }
   const sessionId = 'migration-retained-session'
   async function checkpoint(page, version) {
     for (const file of retained) assert.equal(hash(join(data, file.name)), file.sha256, `${version}: ${file.name} changed`)
@@ -317,8 +334,9 @@ async function run() {
       const downloaded = await prepareUpdate(page, version, false, corruptPackageRejected)
       assert.equal(downloaded.phase, 'downloaded')
       assert.equal(downloaded.version, version)
+      let choice = await installationChoice(page)
+      const cache = join(e.LOCALAPPDATA, 'com.xlang.xharness', 'updater-v1', 'current', 'package.bin')
       if (cacheRehearsal) {
-        const cache = join(e.LOCALAPPDATA, 'com.xlang.xharness', 'updater-v1', 'current', 'package.bin')
         assert.equal(hash(cache), hash(location('next', e.UPSTREAM_VERSION)), 'Signed payload not durably cached')
         const packageRequests = () => requests.filter(r => r.pathname.endsWith('.exe') && !r.tampered).length
         const before = packageRequests()
@@ -334,26 +352,43 @@ async function run() {
         const restored = await invoke(page, 'desktop_check_update')
         assert.equal(restored.phase, 'downloaded', 'Restart did not restore and verify cached package')
         assert.equal(packageRequests(), before, 'Cache restore downloaded the installer again')
+        choice = await installationChoice(page)
+        const beforeTamper = await guardSnapshot(page, cache)
         const bytes = readFileSync(cache)
         writeFileSync(cache, 'corrupted-after-download')
-        const tamperRejected = await invoke(page, 'desktop_install_update', { confirmStop: true }).then(() => false, () => true)
-        assert.ok(tamperRejected, 'Tampered cache accepted')
-        assert.ok((await invoke(page, 'desktop_status')).hostRunning, 'Tampered cache stopped Host')
+        const tamperedHash = hash(cache); assert.notEqual(tamperedHash, beforeTamper.packageSha256)
+        const tamperError = await invoke(page, 'desktop_install_update', choice.args).then(() => null, error => error)
+        assert.ok(tamperError, 'Tampered cache accepted')
+        assert.match(tamperError.message, /更新缓存不完整/, 'Tamper must reach cache-integrity verification, not a placement/consent guard')
+        const invalidated = await invoke(page, 'desktop_update_status')
+        assert.equal(invalidated.phase, 'error'); assert.equal(invalidated.retryAction, 'download')
+        assert.equal(invalidated.downloaded, 0); assert.equal(invalidated.total, null)
+        assert.deepEqual(await guardSnapshot(page, cache), { ...beforeTamper, packageSha256: tamperedHash }, 'Tampered cache stopped Host or changed installed/user data')
         writeFileSync(cache, bytes)
         assert.equal((await invoke(page, 'desktop_check_update')).phase, 'downloaded')
         assert.equal((await invoke(page, 'desktop_download_update')).phase, 'downloaded')
         assert.equal(packageRequests(), before, 'Ready/download no-op transferred installer again')
         writeFileSync(join(evidence, 'cache-reopen.json'), JSON.stringify({
           cacheRestoredAfterRestart: true, noDuplicatePackageDownload: true,
-          cachedTamperRejectedBeforeHostStop: true, packageSha256: hash(cache),
+          cachedTamperRejectedBeforeHostStop: true, tamperError: tamperError.message, invalidated, packageSha256: hash(cache),
           packageDownloads: before, sourceSha: e.GITHUB_SHA,
         }, null, 2))
       }
-      const rejected = await invoke(page, 'desktop_install_update', { confirmStop: false }).then(() => false, () => true)
-      assert.ok(rejected, 'Install without confirmation must fail')
-      assert.ok((await invoke(page, 'desktop_status')).hostRunning, 'Unconfirmed install stopped Host')
+      const beforeRejected = await guardSnapshot(page, cache)
+      const unconfirmed = await invoke(page, 'desktop_install_update', { ...choice.args, confirmStop: false }).then(() => null, error => error)
+      assert.ok(unconfirmed, 'Install without confirmation must fail')
+      assert.match(unconfirmed.message, /请先确认停止/, 'No-consent test must not pass on an unrelated error')
+      assert.deepEqual(await guardSnapshot(page, cache), beforeRejected, 'Unconfirmed install changed Host, package or retained data')
+      if (choice.plan?.needsChoice) {
+        const missingChoice = await invoke(page, 'desktop_install_update', { confirmStop: true }).then(() => null, error => error)
+        assert.ok(missingChoice, 'Required installation choice must not be implicit')
+        assert.match(missingChoice.message, /Choose an installation location before stopping tasks/)
+        assert.deepEqual(await guardSnapshot(page, cache), beforeRejected, 'Missing choice changed Host, package or retained data')
+        recordPageEvent({ kind: 'missing-placement-rejected', packageSha256: beforeRejected.packageSha256, hostEndpoint: beforeRejected.hostEndpoint })
+      }
+      recordPageEvent({ kind: 'unconfirmed-install-rejected', packageSha256: beforeRejected.packageSha256, hostEndpoint: beforeRejected.hostEndpoint })
       // Actual native updater installs signed NSIS, stops Host, then restarts the app.
-      void invoke(page, 'desktop_install_update', { confirmStop: true }).catch(error => recordPageEvent({ kind: 'install-ipc-ended', error: error.message }))
+      void invoke(page, 'desktop_install_update', choice.args).catch(error => recordPageEvent({ kind: 'install-ipc-ended', error: error.message }))
       page = await attached(version)
       await checkpoint(page, version)
     }

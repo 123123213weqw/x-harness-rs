@@ -185,6 +185,14 @@ export interface ConversationNodeDefinition<State = unknown> {
   /** Local history reuse preserves already-built state across window updates. */
   readonly historyReuse?: 'local'
   /**
+   * Audited event-only reducers may retain State when only Location boundaries
+   * change. Top-level Match references are rebound; materializers still run
+   * against the new immutable timeline. Nested Match/Location references or
+   * reducers reading boundary status/membership must not opt in. Omission
+   * preserves full replay for existing and third-party Definitions.
+   */
+  readonly locationReuse?: 'events'
+  /**
    * Create State from the unique start Match.
    * @param context - complete evidence currently collected for the Context.
    * @param match - the start Match.

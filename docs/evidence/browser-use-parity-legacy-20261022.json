@@ -1,0 +1,64 @@
+{
+  "schema": "xharness.browser-use.legacy-acceptance.v1",
+  "provenance": {
+    "sourceHashes": {
+      "plugins/browser-use/.claude-plugin/plugin.json": "5107d3fcd4fb0a7225c348be4073f1b5c3d1777b51686926b02b779778429033",
+      "plugins/browser-use/.mcp.json": "b4cb7293e5fb2e2a518f531042d0c68b68742940e53cfede4d93f816174efb45",
+      "plugins/browser-use/package-lock.json": "06170278c4527c5ca7c1c2903fe99cf05208d62c506cba2e1c21f7f9b7f7122b",
+      "plugins/browser-use/package.json": "f3243a205b4cabb6699d2ed5a620e3023a800418563c4391a67881e351ad2bcf",
+      "plugins/browser-use/server.mjs": "5f031f06eea0b6972c1ff7980c634233309a26d12ca49d29b4ba1b183d0a19d1",
+      "plugins/browser-use/src/cdp-policy-bridge.ts": "46adcaaf39061a6cdbd1d81eec2092ffe8b3357cfc2d498b994bd1fba8278f61",
+      "plugins/browser-use/src/engine.ts": "59ab6f0ffc8a8323cb914c1438de74c691a1fd751f9c2c4cb9c84ffd5b713410",
+      "plugins/browser-use/src/network-policy.ts": "c2b2afd84fe5d6befb463378f9653b1fc7e7ccc4fa2e73530b033dd0f3147f0b",
+      "plugins/browser-use/src/protocol-schema.ts": "20b87a689fff8cb033e190e2bd51c02fe1631ff1a4c247a12dd1b1492c9f54f1",
+      "plugins/browser-use/src/protocol.ts": "3b8dc7e0cbdbddf2606dfc5843d9c6df76e9bdce3965d1d4c53832ad12948e07",
+      "plugins/browser-use/src/types.ts": "9fa76e0b4f25232b00608da85517544c381f5f789f1afabf2dc2ff95defc775b",
+      "plugins/browser-use/tsconfig.json": "12a59d06f0ace3524867fd6b214449b66444ae89ebcce86248c50c0ebb0b49ba",
+      "scripts/browser_use/acceptance.mjs": "7540dbead50b47e6511ced719867450a631fc7b9db5d3a65422b735ef9a9003c",
+      "scripts/browser_use/evidence-gate.test.mjs": "468505f165eab1c5407f188ad74d2e5a0bd9233cc171f156e2b27a6e4b843d8c",
+      "scripts/browser_use/evidence-validator.mjs": "af786a07a08d2bfea8f1a901c30b5675655a9af5aa8766ff1133348e341301c7",
+      "scripts/browser_use/fixture.mjs": "55a4e90e709ace0c38623c3afae3711ea3a474805b7e1e063a3fb8754104cf80",
+      "scripts/browser_use/legacy-gate.mjs": "120f38def08713c451c13109c39542769ef901589450ccd608e497ad02b5166e",
+      "scripts/browser_use/navigation-stability.test.mjs": "3aee6d6bff44f9e375878522b3312ab8bc2bd913ea69125274e575ffc43301db",
+      "scripts/browser_use/policy-contract.test.mjs": "d707060313dec0aa441662ce1dcd6bc0c9dc5a2c1a507d7fa25816f4eaf397b9",
+      "scripts/browser_use/provenance.mjs": "b025bc8123b1fb060701df7bf3eecd8a2d4de5bb34522f01e7857154abf79200",
+      "scripts/browser_use/run-server-acceptance.sh": "be188e24bbd0ed348b82314a7d6d3b2f5def94d8fb736b57d0c11112a0b83920",
+      "scripts/browser_use/screenshot-stability.test.mjs": "8aa3a119e1cdf941dc8a91dee978306d3ba1d1c4d6a92ab4ea97535c87d6438f",
+      "scripts/browser_use/stdio.mjs": "a91c4a8e2449b160217f04b8b031f5ba2c3439b5703814e36418f7e9401d9eb6",
+      "scripts/browser_use/update-matrix.mjs": "48514e0d0f1f88100b6b178aa91d197293e6d1b1049eba20fa2db42f856ab9f6",
+      "scripts/gui_bench/fixtures/index.html": "615f12b70cb5f9ee6b47f5b01b058fd3c70d0203d1208c4a6468c7157481f829",
+      "scripts/gui_bench/test_browser.mjs": "67b8d40ca5b0f7270e9083c3a4eac1159937ed76abb55b299c2aafe932c0e48e"
+    },
+    "buildHashes": {
+      "plugins/browser-use/dist/cdp-policy-bridge.js": "0e8bd50207b608be26cce586351f97209800999ec5d18fb288561195e7fae56b",
+      "plugins/browser-use/dist/engine.js": "12f6492dc79234203d3a3bfa9480a024859c8ae47770d005fdca078b8d2ede9e",
+      "plugins/browser-use/dist/network-policy.js": "0a6690cb2cb2129b4d84b8e5cb228e801c3f6e638a198c286273887a8b113737",
+      "plugins/browser-use/dist/protocol-schema.js": "61d99b0daa8f761e795e46d172a8d88dac28485f573aed5d5a4992fa468bf2a0",
+      "plugins/browser-use/dist/protocol.js": "9f04e881abda42153c3bfef96fcab74772ba5991d8f606661c3d1b5d8696ab49",
+      "plugins/browser-use/dist/types.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+    },
+    "loadedEngine": {
+      "path": "plugins/browser-use/dist/engine.js",
+      "sha256": "12f6492dc79234203d3a3bfa9480a024859c8ae47770d005fdca078b8d2ede9e"
+    },
+    "runtime": {
+      "node": "v20.20.2",
+      "platform": "linux",
+      "architecture": "x64",
+      "playwright": "1.61.1",
+      "chromium": "Google Chrome for Testing 149.0.7827.55",
+      "chromiumExecutable": "/home/wzu/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome"
+    }
+  },
+  "generatedAt": "2026-10-23T13:37:23.231Z",
+  "source": "scripts/gui_bench/test_browser.mjs",
+  "sourceSha256": "67b8d40ca5b0f7270e9083c3a4eac1159937ed76abb55b299c2aafe932c0e48e",
+  "expectedSourceSha256": "67b8d40ca5b0f7270e9083c3a4eac1159937ed76abb55b299c2aafe932c0e48e",
+  "expectedChecks": 30,
+  "status": "passed",
+  "checks": 30,
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "Browser MCP real Chromium contracts passed: 30\n",
+  "stderr": ""
+}

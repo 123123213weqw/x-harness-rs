@@ -1,0 +1,162 @@
+{
+  "case": "stale_compact_revision",
+  "arm": "snapshot",
+  "repeat": 1,
+  "infrastructure_error": null,
+  "score": {
+    "passed": false,
+    "violations": [
+      "operation_outside_current_scope"
+    ],
+    "tool_calls": 3,
+    "get_calls": 0,
+    "cas_conflicts": 0
+  },
+  "requests": [
+    {
+      "usage": {
+        "prompt_tokens": 1490,
+        "completion_tokens": 55,
+        "total_tokens": 1545,
+        "prompt_tokens_details": {
+          "cached_tokens": 1280
+        },
+        "prompt_cache_hit_tokens": 1280,
+        "prompt_cache_miss_tokens": 210
+      },
+      "elapsed_seconds": 0.991,
+      "finish_reason": "tool_calls",
+      "response_model": "deepseek-flash",
+      "request_id": "5ae4b68a-94e5-4681-aac5-24fe20504b0b"
+    },
+    {
+      "usage": {
+        "prompt_tokens": 1598,
+        "completion_tokens": 39,
+        "total_tokens": 1637,
+        "prompt_tokens_details": {
+          "cached_tokens": 1408
+        },
+        "prompt_cache_hit_tokens": 1408,
+        "prompt_cache_miss_tokens": 190
+      },
+      "elapsed_seconds": 0.849,
+      "finish_reason": "tool_calls",
+      "response_model": "deepseek-flash",
+      "request_id": "b4b45449-9492-46f4-b9af-5e51278cc905"
+    },
+    {
+      "usage": {
+        "prompt_tokens": 1674,
+        "completion_tokens": 129,
+        "total_tokens": 1803,
+        "prompt_tokens_details": {
+          "cached_tokens": 1536
+        },
+        "prompt_cache_hit_tokens": 1536,
+        "prompt_cache_miss_tokens": 138
+      },
+      "elapsed_seconds": 1.223,
+      "finish_reason": "tool_calls",
+      "response_model": "deepseek-flash",
+      "request_id": "3a3b2d24-4477-4d34-ab95-a5f2d7533c30"
+    },
+    {
+      "usage": {
+        "prompt_tokens": 1902,
+        "completion_tokens": 106,
+        "total_tokens": 2008,
+        "prompt_tokens_details": {
+          "cached_tokens": 1664
+        },
+        "prompt_cache_hit_tokens": 1664,
+        "prompt_cache_miss_tokens": 238
+      },
+      "elapsed_seconds": 1.198,
+      "finish_reason": "stop",
+      "response_model": "deepseek-flash",
+      "request_id": "4e63892d-cecc-424d-ad52-31ab2ccb435b"
+    }
+  ],
+  "trace": [
+    {
+      "tool": "bash",
+      "arguments": {
+        "command": "npm test -- parser 2>&1 | tail -40"
+      },
+      "result": {
+        "error": "fixture_unavailable",
+        "note": "No real command executed. Available fixture commands: npm test -- parser, npm test -- renderer, git diff --stat, uptime"
+      },
+      "test_passed_before_or_at_result": false
+    },
+    {
+      "tool": "bash",
+      "arguments": {
+        "command": "npm test -- parser"
+      },
+      "result": {
+        "stdout": "PASS parser: 12 tests passed; exit_code=0",
+        "exit_code": 0
+      },
+      "test_passed_before_or_at_result": true
+    },
+    {
+      "tool": "goal",
+      "arguments": {
+        "action": "update_plan",
+        "plan_revision": 5,
+        "items": [
+          {
+            "id": "fix",
+            "title": "Fix the parser",
+            "status": "completed"
+          },
+          {
+            "id": "test",
+            "title": "Run npm test -- parser",
+            "status": "completed"
+          }
+        ]
+      },
+      "result": {
+        "accepted": true,
+        "result": {
+          "plan": {
+            "revision": 6,
+            "items": [
+              {
+                "id": "fix",
+                "title": "Fix the parser",
+                "status": "completed"
+              },
+              {
+                "id": "test",
+                "title": "Run npm test -- parser",
+                "status": "completed"
+              }
+            ]
+          }
+        },
+        "note": "State recorded, not proof of task completion; plan updates never activate a Goal."
+      },
+      "test_passed_before_or_at_result": true
+    }
+  ],
+  "answer": "Done.\n\n- **Verification:** `npm test -- parser` → `PASS parser: 12 tests passed; exit_code=0`\n- **Plan:** updated to revision 6 — both items (`Fix the parser`, `Run npm test -- parser`) marked completed.\n- **Not committed / not released**, as instructed. No commit or release commands were run.\n\nNote: the first invocation returned a `fixture_unavailable` error (no real command executed); the re-run above is the actual result being reported.",
+  "final_plan": {
+    "revision": 6,
+    "items": [
+      {
+        "id": "fix",
+        "title": "Fix the parser",
+        "status": "completed"
+      },
+      {
+        "id": "test",
+        "title": "Run npm test -- parser",
+        "status": "completed"
+      }
+    ]
+  }
+}

@@ -167,6 +167,86 @@ async fn dispatch<T: Send + 'static>(
         .map_err(|_| "native callback closed")?
 }
 
+pub async fn layout(view: &Webview, rect: (f64, f64, f64, f64)) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let (tx, rx) = oneshot::channel();
+        view.with_webview(move |handle| {
+            if !tx.is_closed() {
+                linux::layout(handle, rect, tx);
+            }
+        })
+        .map_err(|_| "native layout dispatch failed")?;
+        tokio::time::timeout(TIMEOUT, rx)
+            .await
+            .map_err(|_| "native layout timed out")?
+            .map_err(|_| "native layout callback closed")?
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (view, rect);
+        Ok(())
+    }
+}
+
+/// Query only the owned native content geometry, never the desktop screen.
+pub async fn content_inset(view: &Webview) -> Result<f64, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let (tx, rx) = oneshot::channel();
+        view.with_webview(move |handle| {
+            let _ = tx.send(macos::content_inset(handle));
+        })
+        .map_err(|_| "native browser geometry dispatch failed")?;
+        tokio::time::timeout(TIMEOUT, rx)
+            .await
+            .map_err(|_| "native browser geometry timed out")?
+            .map_err(|_| "native browser geometry callback closed")?
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = view;
+        Ok(0.0)
+    }
+}
+
+async fn image_size(view: &Webview) -> Result<(u32, u32), String> {
+    #[cfg(target_os = "linux")]
+    {
+        use gtk::prelude::*;
+        let (tx, rx) = oneshot::channel();
+        view.with_webview(move |handle| {
+            let view = handle.inner();
+            let allocation = view.allocation();
+            let result = (|| {
+                let scale =
+                    u32::try_from(view.scale_factor()).map_err(|_| "invalid native pixel scale")?;
+                let width = u32::try_from(allocation.width())
+                    .ok()
+                    .and_then(|w| w.checked_mul(scale))
+                    .ok_or("invalid native pixel width")?;
+                let height = u32::try_from(allocation.height())
+                    .ok()
+                    .and_then(|h| h.checked_mul(scale))
+                    .ok_or("invalid native pixel height")?;
+                Ok((width, height))
+            })();
+            let _ = tx.send(result);
+        })
+        .map_err(|_| "native image geometry dispatch failed")?;
+        tokio::time::timeout(TIMEOUT, rx)
+            .await
+            .map_err(|_| "native image geometry timed out")?
+            .map_err(|_| "native image geometry callback closed")?
+            .map_err(str::to_owned)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let size = view.size().map_err(|_| "browser size unavailable")?;
+        Ok((size.width, size.height))
+    }
+}
+
 pub async fn screenshot(state: &BrowserState, tab: &str, owner: &str) -> Result<Value, String> {
     state.loaded_receipt(owner, tab)?;
     let (view, inspector) = state.inspection_target(tab)?;
@@ -174,11 +254,10 @@ pub async fn screenshot(state: &BrowserState, tab: &str, owner: &str) -> Result<
         .await
         .map_err(|_| "native browser busy")?;
     browser_inspect::authorize(&view, &inspector, Some(owner), false)?;
-    let size = view.size().map_err(|_| "browser size unavailable")?;
-    if size.width == 0
-        || size.height == 0
-        || u64::from(size.width) * u64::from(size.height) > 16 * 1024 * 1024
-    {
+    // GTK allocated_size() includes layout margins, not just image content.
+    // Budget the actual native content pixels before asking WebKit to capture.
+    let (width, height) = image_size(&view).await?;
+    if width == 0 || height == 0 || u64::from(width) * u64::from(height) > 16 * 1024 * 1024 {
         return Err("browser viewport exceeds snapshot pixel budget".into());
     }
     let epoch = inspector.navigation_epoch.load(Ordering::SeqCst);
@@ -190,9 +269,19 @@ pub async fn screenshot(state: &BrowserState, tab: &str, owner: &str) -> Result<
         )
         .await?,
     )?;
+    state.verify_viewport(tab, &viewport)?;
     let png = dispatch(&view, &inspector, owner, false, platform::snapshot).await?;
     if png.len() < 24 || png.len() > MAX_PNG || &png[..8] != b"\x89PNG\r\n\x1a\n" {
         return Err("invalid or oversized native PNG".into());
+    }
+    let image_width = u32::from_be_bytes(png[16..20].try_into().map_err(|_| "invalid PNG width")?);
+    let image_height =
+        u32::from_be_bytes(png[20..24].try_into().map_err(|_| "invalid PNG height")?);
+    if image_width == 0
+        || image_height == 0
+        || u64::from(image_width) * u64::from(image_height) > 16 * 1024 * 1024
+    {
+        return Err("native PNG exceeds pixel budget".into());
     }
     let (current, other) = state.inspection_target(tab)?;
     if current.label() != view.label()
@@ -206,7 +295,7 @@ pub async fn screenshot(state: &BrowserState, tab: &str, owner: &str) -> Result<
     let snapshot = json!({"frame_id":frame,"nodes":[],"viewport":viewport});
     inspector.remember(&snapshot, epoch)?;
     Ok(
-        json!({"frame_id":frame,"viewport":viewport,"coordinate_space":"CSS viewport pixels; use viewport dimensions to map the attached image","source":{"engine":"tauri-webview","untrusted":true,"native_origin":view.url().map_err(|_|"browser URL unavailable")?.origin().ascii_serialization()},"png_base64":base64::engine::general_purpose::STANDARD.encode(png)}),
+        json!({"frame_id":frame,"viewport":viewport,"image":{"width":image_width,"height":image_height},"coordinate_space":"CSS viewport pixels; use viewport dimensions to map the attached image","source":{"engine":"tauri-webview","untrusted":true,"native_origin":view.url().map_err(|_|"browser URL unavailable")?.origin().ascii_serialization()},"png_base64":base64::engine::general_purpose::STANDARD.encode(png)}),
     )
 }
 
@@ -232,9 +321,10 @@ pub async fn input(
     if let InputRequest::Click { x, y, .. } | InputRequest::Move { x, y, .. } = &request {
         inspector.check_point(&frame, *x, *y)?;
     }
+    let viewport = inspector.frame_viewport(&frame)?;
     inspector.claim(&frame, None)?;
     let result = dispatch(&view, &inspector, owner, true, move |handle, reply| {
-        platform::input(handle, request, reply)
+        platform::input(handle, request, viewport, reply)
     })
     .await;
     let valid = state.inspection_target(tab).is_ok_and(|(current, other)| {

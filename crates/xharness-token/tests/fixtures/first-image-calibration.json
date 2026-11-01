@@ -1,0 +1,400 @@
+{
+  "description": "Numeric pre-image features from the reported 3D-game conversation. No prompts, images, credentials, timestamps or session identifiers. Query holds the last pre-image text fixed to isolate the first-image transition.",
+  "samples": [
+    {
+      "features": {
+        "buckets": [
+          116276,
+          62076,
+          554
+        ],
+        "framing": 8759,
+        "image_tokens": 0
+      },
+      "actual": 52542
+    },
+    {
+      "features": {
+        "buckets": [
+          116337,
+          69586,
+          554
+        ],
+        "framing": 8919,
+        "image_tokens": 0
+      },
+      "actual": 55197
+    },
+    {
+      "features": {
+        "buckets": [
+          117173,
+          73619,
+          557
+        ],
+        "framing": 9079,
+        "image_tokens": 0
+      },
+      "actual": 56555
+    },
+    {
+      "features": {
+        "buckets": [
+          119394,
+          82950,
+          568
+        ],
+        "framing": 9239,
+        "image_tokens": 0
+      },
+      "actual": 60338
+    },
+    {
+      "features": {
+        "buckets": [
+          154753,
+          130649,
+          657
+        ],
+        "framing": 9399,
+        "image_tokens": 0
+      },
+      "actual": 87252
+    },
+    {
+      "features": {
+        "buckets": [
+          166198,
+          133114,
+          752
+        ],
+        "framing": 9559,
+        "image_tokens": 0
+      },
+      "actual": 91639
+    },
+    {
+      "features": {
+        "buckets": [
+          166297,
+          137862,
+          752
+        ],
+        "framing": 9817,
+        "image_tokens": 0
+      },
+      "actual": 93362
+    },
+    {
+      "features": {
+        "buckets": [
+          167060,
+          139947,
+          755
+        ],
+        "framing": 10075,
+        "image_tokens": 0
+      },
+      "actual": 94360
+    },
+    {
+      "features": {
+        "buckets": [
+          167146,
+          143849,
+          755
+        ],
+        "framing": 10235,
+        "image_tokens": 0
+      },
+      "actual": 95976
+    },
+    {
+      "features": {
+        "buckets": [
+          167155,
+          148209,
+          755
+        ],
+        "framing": 10374,
+        "image_tokens": 0
+      },
+      "actual": 97694
+    },
+    {
+      "features": {
+        "buckets": [
+          167224,
+          153305,
+          755
+        ],
+        "framing": 10534,
+        "image_tokens": 0
+      },
+      "actual": 99603
+    },
+    {
+      "features": {
+        "buckets": [
+          170285,
+          155297,
+          786
+        ],
+        "framing": 10792,
+        "image_tokens": 0
+      },
+      "actual": 101188
+    },
+    {
+      "features": {
+        "buckets": [
+          196571,
+          174352,
+          906
+        ],
+        "framing": 10952,
+        "image_tokens": 0
+      },
+      "actual": 116006
+    },
+    {
+      "features": {
+        "buckets": [
+          208805,
+          187131,
+          1021
+        ],
+        "framing": 11112,
+        "image_tokens": 0
+      },
+      "actual": 123890
+    },
+    {
+      "features": {
+        "buckets": [
+          218903,
+          199801,
+          1103
+        ],
+        "framing": 11272,
+        "image_tokens": 0
+      },
+      "actual": 131120
+    },
+    {
+      "features": {
+        "buckets": [
+          226807,
+          207980,
+          1120
+        ],
+        "framing": 11432,
+        "image_tokens": 0
+      },
+      "actual": 135740
+    },
+    {
+      "features": {
+        "buckets": [
+          243372,
+          219483,
+          1146
+        ],
+        "framing": 11592,
+        "image_tokens": 0
+      },
+      "actual": 143359
+    },
+    {
+      "features": {
+        "buckets": [
+          250560,
+          231153,
+          1170
+        ],
+        "framing": 11752,
+        "image_tokens": 0
+      },
+      "actual": 149333
+    },
+    {
+      "features": {
+        "buckets": [
+          256004,
+          237729,
+          1179
+        ],
+        "framing": 11912,
+        "image_tokens": 0
+      },
+      "actual": 152748
+    },
+    {
+      "features": {
+        "buckets": [
+          265458,
+          251036,
+          1245
+        ],
+        "framing": 12072,
+        "image_tokens": 0
+      },
+      "actual": 159356
+    },
+    {
+      "features": {
+        "buckets": [
+          346415,
+          253228,
+          1508
+        ],
+        "framing": 12330,
+        "image_tokens": 0
+      },
+      "actual": 181859
+    },
+    {
+      "features": {
+        "buckets": [
+          383089,
+          303319,
+          1637
+        ],
+        "framing": 12490,
+        "image_tokens": 0
+      },
+      "actual": 207455
+    },
+    {
+      "features": {
+        "buckets": [
+          413206,
+          306607,
+          1687
+        ],
+        "framing": 12846,
+        "image_tokens": 0
+      },
+      "actual": 216215
+    },
+    {
+      "features": {
+        "buckets": [
+          415014,
+          311455,
+          1691
+        ],
+        "framing": 13104,
+        "image_tokens": 0
+      },
+      "actual": 218283
+    },
+    {
+      "features": {
+        "buckets": [
+          415091,
+          318365,
+          1691
+        ],
+        "framing": 13264,
+        "image_tokens": 0
+      },
+      "actual": 220692
+    },
+    {
+      "features": {
+        "buckets": [
+          415978,
+          321948,
+          1691
+        ],
+        "framing": 13718,
+        "image_tokens": 0
+      },
+      "actual": 222180
+    },
+    {
+      "features": {
+        "buckets": [
+          416051,
+          323961,
+          1691
+        ],
+        "framing": 13878,
+        "image_tokens": 0
+      },
+      "actual": 222850
+    },
+    {
+      "features": {
+        "buckets": [
+          416481,
+          325324,
+          1691
+        ],
+        "framing": 14136,
+        "image_tokens": 0
+      },
+      "actual": 223440
+    },
+    {
+      "features": {
+        "buckets": [
+          417115,
+          326916,
+          1691
+        ],
+        "framing": 14394,
+        "image_tokens": 0
+      },
+      "actual": 224160
+    },
+    {
+      "features": {
+        "buckets": [
+          417799,
+          329976,
+          1691
+        ],
+        "framing": 14554,
+        "image_tokens": 0
+      },
+      "actual": 225311
+    },
+    {
+      "features": {
+        "buckets": [
+          418086,
+          330477,
+          1691
+        ],
+        "framing": 14714,
+        "image_tokens": 0
+      },
+      "actual": 225575
+    },
+    {
+      "features": {
+        "buckets": [
+          418095,
+          332367,
+          1691
+        ],
+        "framing": 14853,
+        "image_tokens": 0
+      },
+      "actual": 226254
+    }
+  ],
+  "query": {
+    "buckets": [
+      418095,
+      332367,
+      1691
+    ],
+    "framing": 14853,
+    "image_tokens": 0
+  },
+  "first_image_allowance": 20520,
+  "reported_input_after_image": 227351
+}

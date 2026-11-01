@@ -176,7 +176,7 @@ class Preparation(unittest.TestCase):
                        GITHUB_EVENT_NAME='workflow_run', GITHUB_REPOSITORY=REPO, GITHUB_SHA=OTHER,
                        GITHUB_WORKFLOW_REF=REPO + '/.github/workflows/desktop-candidates.yml@refs/heads/master',
                        TRIGGER_SOURCE_SHA=SHA, TRIGGER_CI_RUN_ID='1', TRIGGER_CI_ATTEMPT='1', RELEASE_SCOPE='all-macos-preview',
-                       XHARNESS_FRIENDS_RELEASE_REPOSITORY=REPO, RUNNER_TEMP=folder, GITHUB_RUN_ID='77', GITHUB_RUN_ATTEMPT='1',
+                       XHARNESS_FRIENDS_RELEASE_REPOSITORY=REPO, RUNNER_TEMP=folder, GITHUB_RUN_ID='77', GITHUB_RUN_ATTEMPT='2',
                        GITHUB_STEP_SUMMARY=str(Path(folder) / 'summary'))
             def advance(task, publish):
                 self.assertFalse(publish)
@@ -184,7 +184,7 @@ class Preparation(unittest.TestCase):
                 intent = task.state['stages']['build']; client.runs[intent['run_id']].update(status='completed', conclusion='success')
                 return task.advance()
             with patch.dict(os.environ, env, clear=True), patch.object(c, 'CandidateGitHub', return_value=client), \
-                    patch.object(c.service, 'restore_checkpoint', return_value=None) as restore, \
+                    patch.object(c.service, 'restore_checkpoint', return_value=journal()) as restore, \
                     patch.object(c.service, 'advance_until_done', side_effect=advance), \
                     patch.object(c.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as node:
                 self.assertEqual(c.main(), 0)

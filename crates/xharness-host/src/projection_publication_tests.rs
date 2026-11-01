@@ -1,4 +1,6 @@
 //! Synthetic snapshot-only tests: no model, tool execution or production state.
+#[path = "projection_publication_tests/file_artifacts.rs"]
+mod file_artifacts;
 use super::*;
 use crate::{runtime::AgentRuntime, HostConfig};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -15,6 +17,13 @@ struct SnapshotRuntime(Arc<dyn Store>);
 
 #[async_trait::async_trait]
 impl AgentRuntime for SnapshotRuntime {
+    async fn observe_session(
+        &self,
+        _: &str,
+    ) -> Result<crate::runtime::SessionObservation, AgentRuntimeError> {
+        Ok(crate::runtime::SessionObservation::Idle)
+    }
+
     fn has_available_route(&self) -> bool {
         false
     }
@@ -32,6 +41,16 @@ impl AgentRuntime for SnapshotRuntime {
                 message: error.to_string(),
             })
     }
+    async fn persist_fork_session(&self, session: Session) -> Result<(), AgentRuntimeError> {
+        self.0
+            .create_seeded(session)
+            .await
+            .map_err(|error| AgentRuntimeError::Preparation {
+                message: error.to_string(),
+            })?;
+        Ok(())
+    }
+
     async fn persist_session_events(
         &self,
         id: &str,
@@ -107,7 +126,7 @@ async fn projection_inputs_reject_stale_cursor_identity_and_each_route_field() {
     let original = &state.sessions[ID];
     let inputs = ProjectionInputs::capture(original);
     assert!(inputs.matches(original));
-    for field in 0..9 {
+    for field in 0..11 {
         let mut changed = ProjectionInputs::capture(original);
         match field {
             0 => changed.cursor = Some(original.authoritative_seq.unwrap() + 1),
@@ -118,9 +137,71 @@ async fn projection_inputs_reject_stale_cursor_identity_and_each_route_field() {
             5 => changed.route.provider.push_str("-new"),
             6 => changed.route.model.push_str("-new"),
             7 => changed.route.reasoning_effort = Some("different".into()),
-            _ => changed.route.context_window_tokens = Some(123),
+            8 => changed.route.context_window_tokens = Some(123),
+            9 => changed.restoring = !changed.restoring,
+            _ => changed.projected_model = Some(original.model.clone()),
         }
         assert!(!changed.matches(original), "changed field {field}");
+    }
+}
+
+#[tokio::test]
+async fn unchanged_snapshot_reuses_the_resident_tail_without_duplicate_projections() {
+    let (host, store) = fixture().await;
+    let session = store.load(ID).await.unwrap().unwrap();
+    store
+        .append(ID, session.revision(), vec![title("cache tail")])
+        .await
+        .unwrap();
+    host.sync_authoritative_session(ID).await.unwrap();
+    let (pointer, events) = {
+        let state = host.state.read().await;
+        let record = &state.sessions[ID];
+        assert!(!record.events.is_empty());
+        assert_eq!(record.projected_model.as_ref(), Some(&record.model));
+        (record.events.as_ptr() as usize, record.events.clone())
+    };
+    let mut receiver = host.event_gateway.subscribe_mux();
+    for _ in 0..16 {
+        host.sync_authoritative_session(ID).await.unwrap();
+    }
+    let state = host.state.read().await;
+    assert_eq!(state.sessions[ID].events.as_ptr() as usize, pointer);
+    assert_eq!(state.sessions[ID].events, events);
+    assert!(matches!(
+        receiver.try_recv(),
+        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+    ));
+}
+
+#[tokio::test]
+async fn unchanged_cursor_does_not_hide_a_changed_projection_route() {
+    let (host, store) = fixture().await;
+    let session = store.load(ID).await.unwrap().unwrap();
+    store
+        .append(ID, session.revision(), vec![title("cache tail")])
+        .await
+        .unwrap();
+    host.sync_authoritative_session(ID).await.unwrap();
+    for field in 0..4 {
+        let (cursor, pointer) = {
+            let mut state = host.state.write().await;
+            let record = state.sessions.get_mut(ID).unwrap();
+            match field {
+                0 => record.model.provider.push_str("-changed"),
+                1 => record.model.model.push_str("-changed"),
+                2 => record.model.reasoning_effort = Some("changed".into()),
+                _ => record.model.context_window_tokens = Some(123_456),
+            }
+            (record.authoritative_seq, record.events.as_ptr() as usize)
+        };
+        host.sync_authoritative_session(ID).await.unwrap();
+        let state = host.state.read().await;
+        let record = &state.sessions[ID];
+        assert_eq!(record.authoritative_seq, cursor);
+        assert_eq!(record.projected_model.as_ref(), Some(&record.model));
+        // The new nonempty tail is built while the old allocation is alive.
+        assert_ne!(record.events.as_ptr() as usize, pointer);
     }
 }
 
@@ -872,6 +953,192 @@ fn fork_of_subagent_does_not_restore_as_a_delegated_child() {
 }
 
 #[tokio::test]
+async fn fork_diagnosis_preserves_state_mutation_revision_boundaries() {
+    let (host, store) = fixture().await;
+    rpc_value(
+        &host,
+        RpcMethod::SessionRename,
+        json!({"sessionId": ID, "title": "renamed source"}),
+    )
+    .await;
+    let header = store
+        .archive_request(RequestHeader::new("test", "test"))
+        .await
+        .unwrap();
+    let source = store.load(ID).await.unwrap().unwrap();
+    store
+        .append(
+            ID,
+            source.revision(),
+            completed_turn(1, "after rename", &header),
+        )
+        .await
+        .unwrap();
+    host.sync_authoritative_session(ID).await.unwrap();
+    let child = rpc_value(&host, RpcMethod::SessionFork, json!({"sessionId": ID})).await;
+    let child_id = child["sessionId"].as_str().unwrap();
+    let copied = store.load(child_id).await.unwrap().unwrap();
+    assert!(copied
+        .events()
+        .iter()
+        .any(|event| matches!(event.data(), EventData::SessionMutationCommitted { .. })));
+    assert_eq!(
+        store.load(ID).await.unwrap().unwrap().events().len(),
+        copied.events().len() - 1
+    );
+}
+
+#[tokio::test]
+async fn fork_diagnosis_message_anchor_includes_completed_turn_end() {
+    let (host, store) = fixture().await;
+    let header = store
+        .archive_request(RequestHeader::new("test", "test"))
+        .await
+        .unwrap();
+    let source = store.load(ID).await.unwrap().unwrap();
+    store
+        .append(
+            ID,
+            source.revision(),
+            completed_turn(1, "message anchor", &header),
+        )
+        .await
+        .unwrap();
+    host.sync_authoritative_session(ID).await.unwrap();
+    let source = store.load(ID).await.unwrap().unwrap();
+    let anchor = source
+        .events()
+        .iter()
+        .find(|event| matches!(event.data(), EventData::AssistantMessage { .. }))
+        .unwrap()
+        .seq;
+    let child = rpc_value(
+        &host,
+        RpcMethod::SessionFork,
+        json!({"sessionId": ID, "atSeq": anchor}),
+    )
+    .await;
+    let child_id = child["sessionId"].as_str().unwrap();
+    let copied = store.load(child_id).await.unwrap().unwrap();
+    assert!(
+        matches!(
+            copied.events()[copied.events().len() - 2].data(),
+            EventData::TurnEnd { .. }
+        ),
+        "a message-anchored fork must include the closing step/end and turn/end"
+    );
+    store
+        .append(
+            child_id,
+            copied.revision(),
+            completed_turn(2, "continue child", &header),
+        )
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn fork_rejects_open_anchor_without_publishing_and_defaults_to_last_closed_turn() {
+    let (host, store) = fixture().await;
+    let header = RequestHeader::new("test", "test");
+    let source = store.load(ID).await.unwrap().unwrap();
+    store
+        .append(ID, source.revision(), completed_turn(1, "closed", &header))
+        .await
+        .unwrap();
+    let source = store.load(ID).await.unwrap().unwrap();
+    let open = completed_turn(2, "still running", &header);
+    store
+        .append(ID, source.revision(), open[..5].to_vec())
+        .await
+        .unwrap();
+    host.sync_authoritative_session(ID).await.unwrap();
+    let source = store.load(ID).await.unwrap().unwrap();
+    let result = host
+        .call(
+            RpcId::new("open-anchor"),
+            RpcMethod::SessionFork,
+            json!({"sessionId":ID,"atSeq":source.next_seq()-1}),
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await;
+    assert!(
+        matches!(result, RpcResult::Failure { error } if error.code == xharness_api::RpcErrorCode::ForkUnavailable)
+    );
+    assert_eq!(store.list_headers().await.unwrap().len(), 1);
+    for payload in [
+        json!({"sessionId":ID}),
+        json!({"sessionId":ID,"atSeq":u64::MAX}),
+    ] {
+        let child = rpc_value(&host, RpcMethod::SessionFork, payload).await;
+        let snapshot = store
+            .load(child["sessionId"].as_str().unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!snapshot
+            .events()
+            .iter()
+            .any(|event| matches!(event.data(), EventData::TurnStart { turn: 2 })));
+        assert!(matches!(
+            snapshot.events()[snapshot.events().len() - 2].data(),
+            EventData::TurnEnd { turn: 1, .. }
+        ));
+    }
+    assert_eq!(store.load(ID).await.unwrap().unwrap(), source);
+}
+
+#[tokio::test]
+async fn fork_after_mutation_survives_jsonl_restart_and_fork_of_fork() {
+    let root = std::env::temp_dir().join(format!(
+        "xharness-fork-revisions-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let store: Arc<dyn Store> = Arc::new(JsonlSessionStore::new(&root).unwrap());
+    store.create(SessionHeader::new(ID)).await.unwrap();
+    let host = BasicHost::with_agent_runtime(
+        HostConfig::new(std::env::temp_dir()),
+        Arc::new(SnapshotRuntime(store.clone())),
+    );
+    host.restore_from_store(store.clone()).await.unwrap();
+    rpc_value(
+        &host,
+        RpcMethod::SessionRename,
+        json!({"sessionId":ID,"title":"source"}),
+    )
+    .await;
+    let source = store.load(ID).await.unwrap().unwrap();
+    let header = RequestHeader::new("test", "test");
+    store
+        .append(ID, source.revision(), completed_turn(1, "first", &header))
+        .await
+        .unwrap();
+    host.sync_authoritative_session(ID).await.unwrap();
+    let before = store.load(ID).await.unwrap().unwrap();
+    let first = rpc_value(&host, RpcMethod::SessionFork, json!({"sessionId":ID})).await;
+    let id = first["sessionId"].as_str().unwrap();
+    let child = store.load(id).await.unwrap().unwrap();
+    assert_eq!(&child.events()[..before.events().len()], before.events());
+    let second = rpc_value(&host, RpcMethod::SessionFork, json!({"sessionId":id})).await;
+    let second_id = second["sessionId"].as_str().unwrap();
+    let grandchild = store.load(second_id).await.unwrap().unwrap();
+    assert_eq!(&grandchild.events()[..child.events().len()], child.events());
+    assert_eq!(store.load(ID).await.unwrap().unwrap(), before);
+    drop(host);
+    drop(store);
+    let store = JsonlSessionStore::new(&root).unwrap();
+    assert_eq!(store.load(id).await.unwrap().unwrap(), child);
+    assert_eq!(store.load(second_id).await.unwrap().unwrap(), grandchild);
+    assert_eq!(store.list_headers().await.unwrap().len(), 3);
+    drop(store);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
 async fn automatic_compaction_views_match_live_history_and_restart() {
     use std::collections::BTreeMap;
     use xharness_session::{SequenceRange, SurfaceReplace};
@@ -1021,4 +1288,112 @@ async fn automatic_compaction_views_match_live_history_and_restart() {
             assert_eq!(actual, expected, "live/history/restart mismatch: {error:?}");
         }
     }
+}
+
+#[path = "projection_working_set_tests.rs"]
+mod working_set_tests;
+
+#[path = "admission_receipt_tests.rs"]
+mod admission_receipt_tests;
+#[tokio::test]
+async fn working_plan_reaches_mux_and_history_without_republishing_on_unrelated_events() {
+    let (host, store) = fixture().await;
+    let mut receiver = host.event_gateway.subscribe_mux();
+    let reply = rpc_value(&host, RpcMethod::GoalUpdatePlan, json!({"sessionId":ID,"planRevision":0,"items":[{"id":"verify","title":"Verify","status":"in_progress"}]})).await;
+    let plan = reply["plan"].clone();
+    let projections = std::iter::from_fn(|| receiver.try_recv().ok())
+        .filter(|frame| {
+            frame.payload["type"] == "session/projection" && frame.payload["key"] == "taskPlan"
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(projections.len(), 1);
+    assert_eq!(projections[0].payload["value"], plan);
+    let request = store
+        .archive_request(RequestHeader::new("test", "test"))
+        .await
+        .unwrap();
+    for index in 0..60 {
+        let snapshot = store.load(ID).await.unwrap().unwrap();
+        store
+            .append(
+                ID,
+                snapshot.revision(),
+                completed_turn(index + 1, "unrelated", &request),
+            )
+            .await
+            .unwrap();
+    }
+    host.sync_authoritative_session(ID).await.unwrap();
+    assert!(!std::iter::from_fn(|| receiver.try_recv().ok())
+        .any(|frame| frame.payload["type"] == "session/projection"
+            && frame.payload["key"] == "taskPlan"));
+    let history = rpc_value(&host, RpcMethod::SessionHistory, json!({"sessionId":ID})).await;
+    assert!(!history["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|event| event["type"] == "session/plan-updated"));
+    assert_eq!(history["projections"]["values"]["taskPlan"], plan);
+}
+
+#[tokio::test]
+async fn closed_driver_list_read_repairs_completed_status_without_replaying() {
+    let (host, store) = fixture().await;
+    let (tx, rx) = mpsc::channel(4);
+    drop(rx);
+    {
+        let mut state = host.state.write().await;
+        let record = state.sessions.get_mut(ID).unwrap();
+        record.running = true;
+        record.control = Some(tx);
+        record.driver_epoch = Some(Arc::new(crate::driver_lifecycle::DriverEpoch::default()));
+    }
+    let header = store
+        .archive_request(RequestHeader::new("test", "test"))
+        .await
+        .unwrap();
+    let before = store.load(ID).await.unwrap().unwrap();
+    store
+        .append(
+            ID,
+            before.revision(),
+            completed_turn(1, "synthetic", &header),
+        )
+        .await
+        .unwrap();
+    let list = rpc_value(&host, RpcMethod::SessionList, json!({})).await;
+    assert_eq!(list["items"][0]["running"], false);
+    assert!(!host.state.read().await.sessions[ID].running);
+    assert_eq!(
+        store
+            .load(ID)
+            .await
+            .unwrap()
+            .unwrap()
+            .events()
+            .iter()
+            .filter(|e| matches!(e.data(), EventData::TurnStart { .. }))
+            .count(),
+        1
+    );
+}
+#[tokio::test]
+async fn stale_failure_cannot_clear_a_successor_epoch() {
+    let (host, _) = fixture().await;
+    let old = Arc::new(crate::driver_lifecycle::DriverEpoch::default());
+    let new = Arc::new(crate::driver_lifecycle::DriverEpoch::default());
+    let (tx, _rx) = mpsc::channel(4);
+    {
+        let mut state = host.state.write().await;
+        let record = state.sessions.get_mut(ID).unwrap();
+        record.running = true;
+        record.control = Some(tx.clone());
+        record.driver_epoch = Some(new.clone());
+    }
+    host.repair_session_driver(ID.into(), old).await;
+    let state = host.state.read().await;
+    let record = &state.sessions[ID];
+    assert!(record.running);
+    assert!(Arc::ptr_eq(record.driver_epoch.as_ref().unwrap(), &new));
+    assert!(record.control.as_ref().unwrap().same_channel(&tx));
 }

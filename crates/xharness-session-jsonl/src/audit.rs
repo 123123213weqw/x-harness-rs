@@ -127,8 +127,11 @@ pub(super) fn expand_harness(
 }
 
 pub(super) fn elide(event: &mut LoggedEvent) {
-    if let EventData::RequestHeader { header } = &mut event.event.0 {
-        if !header.options.contains_key("auditSnapshot") {
+    // Checking an already-shared non-header event must not detach its payload.
+    let needs_elision = matches!(event.data(), EventData::RequestHeader { header }
+        if !header.options.contains_key("auditSnapshot"));
+    if needs_elision {
+        if let EventData::RequestHeader { header } = event.event.data_mut() {
             compact(header, json!({"kind":"legacy_jsonl","seq":event.seq}));
         }
     }

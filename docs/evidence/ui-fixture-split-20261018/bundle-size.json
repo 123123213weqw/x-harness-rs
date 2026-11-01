@@ -1,0 +1,8 @@
+{
+  "beforeRaw": 337799,
+  "afterRaw": 134526,
+  "beforeGzipNode": 75575,
+  "afterGzipNode": 27248,
+  "rawBytesRemoved": 203273,
+  "startupOrRSSMeasured": false
+}

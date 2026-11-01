@@ -1,0 +1,10 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>XHarness Browser</title><link rel="stylesheet" href="popup.css"></head><body>
+<header><img src="icons/icon48.png" alt="" width="34" height="34"><div><h1>XHarness Browser</h1><p id="status" role="status">正在读取连接状态…</p></div><button id="refresh" class="icon" aria-label="刷新状态">↻</button></header>
+<main><div class="connection"><button id="connect">启用自动连接</button><button id="disconnect" class="quiet">断开</button></div>
+<label for="client">允许操作的对话</label><select id="client" aria-label="允许操作的对话"></select>
+<label for="tab">允许操作的网页</label><select id="tab" aria-label="允许操作的网页"></select>
+<button id="grant" class="primary" disabled>授权这个标签页</button>
+<p class="hint">网页可在后台操作，不占用系统鼠标。对话自动绑定，只控制你选定的标签页。</p>
+<section aria-labelledby="authorized-title"><h2 id="authorized-title">当前授权</h2><ul id="authorized"></ul></section>
+<p id="error" role="alert"></p><button id="stop" class="stop">停止全部操作</button></main>
+<script type="module" src="extension/popup.js"></script></body></html>

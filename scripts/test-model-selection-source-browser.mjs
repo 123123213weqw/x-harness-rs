@@ -151,7 +151,7 @@ try {
   await page.keyboard.press('ArrowUp');assert.equal(await page.getByRole('menuitemradio',{name:'Level 38',exact:true}).evaluate(el=>el===document.activeElement),true);
   await page.keyboard.press('Enter');await page.waitForFunction(()=>saved.reasoningEffort==='l38');
   // Frozen UI fixture is checked against the pinned dependency by Rust wire tests.
-  const bundled=JSON.parse(readFileSync(new URL('./fixtures/reasoning-catalog-v0.1.1.json',import.meta.url),'utf8'));
+  const bundled=JSON.parse(readFileSync(new URL('./fixtures/reasoning-catalog-v0.4.0.json',import.meta.url),'utf8'));
   for(const [id,profile] of Object.entries(bundled.profiles)){
    await closeAll();
    await page.evaluate(async({id,profile})=>{
@@ -159,10 +159,12 @@ try {
     saved={provider:'p',model:id,reasoningEffort:profile.default_effort};await directory.load();
    },{id,profile});
    await page.getByRole('button',{name:'选择模型 '+id,exact:true}).waitFor();await openEffort();
-   assert.deepEqual(await page.getByRole('menuitemradio').allTextContents(),profile.efforts.map(e=>e.name));
+   const names=profile.efforts.map(e=>e.name);
+   assert.deepEqual(await page.getByRole('menuitemradio').allTextContents(),profile.default_effort?names:['默认',...names]);
    assert.equal(await page.getByRole('menuitemradio').filter({has:page.locator('[aria-checked=true]')}).count(),0); // selection is on the option itself, not a nested fake badge
    const chosen=profile.efforts.find(e=>e.id===profile.default_effort);
-   assert.equal(await page.getByRole('menuitemradio',{name:chosen.name,exact:true}).getAttribute('aria-checked'),'true');
+   if(chosen) assert.equal(await page.getByRole('menuitemradio',{name:chosen.name,exact:true}).getAttribute('aria-checked'),'true');
+   else assert.equal(await page.getByRole('menuitemradio',{name:'默认',exact:true}).getAttribute('aria-checked'),'true','no catalog default must preserve the provider default');
    if(id==='glm-5.3')assert.equal(await page.getByRole('menuitemradio',{name:'关闭',exact:true}).count(),0);
    const target=profile.efforts[0];await page.getByRole('menuitemradio',{name:target.name,exact:true}).click();
    await page.waitForFunction(id=>saved.reasoningEffort===id,target.id);

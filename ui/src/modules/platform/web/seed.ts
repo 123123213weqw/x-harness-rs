@@ -10,6 +10,7 @@ import * as React from 'react'
 import * as ReactJsxRuntime from 'react/jsx-runtime'
 import * as ReactDom from 'react-dom'
 import * as ReactDomClient from 'react-dom/client'
+import * as Zod from 'zod'
 import * as Cordis from '@xharness/cordis'
 import * as UiSlots from '@xharness/dsh-client-ui-slots'
 import * as UiPrimitives from '@xharness/dsh-client-ui-primitives'
@@ -28,6 +29,7 @@ export function getStaticModules(): Record<string, unknown> {
     'react/jsx-runtime': ReactJsxRuntime,
     'react-dom': ReactDom,
     'react-dom/client': ReactDomClient,
+    'zod': Zod,
     '@xharness/cordis': Cordis,
     '@xharness/dsh-client-ui-slots': UiSlots,
     '@xharness/dsh-client-ui-primitives': UiPrimitives,

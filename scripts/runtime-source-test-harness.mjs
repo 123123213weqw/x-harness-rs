@@ -1,3 +1,4 @@
+import { sharedVendors } from './fixtures/shared-source-vendors.mjs'
 /** Shared selection for the old product-history gates and genuine-source entries. */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -55,6 +56,7 @@ export function runtimeTestApi(globals={}){
   return core
  })
  return evaluate(runtimeTestSource()).factory(id=>{
+  if(id==='zod')return sharedVendors.zod
   if(id==='@xharness/cordis')return core
   if(id==='@xharness/dsh-client-ui-slots')return slots
   throw Error('Unexpected actual Runtime dependency '+id)

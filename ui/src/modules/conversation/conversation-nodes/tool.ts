@@ -234,7 +234,7 @@ function fallbackState(context: ConversationNodeContext<ToolState>): ToolState |
 
 /** Root Tool lifecycle and nested Code Dispatch Definition. */
 export const toolDefinition: ConversationNodeDefinition<ToolState> = {
-  historyReuse: 'local',
+  historyReuse: 'local', locationReuse: 'events',
   kind: 'tool-call',
   target: 'chat',
   match: (event) => {

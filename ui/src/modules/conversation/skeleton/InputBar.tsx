@@ -27,6 +27,7 @@ import { isSafariBrowser, repairSafariTextareaLayout } from './safari'
 import css from './InputBar.styles'
 import { ComposerAddMenu } from './ComposerAddMenu'
 import { validateAttachments } from '../attachments'
+import { listenComposerFiles } from '../../shared/composer-files'
 
 /** Decoration product of the no-session state (no machine, empty draft). */
 const INERT_DECORATIONS: DraftDecorations = { token: null, chips: [], textRefs: [], hint: null }
@@ -47,6 +48,7 @@ export function InputBar({
   const commandMenuOpen = useMenuLauncher(source => source === 'command')
   const promptError = useSession(s => s.promptError) ?? null
   const running = useSession(s => s.running) ?? false
+  const stopRequested = useSession(s => s.stopRequested) ?? false
   const subagent = useSession(s => s.subagent) ?? null
   const removed = useSession(s => s.removed) ?? false
   // Plan mode swaps the textarea placeholder (the projection is the folded
@@ -434,17 +436,24 @@ export function InputBar({
   // never enters the rail — no more submit-time failure rolling the rail
   // back. The host enforces the same limits at submit for callers that bypass
   // this composer.
-  const intakeImages = useCallback((files: readonly File[]): void => {
-    if (addImages === undefined || files.length === 0) return
+  const intakeImages = useCallback((files: readonly File[]): string | null => {
+    if (addImages === undefined || files.length === 0) return '当前聊天无法添加附件'
     const rejected = ((): string | null => {
       try { validateAttachments([...attachments.map(attachment => attachment.file), ...files]) }
       catch (error) { return error instanceof Error ? error.message : String(error) }
       return addImages(files)
     })()
     if (rejected !== null) showToast(rejected)
+    return rejected
   }, [addImages, attachments, imageLimits, showToast, t])
 
   const canAcceptDrop = !locked && !machineBusy && addImages !== undefined
+  useEffect(() => listenComposerFiles(sessionId, files => {
+    const target = inputRef.current
+    if (!target?.getClientRects().length || getComputedStyle(target).visibility === 'hidden' || target.closest('[hidden], [inert], [aria-hidden="true"]')) return undefined
+    if (!canAcceptDrop) return '当前聊天输入框不可用，选取未加入草稿'
+    return intakeImages(files)
+  }), [sessionId, canAcceptDrop, intakeImages])
 
   const onSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>): void => {
     // Any caret/selection gesture ends a live paste attempt (the machine
@@ -472,10 +481,11 @@ export function InputBar({
   // pointer users can queue follow-ups while its current turn is running.
   const primaryStops = running && subagent === null
   const interruptible = running && continuable
-  const primaryLabel = primaryStops ? t('input.stop') : t('input.send')
+  const stopLabel = stopRequested ? t('input.stopping') : t('input.stop')
+  const primaryLabel = primaryStops ? stopLabel : machineBusy ? t('input.sending') : t('input.send')
   const onPrimary = (): void => {
     if (primaryStops) {
-      stop?.()
+      if (!stopRequested) stop?.()
       return
     }
     if (inputActions === undefined) return // absent machine: the button is disabled
@@ -486,9 +496,10 @@ export function InputBar({
   // The Access seat: the projection-fed permission chip (renders nothing
   // while the permissions key is absent — permission-less host or Draft —
   // or while the command face is absent with the session).
+  const compact = variant !== 'hero'
   const accessSelect: ReactNode = command === undefined
     ? null
-    : <PermissionSelect key={sessionId} value={permissions} locked={locked} command={command} t={t} />
+    : <PermissionSelect key={sessionId} value={permissions} locked={locked} compact={compact} command={command} t={t} />
 
   // Mirror-layer decorations: a visible backdrop with transparent textarea
   // text. Claim tokens and references retain the draft's own glyph metrics,
@@ -582,8 +593,54 @@ export function InputBar({
     }
   }
 
+  const modelControl = renderSlot('conversation.input.model', { locked: modelSeatLocked, compact })
+  const contextControl = <ContextMeter useProjection={useProjection} t={t} />
+  const primaryControls = <>
+              {interruptible && (
+                <Tooltip label={stopLabel} side="top" delayMs={500}>
+                  <button
+                    type="button"
+                    className={css.primary}
+                    aria-label={stopLabel}
+                    aria-busy={stopRequested}
+                    disabled={stop === undefined || stopRequested}
+                    onMouseDown={keepFocus}
+                    onClick={stop}
+                  >
+                    {stopRequested ? <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden data-composer-busy>
+                      <circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="24 11" />
+                    </svg> : <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+                      <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
+                    </svg>}
+                  </button>
+                </Tooltip>
+              )}
+              <Tooltip label={primaryLabel} side="top" delayMs={500}>
+                <button
+                  type="button"
+                  className={css.primary}
+                  aria-label={primaryLabel}
+                  aria-busy={primaryStops ? stopRequested : machineBusy}
+                  disabled={primaryStops ? stop === undefined || stopRequested : empty || disabled || machineBusy}
+                  onMouseDown={keepFocus}
+                  onClick={onPrimary}
+                >
+                  {(primaryStops ? stopRequested : machineBusy) ? <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden data-composer-busy>
+                    <circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="24 11" />
+                  </svg> : primaryStops ? (
+                    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+                      <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+                      <path d="M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z" fill="currentColor" />
+                    </svg>
+                  )}
+                </button>
+              </Tooltip>
+  </>
   return (
-    <div className={clsx(css.root, variant === 'hero' && css.hero)}>
+    <div className={clsx(css.root, variant === 'hero' && css.hero)} data-composer-layout={compact ? 'compact' : 'hero'}>
       {toast !== null && (
         <Toast
           key={toast.seq}
@@ -673,7 +730,7 @@ export function InputBar({
             <div ref={mirrorRef} aria-hidden className={css.mirror} data-input-mirror>{`${draft}\n`}</div>
           </div>
         </div>
-        <div className={css.row}>
+        <div className={css.row} data-composer-toolbar>
           <div className={css.tools}>
             <ComposerAddMenu key={sessionId} className={css.add} canAttach={canAcceptDrop}
               canCommands={!locked && !machineBusy && toggleCommandMenu !== undefined}
@@ -685,51 +742,20 @@ export function InputBar({
               {renderSlot('conversation.input.plan', { locked })}
             </div>
             {leftItems}
+            {compact && <div className={css.footer} data-composer-footer>{footer}</div>}
           </div>
           <div className={css.trailing}>
             {rightItems}
-            {renderSlot('conversation.input.model', { locked: modelSeatLocked })}
-            <ContextMeter useProjection={useProjection} t={t} />
-            {interruptible && (
-              <Tooltip label={t('input.stop')} side="top" delayMs={500}>
-                <button
-                  type="button"
-                  className={css.primary}
-                  aria-label={t('input.stop')}
-                  disabled={stop === undefined}
-                  onMouseDown={keepFocus}
-                  onClick={stop}
-                >
-                  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
-                    <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
-                  </svg>
-                </button>
-              </Tooltip>
-            )}
-            <Tooltip label={primaryLabel} side="top" delayMs={500}>
-              <button
-                type="button"
-                className={css.primary}
-                aria-label={primaryLabel}
-                disabled={primaryStops ? stop === undefined : empty || disabled || machineBusy}
-                onMouseDown={keepFocus}
-                onClick={onPrimary}
-              >
-                {primaryStops ? (
-                  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
-                    <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
-                    <path d="M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z" fill="currentColor" />
-                  </svg>
-                )}
-              </button>
-            </Tooltip>
+            {compact ? <div className={css.actions} data-composer-actions>
+              {contextControl}
+              <div className={css.modelSeat}>{modelControl}</div>
+              {primaryControls}
+            </div> : <>{modelControl}{contextControl}{primaryControls}</>}
+
           </div>
         </div>
       </div>
-      {footer}
+      {!compact && footer}
     </div>
   )
 }

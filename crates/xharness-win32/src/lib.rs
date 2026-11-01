@@ -22,6 +22,8 @@ mod file;
 #[cfg(windows)]
 mod handle;
 #[cfg(windows)]
+mod installation;
+#[cfg(windows)]
 mod job;
 #[cfg(windows)]
 mod restricted_process;
@@ -31,7 +33,7 @@ mod suspended;
 mod token;
 
 #[cfg(windows)]
-pub use acl::{copy_dacl, grant_write, revoke_write};
+pub use acl::{can_replace_file, copy_dacl, grant_write, revoke_write};
 #[cfg(windows)]
 pub use conpty::{spawn_conpty, ConPtyChild, ConPtySession};
 #[cfg(windows)]
@@ -44,6 +46,10 @@ pub use drives::logical_drive_roots;
 pub use file::replace_file;
 #[cfg(windows)]
 pub use handle::OwnedWin32Handle;
+#[cfg(windows)]
+pub use installation::{
+    can_self_elevate, current_process_elevated, launch_elevated, machine_msi_registered,
+};
 #[cfg(windows)]
 pub use job::{Job, JobAccounting};
 #[cfg(windows)]

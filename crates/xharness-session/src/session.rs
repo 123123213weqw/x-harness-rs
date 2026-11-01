@@ -3,8 +3,8 @@ use std::{collections::HashMap, sync::Arc, time::SystemTime};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CompactionEndOutcome, EventData, InboxMessage, InboxTarget, LoggedEvent, Message, MessageRole,
-    Revision, Sequence, SessionEvent,
+    CompactionEndOutcome, EventData, LoggedEvent, Message, MessageRole, Revision, Sequence,
+    SessionEvent,
 };
 use xharness_interaction::{
     AskUserQuestionRequest, QuestionAnswer, QuestionInteraction, QuestionStateError,
@@ -45,6 +45,9 @@ pub struct Session {
     /// cut, while the ordinary single-writer path appends without cloning the
     /// whole log.
     events: Arc<Vec<LoggedEvent>>,
+    /// Derived only by complete validation or an observational append using
+    /// the same scope rule. Never persisted independently of the journal.
+    pub(crate) stream_cursor: crate::StreamAppendCursor,
 }
 
 /// Result of one successful compare-and-swap append.
@@ -134,6 +137,10 @@ impl Session {
             header,
             revision: Revision::ZERO,
             events: Arc::new(Vec::new()),
+            stream_cursor: crate::stream_append::StreamAppendCursor::from_validated(
+                Revision::ZERO,
+                &[],
+            ),
         })
     }
 
@@ -146,10 +153,12 @@ impl Session {
     ) -> Result<Self, SessionError> {
         validate_header(&header)?;
         validate_log(revision, &events)?;
+        let stream_cursor = crate::StreamAppendCursor::from_validated(revision, &events);
         Ok(Self {
             header,
             revision,
             events: Arc::new(events),
+            stream_cursor,
         })
     }
 
@@ -217,6 +226,17 @@ impl Session {
         events: Vec<SessionEvent>,
         timestamp_ms: u64,
     ) -> Result<AppendReceipt, SessionError> {
+        if let Some((cursor, receipt)) =
+            self.stream_cursor
+                .prepare_append(expected_revision, &events, timestamp_ms)?
+        {
+            if !receipt.events.is_empty() {
+                Arc::make_mut(&mut self.events).extend(receipt.events.iter().cloned());
+            }
+            self.revision = receipt.revision;
+            self.stream_cursor = cursor;
+            return Ok(receipt);
+        }
         if expected_revision != self.revision {
             return Err(SessionError::RevisionConflict {
                 expected: expected_revision,
@@ -264,6 +284,7 @@ impl Session {
             return Err(error);
         }
         self.revision = revision;
+        self.stream_cursor = crate::StreamAppendCursor::from_validated(revision, events);
         Ok(AppendReceipt {
             previous_revision,
             revision,
@@ -539,6 +560,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
     }
 
     let mut current_logged_revision = Revision::ZERO;
+    let mut plan_revision = 0_u64;
     let mut job_continuations = HashMap::<String, crate::JobContinuationRecord>::new();
     let mut calls: HashMap<String, (bool, u32, u32)> = HashMap::new();
     let mut approvals = HashMap::<String, bool>::new();
@@ -558,8 +580,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
     let mut last_turn = 0u32;
     let mut open_step = None::<StepState>;
     let mut last_step = 0u32;
-    let mut next_turn_inbox = Vec::<InboxMessage>::new();
-    let mut next_step_inbox = Vec::<InboxMessage>::new();
+    let mut inbox = crate::inbox_validation::InboxValidation::default();
     let mut current_goal = None::<(crate::GoalSnapshot, u64, u64, u64)>;
     let mut has_goal_execution_events = false;
     let mut seen_goal_ids = std::collections::HashSet::<String>::new();
@@ -684,60 +705,14 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                 inserted,
                 outcome,
             } => {
-                let (target_inbox, other_inbox) = match target {
-                    InboxTarget::NextTurn => (&mut next_turn_inbox, &next_step_inbox),
-                    InboxTarget::NextStep => (&mut next_step_inbox, &next_turn_inbox),
-                };
-                let end = start.checked_add(*removed_count).ok_or_else(|| {
-                    SessionError::InvalidInboxSplice {
-                        seq: logged.seq,
-                        message: "splice range overflow".to_owned(),
-                    }
-                })?;
-                if *start > target_inbox.len() || end > target_inbox.len() {
-                    return Err(SessionError::InvalidInboxSplice {
-                        seq: logged.seq,
-                        message: format!(
-                            "range {start}..{end} exceeds {} pending items",
-                            target_inbox.len()
-                        ),
-                    });
-                }
-                if outcome.is_some() && *removed_count == 0 {
-                    return Err(SessionError::InvalidInboxSplice {
-                        seq: logged.seq,
-                        message: "discard outcome requires at least one removed message".to_owned(),
-                    });
-                }
-                for message in inserted {
-                    if message.id.is_empty() {
-                        return Err(SessionError::EmptyInboxMessageId { seq: logged.seq });
-                    }
-                    if message.message.role != MessageRole::User {
-                        return Err(SessionError::InvalidInboxMessageRole {
-                            seq: logged.seq,
-                            message_id: message.id.clone(),
-                        });
-                    }
-                    if message.message.id.as_deref() != Some(message.id.as_str()) {
-                        return Err(SessionError::InboxMessageIdMismatch {
-                            seq: logged.seq,
-                            message_id: message.id.clone(),
-                        });
-                    }
-                }
-                let mut candidate = target_inbox.clone();
-                candidate.splice(*start..end, inserted.iter().cloned());
-                let mut ids = std::collections::HashSet::new();
-                for message in candidate.iter().chain(other_inbox) {
-                    if !ids.insert(message.id.as_str()) {
-                        return Err(SessionError::DuplicateInboxMessage {
-                            seq: logged.seq,
-                            message_id: message.id.clone(),
-                        });
-                    }
-                }
-                *target_inbox = candidate;
+                inbox.apply(
+                    logged.seq,
+                    *target,
+                    *start,
+                    *removed_count,
+                    inserted,
+                    *outcome,
+                )?;
             }
             EventData::TurnStart { turn } => {
                 if open_turn.is_some() || open_step.is_some() {
@@ -1182,6 +1157,17 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     }
                 }
             }
+            EventData::SessionPlanUpdated { plan } => {
+                plan.validate()
+                    .map_err(|message| lifecycle_error(logged.seq, message))?;
+                if plan.revision != plan_revision + 1 {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "non-contiguous working plan revision",
+                    ));
+                }
+                plan_revision = plan.revision;
+            }
             EventData::GoalExecution { .. } => {
                 has_goal_execution_events = true;
             }
@@ -1194,7 +1180,6 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                         || goal.objective.trim().is_empty()
                         || goal.revision == 0
                         || goal.max_goal_rounds == 0
-                        || change.rounds_started > goal.max_goal_rounds
                         || change.updated_at < change.created_at
                     {
                         return Err(lifecycle_error(
@@ -1274,7 +1259,6 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                                                 | crate::GoalPhase::Complete
                                         )
                                         && goal.phase == crate::GoalPhase::Active
-                                        && change.rounds_started < goal.max_goal_rounds
                                 }
                                 crate::GoalSnapshotOperation::Complete => {
                                     same_definition
@@ -1902,24 +1886,14 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
             }
             EventData::ModelReception { turn, step, .. }
             | EventData::AssistantChunk { turn, step, .. } => {
-                let Some(state) = open_step.as_ref() else {
-                    return Err(lifecycle_error(
-                        logged.seq,
-                        "assistant/chunk requires an open step",
-                    ));
-                };
-                if state.turn != *turn || state.step != *step {
-                    return Err(lifecycle_error(
-                        logged.seq,
-                        "assistant/chunk coordinates do not match the open step",
-                    ));
-                }
-                if state.assistant_calls.is_some() {
-                    return Err(lifecycle_error(
-                        logged.seq,
-                        "assistant/chunk cannot follow assistant/message",
-                    ));
-                }
+                crate::stream_append::validate_scope(
+                    logged.seq,
+                    *turn,
+                    *step,
+                    open_step
+                        .as_ref()
+                        .map(|state| (state.turn, state.step, state.assistant_calls.is_some())),
+                )?;
             }
             EventData::AssistantMessage {
                 turn,

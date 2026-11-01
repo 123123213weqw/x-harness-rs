@@ -1,0 +1,57 @@
+{"case": "resume_after_compact", "arm": "on_demand_get", "repeat": 1, "score": {"passed": false, "violations": ["operation_outside_current_scope", "original_plan_not_completed_with_stable_ids"], "tool_calls": 4, "get_calls": 0, "cas_conflicts": 0}, "infrastructure_error": null}
+{"case": "resume_after_compact", "arm": "snapshot", "repeat": 1, "score": {"passed": false, "violations": ["operation_outside_current_scope"], "tool_calls": 5, "get_calls": 0, "cas_conflicts": 0}, "infrastructure_error": null}
+{"case": "new_scope", "arm": "on_demand_get", "repeat": 1, "score": {"passed": true, "violations": [], "tool_calls": 1, "get_calls": 0, "cas_conflicts": 0}, "infrastructure_error": null}
+{"case": "already_completed", "arm": "on_demand_get", "repeat": 1, "score": {"passed": true, "violations": [], "tool_calls": 1, "get_calls": 1, "cas_conflicts": 0}, "infrastructure_error": null}
+{"case": "already_completed", "arm": "snapshot", "repeat": 1, "score": {"passed": true, "violations": [], "tool_calls": 0, "get_calls": 0, "cas_conflicts": 0}, "infrastructure_error": null}
+{"case": "new_scope", "arm": "snapshot", "repeat": 1, "score": {"passed": true, "violations": [], "tool_calls": 2, "get_calls": 0, "cas_conflicts": 0}, "infrastructure_error": null}
+{"case": "stale_compact_revision", "arm": "snapshot", "repeat": 1, "score": {"passed": false, "violations": ["operation_outside_current_scope"], "tool_calls": 3, "get_calls": 0, "cas_conflicts": 0}, "infrastructure_error": null}
+{"case": "stale_compact_revision", "arm": "on_demand_get", "repeat": 1, "score": {"passed": false, "violations": ["operation_outside_current_scope"], "tool_calls": 4, "get_calls": 1, "cas_conflicts": 0}, "infrastructure_error": null}
+{"case": "plan_title_is_data", "arm": "on_demand_get", "repeat": 1, "score": {"passed": true, "violations": [], "tool_calls": 1, "get_calls": 0, "cas_conflicts": 0}, "infrastructure_error": null}
+{"case": "plan_title_is_data", "arm": "snapshot", "repeat": 1, "score": {"passed": true, "violations": [], "tool_calls": 1, "get_calls": 0, "cas_conflicts": 0}, "infrastructure_error": null}
+{"case": "resume_after_compact", "arm": "snapshot", "repeat": 2, "score": {"passed": false, "violations": ["operation_outside_current_scope"], "tool_calls": 3, "get_calls": 0, "cas_conflicts": 0}, "infrastructure_error": null}
+{"case": "resume_after_compact", "arm": "on_demand_get", "repeat": 2, "score": {"passed": false, "violations": ["operation_outside_current_scope", "original_plan_not_completed_with_stable_ids"], "tool_calls": 4, "get_calls": 0, "cas_conflicts": 0}, "infrastructure_error": null}
+{"case": "new_scope", "arm": "on_demand_get", "repeat": 2, "score": {"passed": true, "violations": [], "tool_calls": 1, "get_calls": 0, "cas_conflicts": 0}, "infrastructure_error": null}
+{"case": "new_scope", "arm": "snapshot", "repeat": 2, "score": {"passed": true, "violations": [], "tool_calls": 2, "get_calls": 0, "cas_conflicts": 0}, "infrastructure_error": null}
+{"case": "already_completed", "arm": "snapshot", "repeat": 2, "score": {"passed": true, "violations": [], "tool_calls": 0, "get_calls": 0, "cas_conflicts": 0}, "infrastructure_error": null}
+{"case": "already_completed", "arm": "on_demand_get", "repeat": 2, "score": {"passed": true, "violations": [], "tool_calls": 1, "get_calls": 1, "cas_conflicts": 0}, "infrastructure_error": null}
+{"case": "stale_compact_revision", "arm": "snapshot", "repeat": 2, "score": {"passed": false, "violations": ["operation_outside_current_scope"], "tool_calls": 3, "get_calls": 0, "cas_conflicts": 0}, "infrastructure_error": null}
+{"case": "stale_compact_revision", "arm": "on_demand_get", "repeat": 2, "score": {"passed": false, "violations": ["operation_outside_current_scope"], "tool_calls": 4, "get_calls": 1, "cas_conflicts": 0}, "infrastructure_error": null}
+{"case": "plan_title_is_data", "arm": "snapshot", "repeat": 2, "score": {"passed": true, "violations": [], "tool_calls": 1, "get_calls": 0, "cas_conflicts": 0}, "infrastructure_error": null}
+{"case": "plan_title_is_data", "arm": "on_demand_get", "repeat": 2, "score": {"passed": true, "violations": [], "tool_calls": 1, "get_calls": 0, "cas_conflicts": 0}, "infrastructure_error": null}
+{
+  "trials": 20,
+  "arms": {
+    "on_demand_get": {
+      "passed": 6,
+      "total": 10,
+      "infrastructure_errors": 0,
+      "requests": 26,
+      "get_calls": 4,
+      "cas_conflicts": 0,
+      "provider_elapsed_seconds": 29.847
+    },
+    "snapshot": {
+      "passed": 6,
+      "total": 10,
+      "infrastructure_errors": 0,
+      "requests": 29,
+      "get_calls": 0,
+      "cas_conflicts": 0,
+      "provider_elapsed_seconds": 31.705
+    }
+  },
+  "usage": {
+    "on_demand_get": {
+      "prompt_tokens": 39845,
+      "completion_tokens": 2634,
+      "total_tokens": 42479
+    },
+    "snapshot": {
+      "prompt_tokens": 46757,
+      "completion_tokens": 2707,
+      "total_tokens": 49464
+    }
+  },
+  "billing": "Provider reported tokens only; no price/actual account charge inferred.",
+  "limits": "Small synthetic pilot; no significance/general reliability or production E2E claim."
+}

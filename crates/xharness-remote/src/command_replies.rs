@@ -1,4 +1,20 @@
 //! Scoped terminal inbox results -> durable outgoing receipt, never task replay.
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::let_underscore_must_use,
+    unused_must_use
+)]
+#![cfg_attr(
+    not(test),
+    forbid(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        unused_must_use
+    )
+)]
+
 use crate::{
     gateway::{digest, ResultBudget},
     receive::current_lease,

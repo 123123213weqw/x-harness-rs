@@ -1,3 +1,5 @@
+import {createRequire} from 'node:module'
+const require=createRequire(new URL('../ui/package.json',import.meta.url))
 import {loadOwnedCordisRuntime} from './fixtures/owned-view-cordis-runtime.mjs'
 import assert from 'node:assert/strict'
 import {test} from 'node:test'
@@ -27,7 +29,7 @@ function makeLoader(source) {
   }
   const jsx = (type, props, key) => ({type, props, ...(key === undefined ? {} : {key})})
   const primitives = new Proxy({useDismissOnOutsidePointer() {}}, {get: (target, key) => target[key] ?? `primitive:${String(key)}`})
-  const external = {
+  const external = {zod:require('zod'),
     '@xharness/cordis': Core,
     '@xharness/dsh-client-ui-slots': {resolveSlotLabel: label => typeof label === 'function' ? label() : label},
     react, 'react/jsx-runtime': {jsx, jsxs: jsx, Fragment: 'fragment'},
@@ -135,13 +137,75 @@ const legacy = makeLoader(false); const current = makeLoader(true)
 for (const name of modules) {
   test(`${name}: factory declarations and slot identities match frozen production`, () => {
     const before = legacy.entry(name); const after = current.entry(name)
-    assert.deepEqual(normalized(after.inject), name === 'layout' ? [...normalized(before.inject), 'sessions'] : normalized(before.inject))
+    assert.deepEqual(normalized(after.inject), ['layout','deliverables'].includes(name) ? [...normalized(before.inject), 'sessions'] : normalized(before.inject))
     const one = context(); const two = context()
     before.apply(one.ctx); after.apply(two.ctx)
     const namespaces = normalized(one.namespaces)
+    if (name === 'settings-plugins') {
+      // Reviewed DeepSeek-only search card: no endpoint or Messages maxUses.
+      // Keep every unrelated locale entry and all published slot identities frozen.
+      for (const locale of ['en','zh']) {
+        const copy = namespaces[0].dictionaries[locale]
+        for (const key of ['webSearchBaseUrl','webSearchBaseUrlHint','webSearchMaxUses','webSearchMaxUsesHint']) delete copy[key]
+        Object.assign(copy, {
+          webSearchTitle:'DeepSeek web search',
+          webSearchDescription:'Search the web independently of the selected chat model.',
+          webSearchApiKey:'DeepSeek API key',
+          webSearchEnabled:'Enable web search',
+          webSearchEnabledHint:'Applies to every tool-capable chat model. Changes affect subsequent searches.',
+        })
+      }
+    }
+    if (name === 'deliverables') {
+      const newCopy={'produced.type.data':['Data file', 'Data file'],'produced.info':['文件信息', 'File information'],'produced.infoFile':['{name} 的文件信息', 'File information for {name}'],'produced.copyPath':['复制路径', 'Copy path'],'produced.copied':['路径已复制', 'Path copied'],'produced.copyFailed':['路径复制失败', 'Could not copy path'],'produced.noPreview':['暂不支持内置预览，请从 Open in 选择打开方式。', 'No built-in preview. Choose an option from Open in.'],'produced.tooLarge':['文件超过内置预览大小限制，可使用默认应用打开。', 'Too large for built-in preview. Open with the default app.'],'produced.created':['新建', 'Created'],'produced.modified':['已修改', 'Modified'],'produced.modifiedAt':['修改时间', 'Modified'],'produced.closeInfo':['收起信息', 'Close information'],'produced.remaining':['另有 {count} 个文件', '{count} more files'],'produced.loadMore':['显示更多文件', 'Show more files']}
+      for(const [key,copy] of Object.entries(newCopy)){namespaces[0].dictionaries.zh[key]=copy[0];namespaces[0].dictionaries.en[key]=copy[1]}
+
+      for(const language of ['zh','en'])Object.assign(namespaces[0].dictionaries[language],{'produced.openIn':'Open in','produced.openInFile':language==='zh'?'选择 {name} 的打开方式':'Open in options for {name}','produced.type.website':'Website','produced.type.pdf':'PDF document','produced.type.markdown':'Markdown','produced.type.code':'Source code','produced.type.image':'Image','produced.type.spreadsheet':'Spreadsheet','produced.type.presentation':'Presentation','produced.type.document':'Document','produced.type.video':'Video','produced.type.audio':'Audio','produced.type.archive':'Archive','produced.type.file':'File'})
+      Object.assign(namespaces[0].dictionaries.zh, {'produced.label':'文件','produced.actions':'文件操作','produced.expand':'展开','produced.collapse':'收起','produced.preview':'内置预览','produced.external':'默认应用打开','produced.previewFile':'预览 {name}','produced.revealFile':'在文件夹中显示 {name}','produced.externalFile':'用默认应用打开 {name}'})
+      Object.assign(namespaces[0].dictionaries.en, {'produced.actions':'File actions','produced.expand':'Expand','produced.collapse':'Collapse','produced.preview':'Preview','produced.external':'Open with default app','produced.previewFile':'Preview {name}','produced.revealFile':'Show {name} in folder','produced.externalFile':'Open {name} with default app'})
+    }
     if (name === 'sidebar') {
       Object.assign(namespaces[0].dictionaries.en, {'navigation.back':'Back','navigation.forward':'Forward'})
       Object.assign(namespaces[0].dictionaries.zh, {'navigation.back':'后退','navigation.forward':'前进'})
+    }
+    if (name === 'goal') {
+      // Reviewed plan/compact controls are additive; frozen Goal copy stays exact.
+      Object.assign(namespaces[0].dictionaries.en, {
+        'progress.title':'Progress', 'progress.pending':'Pending',
+        'progress.running':'In progress', 'progress.completed':'Completed',
+      })
+      Object.assign(namespaces[0].dictionaries.zh, {
+        'progress.title':'进度', 'progress.pending':'待办',
+        'progress.running':'进行中', 'progress.completed':'已完成',
+      })
+      const compactKeys = ['phase.complete', 'state.disabled', 'state.running', 'state.queued', 'state.waiting', 'state.awaitingApproval', 'state.awaitingAnswer', 'state.awaitingConfirmation', 'state.networkBackoff', 'state.paused', 'state.blocked', 'rounds.unit', 'rounds.label', 'rounds.hint', 'action.more', 'action.complete', 'action.confirm', 'action.continue', 'action.reopen', 'action.enable', 'action.pauseHint', 'action.close', 'action.cancelDialog', 'clear.title', 'clear.hint']
+      for (const lang of ['en','zh']) for (const key of compactKeys) {
+        const value = two.namespaces[0].dictionaries[lang][key]
+        assert.equal(typeof value, 'string', `compact Goal copy ${lang}:${key}`)
+        assert.ok(value.trim())
+        assert.equal(key in namespaces[0].dictionaries[lang], false, 'new keys cannot replace frozen Goal copy')
+        namespaces[0].dictionaries[lang][key] = value
+      }
+      // Only the reviewed full-text detail/editor copy is additive. Keep the
+      // complete frozen dictionary and all unrelated registrations exact.
+      const editorCopy = {
+        en: {
+          'action.view':'View goal details', 'details.title':'Goal details', 'edit.title':'Edit goal',
+          'edit.hint':'Enter inserts a new line; Ctrl / ⌘ + Enter saves. Scroll long goals or resize the editor vertically.',
+          'edit.conflict':'The goal changed. Your draft is retained; review the latest goal before overwriting other changes.',
+          'edit.reload':'Replace draft with latest goal',
+        },
+        zh: {
+          'action.view':'查看目标详情', 'details.title':'目标详情', 'edit.title':'编辑目标',
+          'edit.hint':'Enter 换行，Ctrl / ⌘ + Enter 保存。长目标可滚动查看，也可拖动调整编辑区高度。',
+          'edit.conflict':'目标已被更新，当前草稿已保留。请先查看最新目标，避免覆盖其他修改。',
+          'edit.reload':'用最新目标替换草稿',
+        },
+      }
+      for (const lang of ['en','zh']) for (const [key, value] of Object.entries(editorCopy[lang])) {
+        assert.equal(key in namespaces[0].dictionaries[lang], false, 'editor keys cannot replace frozen Goal copy')
+        namespaces[0].dictionaries[lang][key] = value
+      }
     }
     if (name === 'settings-general') {
       // Reviewed account-menu addition minus its redundant visual caption.
@@ -157,7 +221,9 @@ for (const name of modules) {
     }
     assert.deepEqual(normalized(two.namespaces), namespaces)
     const expected = normalized(one.registrations.map(({spec}) => spec))
+    if (name === 'goal') expected.push({name:'conversation.input.dock', id:'task-progress', order:9, locale:'goal'})
     if (name === 'layout') Object.assign(expected[0].children, {
+      'swarm.center': {kind: 'single', scope: 'root'},
       'work.center.tasks': {kind: 'single', scope: 'root'},
       'work.center.automations': {kind: 'single', scope: 'root'},
       'work.center.executions': {kind: 'single', scope: 'root'},
@@ -244,10 +310,10 @@ test('source: skill row malformed streaming prefixes and interrupted result rema
     assert.equal(component({block, t: key => key}).props['data-state'], state)
   }
 })
-test('source: fitting and file mentions retain exact disambiguation', () => {
+test('source: file card types and file mentions retain exact disambiguation', () => {
   const model = current.load(join(output, 'deliverables/turn-deliverables.js'))
-  const view = current.load(join(output, 'deliverables/ProducedFiles.js'))
-  assert.equal(view.fitProducedFiles(50, 5, [20, 20, 20], [10, 10, 10, undefined]), 1)
+  const view = current.load(join(output, 'deliverables/file-kind.js'))
+  for(const [path,kind] of [['a.HTML','website'],['report.PDF','pdf'],['README.md','markdown'],['src/a.ts','code'],['C:\\files\\figure.PNG','image'],['book.xlsx','spreadsheet'],['deck.pptx','presentation'],['SLIDES.PPTX','presentation'],['old.ppt','presentation'],['plan.docx','document'],['REPORT.DOCX','document'],['old.doc','document'],['BOOK.XLSX','spreadsheet'],['film.webm','video'],['voice.wav','audio'],['bundle.zip','archive'],['.gitignore','file']])assert.equal(view.producedFileKind(path),kind)
   const opened = []; const mentions = model.producedFileMentions(['a/x.ts', 'b/x.ts', 'b/y.ts'], path => opened.push(path), path => path)
   assert.equal(mentions.resolve('x.ts'), undefined)
   mentions.resolve('y.ts').open(); assert.deepEqual(opened, ['b/y.ts'])
@@ -282,13 +348,15 @@ for (const [label, loader] of [['legacy', legacy], ['source', current]]) {
     assert.deepEqual(normalized(env.trace), [{workspace: 'workspace'}, 'toggleSidebar'])
     assert.deepEqual(Object.keys(env.registrations[0].spec.children), ['sidebar.brand.mark', 'sidebar.brand.name', 'sidebar.workspaces', 'sidebar.settings', 'sidebar.footer.action', ...(label==='source'?['sidebar.primary.action']:[])])
   })
-  test(`${label}: goal dock preserves completion/budget verbs, reads fresh CAS and projects command bubble`, async () => {
+  test(`${label}: goal dock preserves user-control verbs, reads fresh CAS and projects command bubble`, async () => {
     const env = context(); loader.entry('goal').apply(env.ctx)
     const actions = env.registrations[1].spec.inject('s')
-    await actions.onBudget(99); await actions.onComplete()
-    assert.deepEqual(normalized(env.trace), [{method: 'edit', args: ['s', {id: 'g', revision: 2}, {maxGoalRounds: 99}]}, {method: 'complete', args: ['s', {id: 'g', revision: 2}]}])
+    if(label==='legacy') await actions.onBudget(99)
+    else assert.equal('onBudget' in actions,false,'round statistics have no mutation action')
+    await actions.onComplete()
+    assert.deepEqual(normalized(env.trace), [...label==='legacy'?[{method: 'edit', args: ['s', {id: 'g', revision: 2}, {maxGoalRounds: 99}]}]:[], {method: 'complete', args: ['s', {id: 'g', revision: 2}]}])
     env.ctx.sessions.binding = () => undefined
-    assert.equal((await actions.onClear()).error.code, 'no-current-goal'); assert.equal(env.trace.length, 2)
+    assert.equal((await actions.onClear()).error.code, 'no-current-goal'); assert.equal(env.trace.length, label==='legacy'?2:1)
     const event = {type: 'command/run', seq: 4, time: 100, data: {name: 'goal', commandId: 'c', args: ' build tests  '}}
     const definition = env.ctx.definition
     const state = definition.start({}, {event})
@@ -374,8 +442,17 @@ test('source: goal completion stays visible and same-render action dedupe surviv
   const api = current.entry('goal'); const goal = {id: 'g', revision: 2, objective: 'Done', phase: 'complete', maxGoalRounds: 100}
   const handlers = Object.fromEntries(['onComplete', 'onBudget', 'onEdit', 'onPause', 'onResume', 'onClear'].map(name => [name, async () => ({ok: true, value: null})]))
   const view = api.GoalBar({goal, projection: {goal, execution: {state: 'complete', roundsStarted: 2}}, ...handlers, t: key => key})
-  assert.notEqual(view, null); assert.equal(view.props.children.props.children[1].props.children, '已完成 · 2/100 轮')
-  const controls = view.props.children.props.children[4].props.children.at(-1)
+  assert.notEqual(view, null)
+  const findControls = node => {
+    if (!node || typeof node !== 'object') return undefined
+    if (node.props?.runAction) return node
+    for (const child of [node.props?.children].flat(Infinity)) {
+      const found = findControls(child); if (found) return found
+    }
+  }
+  const controls = findControls(view)
+  assert.equal(controls.props.goal.phase, 'complete')
+  assert.equal(controls.props.projection.execution.roundsStarted, 2)
   let settle; let requests = 0
   const runAction = controls.props.runAction
   const inFlight = runAction(() => {requests++; return new Promise(resolve => {settle = resolve})})
@@ -743,6 +820,37 @@ for (const [label, loader] of [['legacy', legacy], ['source', current]]) {
 
 test('source: root frame retains current-master workspace.item root-list declaration',()=>{const env=context();current.entry('layout').apply(env.ctx);assert.deepEqual(normalized(env.registrations[0].spec.children['workspace.item']),{kind:'list',scope:'root'})})
 
+test('source: DeepSeek search switch is staged, saved and reset without legacy endpoint/count fields',async()=>{
+ const env=context(),web=pluginScope({enabled:true,apiKeyEnv:'DEEPSEEK_API_KEY'})
+ env.ctx.settingsScope.bind=spec=>spec.namespace==='web-search-deepseek'?web.scope:pluginScope({}).scope
+ current.entry('settings-plugins').apply(env.ctx)
+ const face=env.registrations.find(entry=>entry.spec.key==='web-search-deepseek').spec.inject()
+ const snapshot=()=>face.hooks.webSearchCard.getSnapshot()
+ assert.equal(snapshot().enabled.text,'true')
+ assert.equal('baseURL' in snapshot(),false);assert.equal('maxUses' in snapshot(),false)
+ face.edit('enabled','false');assert.equal(snapshot().dirty,true);assert.equal(web.writes.length,0)
+ face.save();assert.equal(web.writes[0].field,'enabled');assert.equal(web.writes[0].value,false)
+ web.settle(0,true);await new Promise(resolve=>setImmediate(resolve))
+ assert.equal(snapshot().enabled.text,'false');assert.equal(snapshot().dirty,false)
+ face.resetField('enabled');face.save();web.settle(1,true);await new Promise(resolve=>setImmediate(resolve))
+ assert.equal(snapshot().enabled.text,'true')
+ assert.throws(()=>face.edit('baseURL','https://example.com/'),/no field/)
+ assert.throws(()=>face.edit('maxUses','2'),/no field/)
+})
+
+test('source: a rejected search-key replacement cannot look saved merely because an older key exists',async()=>{
+ const env=context(),web=pluginScope({enabled:true})
+ env.ctx.settingsScope.bind=spec=>spec.namespace==='web-search-deepseek'?web.scope:pluginScope({}).scope
+ env.ctx.get('connection').api.credentials.describe=async()=>({result:{ok:true,value:{credentials:{DEEPSEEK_API_KEY:{configured:true,writable:true}}}}})
+ env.ctx.get('connection').api.credentials.set=async()=>({result:{ok:false,error:{code:'settings_rejected',message:'fixture refusal'}}})
+ current.entry('settings-plugins').apply(env.ctx)
+ const face=env.registrations.find(entry=>entry.spec.key==='web-search-deepseek').spec.inject()
+ await new Promise(resolve=>setImmediate(resolve))
+ face.edit('apiKey','new-test-key');face.save();await new Promise(resolve=>setImmediate(resolve))
+ const state=face.hooks.webSearchCard.getSnapshot()
+ assert.equal(state.apiKeyConfigured,true);assert.equal(state.failed,true);assert.equal(state.apiKey.text,'new-test-key');assert.equal(state.dirty,true)
+})
+
 test('settings shell owns model-menu navigation and releases its event subscription',()=>{
  const env=context();let listeners=new Set();let off=0;
  env.ctx.on=(event,fn)=>{assert.equal(event,'settings/open-section');listeners.add(fn);return()=>{off++;listeners.delete(fn)}};
@@ -753,3 +861,45 @@ test('settings shell owns model-menu navigation and releases its event subscript
  for(const fn of listeners)fn('models');assert.deepEqual(opened,['models']);
  release();assert.equal(off,1);assert.equal(listeners.size,0);
 });
+
+test('produced native actions resolve against the owning session and respect local/current Host capabilities',async()=>{
+ const env=context(),conn=env.ctx.get('connection'),calls=[]
+ let description={canOpenPath:true,canRevealPath:true}
+ conn.hostDescription.getSnapshot=()=>description
+ conn.api.host={openPath:async request=>{calls.push(request);return{result:{ok:true,value:{opened:true}}}}}
+ env.ctx.sessions.list={getSnapshot:()=>({byId:{one:{cwd:'/workspace one'},two:{cwd:'/workspace two'}}})}
+ current.entry('deliverables').apply(env.ctx)
+ const seat=env.registrations.find(row=>row.spec.name==='conversation.chat.turnTail')
+ const one=seat.spec.inject('one'),two=seat.spec.inject('two')
+ await one.openNativeFile('docs/报告.md','reveal');await two.openNativeFile('docs/报告.md','open')
+ assert.deepEqual(normalized(calls),[{path:'/workspace one/docs/报告.md',mode:'reveal'},{path:'/workspace two/docs/报告.md'}])
+ description={canOpenPath:true};await assert.rejects(()=>one.openNativeFile('docs/a','reveal'));assert.equal(calls.length,2)
+ conn.isLoopback=false;await assert.rejects(()=>two.openNativeFile('/workspace/a','open'));assert.equal(calls.length,2)
+ conn.isLoopback=true;await assert.rejects(()=>seat.spec.inject('missing').openNativeFile('a.md','open'));assert.equal(calls.length,2)
+ conn.api.host.openPath=async()=>({result:{ok:false,error:{message:'fixture refusal'}}})
+ await assert.rejects(()=>one.openNativeFile('/workspace/a.md','open'),/fixture refusal/)
+})
+
+test('source: status requires successful tool evidence; null before-image is not creation',()=>{
+ const model=current.load(join(output,'deliverables/turn-deliverables.js'))
+ const env=context();current.entry('deliverables').apply(env.ctx);const definition=env.ctx.definition
+ let state=definition.start({},{event:{type:'turn/start',seq:1,data:{turn:1}}})
+ const call={event:{type:'tool/call',seq:2,data:{turn:1,callId:'c'}},view:{for:'call',view:{card:'diff',locations:[{path:'new.docx'}],diffs:[{path:'new.docx',oldText:null,newText:'x'}]}}}
+ state=definition.update({state},call)
+ const result=created=>({event:{type:'tool/result',seq:3,data:{turn:1,message:{source:{callId:'c'},content:[{isError:false,content:[{type:'text',text:JSON.stringify({path:'/workspace/new.docx',created})}]}]}}}})
+ const unknown=definition.update({state},{event:{type:'tool/result',seq:3,data:{turn:1,message:{source:{callId:'c'},content:[{isError:false}]}}},view:{for:'result',view:{card:'diff',diffs:[{path:'new.docx',oldText:null,newText:'x'}]}}})
+ assert.equal(model.producedArtifactsForClosing(unknown)[0].change,undefined)
+ const created=definition.update({state},result(true));assert.equal(model.producedArtifactsForClosing(created)[0].change,'created')
+ const modified=definition.update({state},result(false));assert.equal(model.producedArtifactsForClosing(modified)[0].change,'modified')
+ assert.deepEqual(normalized(model.producedArtifactsForClosing({produced:[{path:'a',seq:2,change:'created'},{path:'a',seq:4,change:'modified'}]},3)),[{path:'a',seq:2,change:'created'}])
+ const format=current.load(join(output,'deliverables/file-kind.js'));assert.equal(format.fileType('book.csv').preview,'text');assert.equal(format.fileType('book.xlsx').preview,'none');assert.equal(format.fileType('a.heic').preview,'none');assert.equal(format.producedFileKind('store.parquet'),'data');assert.equal(format.formatFileSize(1024),'1 KB');assert.equal(format.formatFileSize(-1),'');assert.equal(format.parentPath('a/same.md'),'a')
+})
+
+test('source: successful delete removes an earlier produced card without erasing the historical fact',()=>{
+ const env=context(),api=current.entry('deliverables');api.apply(env.ctx);const definition=env.ctx.definition
+ let state=definition.start({},{event:{type:'turn/start',seq:1,data:{turn:1}}})
+ state={...state,produced:[{path:'temporary.txt',seq:2,change:'created'}]}
+ state=definition.update({state},{event:{type:'tool/call',seq:3,data:{turn:1,callId:'delete'}},view:{for:'call',view:{card:'generic',kind:'delete',locations:[{path:'temporary.txt'}]}}})
+ state=definition.update({state},{event:{type:'tool/result',seq:4,data:{turn:1,message:{source:{callId:'delete'},content:[{isError:false}]}}}})
+ assert.deepEqual(normalized(api.producedForClosing(state,3)),['temporary.txt']);assert.deepEqual(normalized(api.producedForClosing(state,4)),[])
+})

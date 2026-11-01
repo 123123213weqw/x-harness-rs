@@ -1,0 +1,228 @@
+{
+  "schema": "xharness.browser-use.parity-matrix.v1",
+  "reference": {
+    "repository": "https://github.com/zai-org/ZCode",
+    "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab",
+    "apiManifestVersion": 10,
+    "sourcePaths": [
+      "apps/zcode-cli/packages/core/src/browser-client/manifest.ts",
+      "packages/desktop/src/main/browserView/browserPlaywrightDomSnapshot.ts",
+      "packages/desktop/src/main/browserView/browserPlaywrightLocatorExecutor.ts",
+      "packages/desktop/src/main/browserView/browserCommandInput.ts",
+      "docs/cua/producer/cua-receipt-observation-contract.md",
+      "docs/cua/producer/frame-coordinate-internal-binding.md"
+    ],
+    "caveat": "Producer contract documents describe intended contracts, not proof that every reference backend implements them. A separate live-model comparison used the pinned original headless BrowserControlPort backend, not the entire ZCode app or agent runtime."
+  },
+  "implementationScope": "Isolated server Chromium behind the existing optional plugin MCP lifecycle, not desktop WebView replacement",
+  "evidencePolicy": "Every passed claim requires a recorded acceptance case. Implementation, installation, model self-evaluation and a successful tool receipt alone are insufficient.",
+  "matrix": [
+    {
+      "capability": "Accessible roles, names and semantic snapshots",
+      "cases": [
+        "trusted",
+        "frames",
+        "bounded",
+        "bounded-cjk"
+      ],
+      "status": "passed-covered-cases",
+      "evidence": "docs/evidence/browser-use-parity-engine-20261022.json"
+    },
+    {
+      "capability": "Trusted input, actionability and strict target selection",
+      "cases": [
+        "trusted",
+        "form",
+        "ambiguous",
+        "overlay",
+        "delayed",
+        "scroll",
+        "pointer-gesture"
+      ],
+      "status": "passed-covered-cases",
+      "evidence": "docs/evidence/browser-use-parity-engine-20261022.json"
+    },
+    {
+      "capability": "Shadow DOM and iframe targets",
+      "cases": [
+        "frames"
+      ],
+      "status": "passed-covered-cases",
+      "remaining": "Deeply nested transformed iframe coordinate targets require dedicated coverage",
+      "evidence": "docs/evidence/browser-use-parity-engine-20261022.json"
+    },
+    {
+      "capability": "Tab create/select/reuse/close and popup discovery",
+      "cases": [
+        "tabs"
+      ],
+      "status": "passed-covered-cases",
+      "remaining": "User-tab attachment, deliverable/handoff and reference backend residency semantics are not equivalent to an isolated headless context",
+      "evidence": "docs/evidence/browser-use-parity-engine-20261022.json"
+    },
+    {
+      "capability": "Native JavaScript dialog handling",
+      "cases": [
+        "dialogs"
+      ],
+      "status": "passed-covered-cases",
+      "evidence": "docs/evidence/browser-use-parity-engine-20261022.json"
+    },
+    {
+      "capability": "Reference identity, consumption and navigation invalidation",
+      "cases": [
+        "ref-replay",
+        "replaced",
+        "navigation-ref"
+      ],
+      "status": "passed-covered-cases",
+      "evidence": "docs/evidence/browser-use-parity-engine-20261022.json"
+    },
+    {
+      "capability": "Pixel geometry, screenshot binding and invalidation",
+      "cases": [
+        "screenshot",
+        "raster-invalidated",
+        "raster-layout",
+        "pointer-gesture"
+      ],
+      "status": "passed-covered-cases",
+      "remaining": "Real Host image transport is separately verified with a scripted provider. The live DeepSeek A/B delivered actual PNG image parts (17 screenshot calls per arm); it does not isolate visual reasoning quality or establish full desktop parity.",
+      "evidence": "docs/evidence/browser-use-parity-engine-20261022.json"
+    },
+    {
+      "capability": "Explicit upload and confined downloads",
+      "cases": [
+        "upload",
+        "download"
+      ],
+      "status": "passed-covered-cases",
+      "evidence": "docs/evidence/browser-use-parity-engine-20261022.json"
+    },
+    {
+      "capability": "Origin authority, bounded logs and output",
+      "cases": [
+        "origin",
+        "logs",
+        "bounded",
+        "bounded-cjk",
+        "cancel-fetch"
+      ],
+      "status": "passed-covered-cases",
+      "evidence": "docs/evidence/browser-use-parity-engine-20261022.json"
+    },
+    {
+      "capability": "Uncertain post-dispatch effects are never automatically replayed",
+      "cases": [
+        "ref-replay",
+        "dialogs"
+      ],
+      "status": "partial-coverage",
+      "remaining": "A deterministic post-dispatch transport failure must be tested separately; stale-ref rejection does not prove the uncertain-effect branch",
+      "observedUncertainReceipt": true
+    },
+    {
+      "capability": "Fresh JavaScript worker and Browser API capability facade",
+      "cases": [],
+      "status": "not-implemented-in-this-suite",
+      "remaining": "A command API is not full API parity with node_repl.js or the dynamically capability-trimmed ZCode facade"
+    },
+    {
+      "capability": "Network route interception, browser history and recording APIs",
+      "cases": [],
+      "status": "not-implemented-in-this-suite"
+    },
+    {
+      "capability": "Model-driven real-task quality and performance A/B",
+      "cases": [],
+      "status": "measured-on-generated-task-suite",
+      "remaining": "Eight generated workflows with three seeds, not external-shopping or full desktop/agent parity. Small stochastic sample. Schema/dependency differences and reference new-tab native1280x720 viewport versus requested1280x800 are horizontal-comparison confounds. Previous candidate21/24 retained separately.",
+      "measuredTaskIds": [
+        "catalogue",
+        "duplicate-controls",
+        "scroll-record",
+        "modal-rules",
+        "slow-stock",
+        "report-navigation",
+        "layout-change",
+        "draft-correction"
+      ],
+      "evidence": "docs/evidence/browser-use-parity-model-ab-interface-fix-20261022.json",
+      "candidatePassed": 24,
+      "referencePassed": 23,
+      "trialsPerArm": 24
+    },
+    {
+      "capability": "stdio MCP integration and image blocks",
+      "cases": [
+        "initialize-and-schema",
+        "legacy-navigation-observation",
+        "semantic-command-executes-trusted-input",
+        "MCP-screenshot-is-real-image-block-not-text-base64",
+        "invalid-command-is-rejected-without-browser-effect",
+        "explicit-tab-create-and-close-through-MCP"
+      ],
+      "status": "passed-MCP-only-Host-separate-gate",
+      "evidence": "docs/evidence/browser-use-parity-stdio-20261022.json"
+    },
+    {
+      "capability": "Unchanged legacy Browser Use compatibility contracts",
+      "cases": [
+        "scripts/gui_bench/test_browser.mjs"
+      ],
+      "status": "passed-original-legacy-gate",
+      "expectedSourceSha256": "67b8d40ca5b0f7270e9083c3a4eac1159937ed76abb55b299c2aafe932c0e48e",
+      "evidence": "docs/evidence/browser-use-parity-legacy-20261022.json"
+    },
+    {
+      "capability": "Real Host image chain into provider input and durable attachment storage",
+      "cases": [
+        "plugin_mcp::browser_e2e::real_browser_mcp_image_reaches_provider_request_and_durable_history"
+      ],
+      "status": "missing-evidence",
+      "evidence": "docs/evidence/browser-use-parity-engine-20261022.json",
+      "remaining": "Scripted provider inspects actual image input; not an LLM reasoning/vision-quality test. Requires this Host version, not only JavaScript plugin installation."
+    }
+  ],
+  "updatedFromEvidenceAt": "2026-10-23T13:37:23.334Z",
+  "acceptanceGates": {
+    "passed": true,
+    "gates": {
+      "engine": {
+        "passed": true,
+        "validEvidence": true,
+        "errors": [],
+        "expectedCases": 24,
+        "actualCases": 24,
+        "totals": {
+          "cases": 24,
+          "passed": 24,
+          "failed": 0
+        },
+        "failedIds": []
+      },
+      "stdio": {
+        "passed": true,
+        "validEvidence": true,
+        "errors": [],
+        "expectedCases": 6,
+        "actualCases": 6,
+        "totals": {
+          "cases": 6,
+          "passed": 6,
+          "failed": 0
+        },
+        "failedIds": []
+      },
+      "legacy": {
+        "passed": true,
+        "validEvidence": true,
+        "errors": [],
+        "expectedChecks": 30,
+        "actualChecks": 30
+      }
+    }
+  },
+  "overall": "covered-gates-passed-full-ZCode-parity-still-incomplete",
+  "modelAbEvidenceUpdatedAt": "2026-10-22T13:50:48.329Z"
+}

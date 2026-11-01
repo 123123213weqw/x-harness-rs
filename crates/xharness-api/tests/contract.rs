@@ -46,6 +46,7 @@ const SUPPORTED_METHODS: &[&str] = &[
     "agentPreset.copy",
     "agentPreset.openDocument",
     "agentPreset.remove",
+    "goal.updatePlan",
     "goal.create",
     "goal.edit",
     "goal.pause",
@@ -73,7 +74,7 @@ fn method_directory_matches_upstream_plus_session_lifecycle_extensions() {
         .map(|method| method.as_str())
         .collect::<Vec<_>>();
     assert_eq!(actual, SUPPORTED_METHODS);
-    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 55);
+    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 56);
     for name in SUPPORTED_METHODS {
         assert_eq!(name.parse::<RpcMethod>().unwrap().as_str(), *name);
     }
@@ -234,6 +235,7 @@ fn canonical_request(method: RpcMethod) -> Value {
         RpcMethod::AgentPresetOpenDocument | RpcMethod::AgentPresetRemove => {
             json!({"agentPreset":"custom"})
         }
+        RpcMethod::GoalUpdatePlan => json!({"sessionId":"session","planRevision":0,"items":[]}),
         RpcMethod::GoalCreate => json!({"sessionId":"session","objective":"ship"}),
         RpcMethod::GoalEdit => json!({
             "sessionId":"session", "ref":{"id":"goal","revision":1},
@@ -291,6 +293,23 @@ fn compatibility_boundary_tolerates_additive_fields() {
     let payload = json!({"sessionId":"session","futureField":{"enabled":true}});
     let typed = TypedRpcParams::decode(RpcMethod::SessionModels, &payload).unwrap();
     assert_eq!(typed.method(), RpcMethod::SessionModels);
+}
+
+#[test]
+fn working_plan_contract_has_typed_items_and_a_plan_not_a_goal_ref() {
+    let value =
+        json!({"plan":{"revision":1,"items":[{"id":"a","title":"Verify","status":"in_progress"}]}});
+    let reply = TypedRpcResponse::decode(RpcMethod::GoalUpdatePlan, &value).unwrap();
+    let TypedRpcResponse::GoalUpdatePlan(reply) = reply else {
+        panic!("expected plan reply")
+    };
+    assert_eq!(serde_json::to_value(reply).unwrap(), value);
+    assert!(TypedRpcResponse::decode(
+        RpcMethod::GoalUpdatePlan,
+        &json!({"ref":{"id":"not-a-plan","revision":1}})
+    )
+    .is_err());
+    assert!(TypedRpcParams::decode(RpcMethod::GoalUpdatePlan,&json!({"sessionId":"s","planRevision":0,"items":[{"id":"a","title":"Verify","status":"unknown"}]})).is_err());
 }
 
 #[test]
@@ -602,4 +621,38 @@ fn saved_automation_pages_and_control_receipts_cannot_adopt_other_scope_or_gener
     result.state = AutomationControlState::Enabled;
     assert!(!request.admits(&result));
     assert!(serde_json::from_value::<ScopedAutomationApplied>(json!({"accepted":true})).is_err());
+}
+
+#[test]
+fn image_capability_wire_is_additive_and_preserves_false_vs_unknown() {
+    use xharness_api::protocol::{DiscoveredModelView, ModelCatalogEntry};
+    for supported in [true, false] {
+        let value = serde_json::json!({"id":"model","name":"Model","imageInput":supported,
+            "imageInputCapability":{"state":if supported {"supported"} else {"unsupported"},"source":"documented"}});
+        let model: ModelCatalogEntry = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(model.image_input, Some(supported));
+        assert_eq!(
+            serde_json::to_value(model).unwrap()["imageInput"],
+            supported
+        );
+        let discovered: DiscoveredModelView = serde_json::from_value(value).unwrap();
+        assert_eq!(discovered.image_input, Some(supported));
+        assert_eq!(
+            serde_json::to_value(discovered).unwrap()["imageInputCapability"]["source"],
+            "documented"
+        );
+    }
+    let legacy = serde_json::json!({"id":"model","name":"Legacy"});
+    let model: ModelCatalogEntry = serde_json::from_value(legacy.clone()).unwrap();
+    let discovered: DiscoveredModelView = serde_json::from_value(legacy).unwrap();
+    assert!(model.image_input.is_none());
+    assert!(discovered.image_input.is_none());
+    assert!(serde_json::to_value(model)
+        .unwrap()
+        .get("imageInput")
+        .is_none());
+    assert!(serde_json::to_value(discovered)
+        .unwrap()
+        .get("imageInput")
+        .is_none());
 }

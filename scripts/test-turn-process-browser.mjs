@@ -1,3 +1,4 @@
+import {installSharedSourceVendors} from './fixtures/shared-source-vendors.mjs'
 // Render actual source ChatView, keyed row seats and turn footer in both engines.
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
@@ -10,7 +11,10 @@ import { terminalHarness, terminalRow, terminalPrefix, terminalChatFixture } fro
 const deps=process.env.UI_TEST_DEPS??'/tmp/ui-tests'
 const require=createRequire(resolve(deps,'package.json'))
 const engines=require('playwright'),engine=process.env.UI_TEST_BROWSER??'chromium'
-const source=compile().test
+let source=exposeModuleUnit(compile().test,'conversation','conversation-nodes/chat-snapshot-builder','MutableChatNodeStore','test-exports')
+const flowProbe='function ChatFlow({ order, processHeads, sessionId, lastKey, ...owner }) {'
+assert.equal(source.split(flowProbe).length,2,'instrument exactly the actual structural renderer')
+source=source.replace(flowProbe,flowProbe+' window.chatFlowBuilds=(window.chatFlowBuilds??0)+1;')
 const real = terminalHarness(source)
 const terminalFixtures = JSON.parse(readFileSync(new URL('./fixtures/session-terminal.json', import.meta.url)))
 const realWindows = terminalFixtures.cases.flatMap(item => ['live', 'history'].flatMap(mode => ['success', 'error', 'unknown'].map(outcome => {
@@ -33,6 +37,7 @@ try {
  await page.addStyleTag({content:':root{--dsh-chat-content-width:760px;--dsw-alias-label-primary:#222;--dsw-alias-label-secondary:#555;--dsw-alias-label-tertiary:#888;--dsw-alias-bg-base:#fff;--dsw-alias-state-business-primary:#4577e5}body{font:14px sans-serif}button{font:inherit}'} )
  await page.addScriptTag({content:'window.__ModuleLoader__={load:r=>window.registration=r}'})
  await page.addScriptTag({content:toolBundle})
+ await installSharedSourceVendors(page)
  await page.evaluate(()=>window.toolRegistration=registration)
  await page.addScriptTag({content:source})
  await page.evaluate(()=>{
@@ -53,8 +58,8 @@ try {
   const runtime={isAppendSurfaceEvent:()=>true,toAssistantBlocks:x=>x,createSnapshotStore:store,defineStore:x=>x}
   const DisclosureRow=({open,onToggle,title,children})=>jsx('div',{children:[jsx('button',{onClick:onToggle,'aria-expanded':open,children:title}),open&&children]})
   const primitives=new Proxy({DisclosureRow,Tooltip:({children})=>children,MarkdownText:({text})=>jsx('div',{'data-md':'',children:text}),JsonBlock:({label})=>jsx('div',{children:label}),writeClipboard:async()=>true},{get:(o,k)=>o[k]??(()=>jsx('svg',{width:14,height:14}))})
-  const plugin=registration.factory(name=>name==='react'?React:name==='react-dom'?ReactDOM:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:React.Fragment}:name==='@xharness/dsh-client-ui-primitives'?primitives:name==='@xharness/dsh-client-runtime/client'?runtime:name==='@xharness/cordis'?{Service:class{}}:{})
-  const toolApi=toolRegistration.factory(name=>name==='react'?React:name==='react-dom'?ReactDOM:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:React.Fragment}:name==='@xharness/dsh-client-ui-primitives'?primitives:{})
+  const plugin=registration.factory(name=>name==='zod'?window.__sourceVendors.zod:name==='react'?React:name==='react-dom'?ReactDOM:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:React.Fragment}:name==='@xharness/dsh-client-ui-primitives'?primitives:name==='@xharness/dsh-client-runtime/client'?runtime:name==='@xharness/cordis'?{Service:class{}}:{})
+  const toolApi=toolRegistration.factory(name=>name==='zod'?window.__sourceVendors.zod:name==='react'?React:name==='react-dom'?ReactDOM:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:React.Fragment}:name==='@xharness/dsh-client-ui-primitives'?primitives:{})
   const t=(key,args={})=>(plugin.en[key]??key).replace(/\{(\w+)\}/g,(_,k)=>args[k])
   const hook=s=>select=>select(React.useSyncExternalStore(s.subscribe,s.getSnapshot))
   window.calls=[];window.sessionId='s';window.setId=id=>{sessionId=id;render()}
@@ -87,6 +92,23 @@ try {
    const turn=turns.get(1),start=order.length
    for(let i=0;i<count;i++)add(turn,'tool-call','extra'+(start+i),tool('extra bash','extra'+(start+i)))
    publish()
+  }
+  let perfStore,perfOrder
+  window.seedLongHistory=count=>{
+   nodes.clear();order.length=0;turns.clear()
+   for(let i=1;i<=count+1;i++){
+    const turn={turn:i,start:{time:Date.now()},status:i===count+1?'open':'closed',data:new Map(),steps:[]}
+    turns.set(i,turn)
+    add(turn,'user','pu'+i,{kind:'user',source:{kind:'user'},seq:i*3,time:i,content:[{type:'text',text:'task '+i}]})
+    add(turn,'assistant-step','pa'+i,assistant('answer '+i,i*3+1,i))
+   }
+   perfStore=new plugin.MutableChatNodeStore();perfStore.replace([...nodes.values()]);perfOrder=[...order]
+   window.perfTail='pa'+(count+1)
+   snapshot.set({...snapshot.getSnapshot(),running:true,chat:{order:perfOrder,nodes:perfStore,timeline:{turns:new Map(turns)},locations:{getTurn:id=>order.filter(key=>nodes.get(key).location.turn.turn===id)}}})
+  }
+  window.streamPerfFrame=i=>{
+   const old=perfStore.get(perfTail);perfStore.upsert([{...old,data:{...old.data,blocks:[{kind:'text',text:'stream '+i}]}}])
+   snapshot.set({...snapshot.getSnapshot(),chat:{...snapshot.getSnapshot().chat,timeline:{turns:new Map(turns)}}})
   }
   const liveNodes={get:key=>nodes.get(key),values:()=>[...nodes.values()]}
   window.publish=()=>snapshot.set({...snapshot.getSnapshot(),chat:{order:[...order],nodes:liveNodes,timeline:{turns:new Map(turns)},locations:{getTurn:id=>order.filter(k=>nodes.get(k).location.turn.turn===id)}}})
@@ -137,12 +159,57 @@ try {
    render()
   }
  })
+ // The actual ChatView owns the spinner: streaming and the elapsed clock must
+ // retain its DOM/animation identity; only authoritative idle removes it.
+ const rotor = page.locator('[data-xh-loading-rotor]')
+ await rotor.waitFor()
+ assert.equal(await rotor.count(), 1)
+ assert.equal(await page.locator('[data-xh-loading-indicator]').getAttribute('aria-label'), 'Working…')
+ assert.equal(await page.locator('[data-xh-loading-indicator]').textContent(), '')
+ await page.evaluate(() => {
+  window.initialRotor = document.querySelector('[data-xh-loading-rotor]')
+  window.initialRotation = initialRotor.getAnimations()[0]
+  window.initialRotationTime = initialRotation.currentTime
+  publish() // streaming/chat publication without a new turn
+ })
+ await page.waitForFunction(() => initialRotation.currentTime > initialRotationTime + 1000)
+ assert.equal(await page.evaluate(() => document.querySelector('[data-xh-loading-rotor]') === initialRotor && initialRotor.getAnimations()[0] === initialRotation), true)
+ assert.equal(await page.locator('[class$="_turnStatusClock"]').count(), 1)
+ assert.equal(await page.locator('[class$="_turnStatus"]').getByText('Working…', {exact:true}).count(), 0)
+ await page.emulateMedia({reducedMotion:'reduce'})
+ assert.deepEqual(await rotor.evaluate(e => [getComputedStyle(e).animationName, getComputedStyle(e.parentElement).animationName]), ['none','none'])
+ await page.emulateMedia({reducedMotion:'no-preference'})
+ // Large-history gate uses actual typed stores, ChatView, keyed subscriptions
+ // and the actual memoized structural renderer, not a substitute list.
+ for(const turns of [2000,5000]){
+  await page.evaluate(count=>seedLongHistory(count),turns)
+  await page.waitForFunction(()=>document.querySelectorAll('[data-transcript-mounted="true"]').length>0)
+  const report=await page.evaluate(async()=>{
+   await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))
+   const before=chatFlowBuilds,store=snapshot.getSnapshot().chat.nodes,version=store.structureVersion
+   for(let i=0;i<120;i++){
+    ReactDOM.flushSync(()=>streamPerfFrame(i))
+    await new Promise(resolve=>requestAnimationFrame(resolve))
+   }
+   return {structuralBuilds:chatFlowBuilds-before,versionStable:store.structureVersion===version,
+    total:snapshot.getSnapshot().chat.order.length,mounted:document.querySelectorAll('[data-transcript-mounted="true"]').length,
+    tail:store.get(perfTail).data.blocks[0].text}
+  })
+  assert.equal(report.structuralBuilds,0,'streaming cannot rebuild the complete history element list')
+  assert.equal(report.versionStable,true)
+  assert.equal(report.total,(turns+1)*2)
+  assert.ok(report.mounted<100,'heavy mounted rows must remain bounded')
+  assert.equal(report.tail,'stream 119')
+  console.log('large-history gate:',JSON.stringify({engine,turns,...report}))
+ }
+ await page.evaluate(()=>seed())
  // In-flight process stays visible even if Session running briefly flips false.
  assert.equal(await page.locator('[data-turn-process-summary]').count(),0)
  const scroll=page.locator('[data-conversation-scroll]')
  const finalThink=page.locator('[data-chat-flow-key="final1"] [data-variant=think] button')
  await finalThink.waitFor();await finalThink.click();assert.equal(await finalThink.getAttribute('aria-expanded'),'true')
  await page.evaluate(()=>snapshot.set({...snapshot.getSnapshot(),running:false}))
+ await rotor.waitFor({state:'detached'})
  await page.locator('[data-chat-flow-key="a1"]').waitFor({state:'attached'})
  await page.evaluate(()=>finish())
  const summary=page.locator('[data-turn-process-summary="1"]')

@@ -48,7 +48,7 @@ Tauri WebView
 
 ## 3. Loopback 认证
 
-随机端口不是认证。桌面壳每次启动必须产生 256-bit 随机 Token，只通过 Sidecar
+随机端口不是认证。桌面壳为每个 Host 世代产生 256-bit 随机 Token，通过 Sidecar
 环境变量传入 Host。WebView 首次导航到 `/desktop/bootstrap?token=...`；Host 校验后
 设置 `HttpOnly; SameSite=Strict; Path=/` Cookie 并重定向到 `/`。
 
@@ -57,18 +57,32 @@ Tauri WebView
 - Host 检测到 Desktop Token 时必须拒绝非 Loopback Bind、少于 32 Byte 或非 URL-safe 的
   Token，不能只依赖 Tauri 调用方“传对参数”；
 - `/health/ready` 和静态壳保持公开，但监听器只能绑定 `127.0.0.1`；
-- Token 禁止写入日志、URL 之外的前端状态或持久文件；
+- Token 禁止写入日志、URL 之外的前端状态、标签页元数据或诊断导出；唯一允许的
+  持久副本是桌面私有 Runtime 恢复回执（Unix 目录 0700、文件 0600，拒绝符号链接、
+  硬链接、公有文件和错误工作区绑定）。正常确认 Host 停止后清除回执；
+- 重连先请求 `/desktop/identity?nonce=<256-bit-random>`，用域分离的 HMAC-SHA256
+  校验 Host 确实持有原 Token，再导航 Bootstrap。此请求不发送 Token；响应不设置
+  Cookie、不授权 RPC，不可用公开 Health、PID 或回显 Cookie 代替身份校验；
 - 浏览器/服务器模式不提供 Token 时保持既有反向代理认证边界。
 
 ## 4. 生命周期
 
-1. 桌面壳启动 Sidecar 后轮询 `/health/ready`，只在返回 200 后把主窗口从启动页
-   导航到真实 Web UI。
+1. 桌面壳启动 Sidecar 后等待 Live 回执，导航认证 Bootstrap；恢复期间只显示
+   `/desktop/starting`。Product Ready 后记录 Host Ready，允许真实 Web UI。
 2. 正常关窗和更新安装必须先创建一次性 Shutdown 文件，触发 Host 已有的结构化
    Shutdown：停止 Admission、保存 Session、取消/收敛 Loop、Tool、Job 和 Process。
-3. 最多等待 15 秒；超时后允许桌面壳强制终止 Sidecar，并必须向更新事件投影降级原因。
+3. 最多等待 15 秒；超时保留窗口和 Host，记录退出受阻并提示诊断。不能忽略错误后
+   直接退出，也不能把超时当作进程已退出。关窗、运行时退出和 Mac 菜单 Quit 共用门禁。
 4. Sidecar 崩溃必须发出 `xharness-host/stopped` 事件，不能让 UI 误报 Host 仍在运行。
-5. 启动超时、端口竞争、配置错误和资源缺失必须停掉已启动的 Child，不能遗留孤儿进程。
+5. 启动失败只能清理本次真正创建的 Child。经过认证重连的旧 Host 不属于清理对象；
+   不能删除数据目录锁或按缓存 PID 杀进程。监视 OS 进程租约释放，不能将网络故障当作退出。
+6. 桌面意外消失但旧 Host 仍存活时，用私有回执验证同一数据目录、工作区、版本和
+   Host 身份，重新绑定原浏览器桥接地址/密钥，再连接 UI；不重建 Host、不重提任务。
+   没有回执的旧版 Host、身份不符或桥接端口冲突均失败关闭并保留任务。Windows 既有
+   Kill-on-close Job 约束不变；本条仅适用于旧 Host 实际仍存活的场景。
+7. 诊断只记录关闭/退出/更新来源、Host 停止结果、浏览器导航/加载/切换/关页阶段和
+   数字原生 View ID（Mac 另记录渲染进程终止）。不记录 URL、页面文字、按键或凭据。
+   原生 close 返回仅记为 `close_accepted`，不冒充已观察到原生销毁。
 
 ## 5. 更新契约
 

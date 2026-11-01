@@ -96,6 +96,7 @@ impl ModelProvider for CapturingProvider {
 struct CompactingPolicy;
 
 struct GatedAdmissionRuntime {
+    active_scopes: Arc<AtomicU64>,
     inner: LoopAgentRuntime,
     entered: Arc<AtomicBool>,
     release: Arc<Notify>,
@@ -163,8 +164,24 @@ impl AgentRuntime for CatalogRuntime {
     }
 }
 
+struct TestReadScope(Arc<AtomicU64>);
+impl xharness_session::SessionReadScope for TestReadScope {}
+impl Drop for TestReadScope {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 #[async_trait]
 impl AgentRuntime for GatedAdmissionRuntime {
+    fn admission_read_scope(
+        &self,
+        _id: &str,
+    ) -> Result<Box<dyn xharness_session::SessionReadScope>, AgentRuntimeError> {
+        self.active_scopes.fetch_add(1, Ordering::SeqCst);
+        Ok(Box::new(TestReadScope(self.active_scopes.clone())))
+    }
+
     fn has_available_route(&self) -> bool {
         self.inner.has_available_route()
     }
@@ -242,6 +259,39 @@ impl ContextPolicy for CompactingPolicy {
                 SurfaceEditKind::HistoryCompacted,
             )],
         ))
+    }
+}
+
+// The RPC catalogue smoke must interrupt a genuinely live child, not race
+// an instantaneous fake response against driver teardown on every platform.
+struct InterruptibleBaselineProvider {
+    entered: Arc<Notify>,
+}
+#[async_trait]
+impl ModelProvider for InterruptibleBaselineProvider {
+    fn provider_name(&self) -> &str {
+        "test"
+    }
+    fn model_name(&self) -> Option<&str> {
+        Some("test-model")
+    }
+    async fn stream(
+        &self,
+        request: ProviderRequest,
+        cancellation: CancellationToken,
+    ) -> Result<ProviderStream, ProviderError> {
+        if request
+            .messages
+            .iter()
+            .any(|m| m.role == Role::User && m.content == "child followup")
+        {
+            self.entered.notify_one();
+            return Ok(Box::pin(stream::once(async move {
+                cancellation.cancelled().await;
+                Err(ProviderError::new("synthetic interrupted baseline child"))
+            })));
+        }
+        TextProvider.stream(request, cancellation).await
     }
 }
 
@@ -333,6 +383,9 @@ impl Fixture {
     }
 
     fn new_at(timestamp: u128) -> Self {
+        Self::new_at_with_provider(timestamp, Arc::new(TextProvider))
+    }
+    fn new_at_with_provider(timestamp: u128, provider: Arc<dyn ModelProvider>) -> Self {
         // Wall-clock timestamps can repeat across parallel tests on Windows.
         // Each fixture owns (and later removes) exactly one distinct directory.
         static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
@@ -347,7 +400,7 @@ impl Fixture {
         config.provider_id = "test".to_owned();
         config.provider_display_name = "Test Provider".to_owned();
         config.model_id = "test-model".to_owned();
-        let host = BasicHost::new(config, Some(Arc::new(TextProvider)), Arc::new(NoTools));
+        let host = BasicHost::new(config, Some(provider), Arc::new(NoTools));
         Self {
             root,
             host,
@@ -916,10 +969,14 @@ async fn selected_preset_and_plan_policy_reach_the_provider_as_versioned_system_
     let persona = include_str!("../prompts/default-agent.txt").trim();
     assert!(system.starts_with(&format!("{persona}\n\n")));
     assert!(!system.contains("You are a coding agent."));
-    assert!(system.contains("Do not substitute confidence for evidence."));
-    assert!(system.contains("runnable code, equations, and state transitions"));
-    assert!(system.contains("emotionally neutral"));
-    assert!(system.contains("do not confuse reasoning length with reasoning quality"));
+    assert!(persona.len() < 256, "keep the default identity concise");
+    assert!(system.contains("Complete the user's task."));
+    assert!(system.contains("Follow applicable instructions and permission boundaries."));
+    assert!(
+        system.contains("Preserve unrelated work, make focused changes, and verify the result.")
+    );
+    assert!(system.contains("Never claim success without evidence."));
+    assert!(system.contains("Communicate clearly and concisely."));
     assert!(system.contains("workspace-write isolation"));
     assert!(system.contains("continue only the needed page with next_cursor"));
     assert!(system.contains("Once the evidence is sufficient, answer directly."));
@@ -1005,7 +1062,8 @@ async fn english_task_persona_is_compatible_and_stable_at_the_provider_boundary(
     assert!(system.contains("The user selected danger-full-access"));
     assert!(!system.contains("workspace-write isolation"));
     assert!(system.contains("Inspect before editing"));
-    assert!(system.contains("Never create schedules unless the user requested them."));
+    assert!(system.contains("Only user-requested future work uses automation"));
+    assert!(system.contains("Never create schedules without a request."));
     assert!(!system.contains("You are a coding agent."));
     for request in requests.iter() {
         assert_eq!(request.messages[0].role, Role::System);
@@ -1332,7 +1390,9 @@ async fn session_prompt_waits_for_runtime_admission_and_passes_the_rpc_message_i
     let entered = Arc::new(AtomicBool::new(false));
     let release = Arc::new(Notify::new());
     let admitted_message_id = Arc::new(Mutex::new(None));
+    let active_scopes = Arc::new(AtomicU64::new(0));
     let runtime = Arc::new(GatedAdmissionRuntime {
+        active_scopes: active_scopes.clone(),
         inner: LoopAgentRuntime::new(
             "test",
             "test-model",
@@ -1383,6 +1443,7 @@ async fn session_prompt_waits_for_runtime_admission_and_passes_the_rpc_message_i
     .await
     .expect("session.prompt never reached runtime admission");
     assert!(entered.load(Ordering::SeqCst));
+    assert_eq!(active_scopes.load(Ordering::SeqCst), 1);
     assert!(
         !prompt.is_finished(),
         "HTTP receipt escaped before admission"
@@ -1394,6 +1455,7 @@ async fn session_prompt_waits_for_runtime_admission_and_passes_the_rpc_message_i
 
     release.notify_one();
     assert!(prompt.await.unwrap().is_ok());
+    assert_eq!(active_scopes.load(Ordering::SeqCst), 0);
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -1566,7 +1628,16 @@ async fn concurrent_prompt_retry_is_admitted_once_and_payload_reuse_conflicts() 
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_upstream_rpc_has_baseline_behavior() {
-    let mut fx = Fixture::new();
+    let child_entered = Arc::new(Notify::new());
+    let mut fx = Fixture::new_at_with_provider(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
+        Arc::new(InterruptibleBaselineProvider {
+            entered: child_entered.clone(),
+        }),
+    );
 
     let preview = fx
         .value(
@@ -1727,6 +1798,9 @@ async fn every_upstream_rpc_has_baseline_behavior() {
         }),
     )
     .await;
+    tokio::time::timeout(Duration::from_secs(5), child_entered.notified())
+        .await
+        .expect("baseline child must reach the cancellable provider before interruption");
     fx.value(
         RpcMethod::SubagentInterrupt,
         json!({
@@ -1739,6 +1813,15 @@ async fn every_upstream_rpc_has_baseline_behavior() {
 
     fx.value(RpcMethod::SkillList, json!({"sessionId": session_id}))
         .await;
+    let plan_items = json!([{"id":"verify","title":"Verify the plan","status":"in_progress"}]);
+    let plan = fx
+        .value(
+            RpcMethod::GoalUpdatePlan,
+            json!({"sessionId": session_id, "planRevision": 0, "items": plan_items}),
+        )
+        .await;
+    assert_eq!(plan["plan"]["revision"], 1);
+    assert_eq!(plan["plan"]["items"], plan_items);
     let goal = fx
         .value(
             RpcMethod::GoalCreate,
@@ -2293,6 +2376,35 @@ async fn web_response_resumes_a_real_tool_approval() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+struct ImageCapturingRuntime(LoopAgentRuntime);
+#[async_trait]
+impl AgentRuntime for ImageCapturingRuntime {
+    fn has_available_route(&self) -> bool {
+        self.0.has_available_route()
+    }
+    fn can_route(&self, route: &ModelRoute) -> bool {
+        self.0.can_route(route)
+    }
+    fn model_catalog(&self) -> Vec<ModelDescriptor> {
+        self.0
+            .model_catalog()
+            .into_iter()
+            .map(|model| {
+                model.with_image_input(
+                    Some(true),
+                    json!({"state":"supported","source":"configured"}),
+                )
+            })
+            .collect()
+    }
+    async fn start_turn(
+        &self,
+        request: AgentTurnRequest,
+    ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+        self.0.start_turn(request).await
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn uploaded_image_reaches_model_as_reference_and_is_session_scoped() {
     use xharness_session::ContentBlock;
@@ -2301,7 +2413,14 @@ async fn uploaded_image_reaches_model_as_reference_and_is_session_scoped() {
     config.provider_id = "capture".into();
     config.model_id = "capture-model".into();
     let provider = Arc::new(CapturingProvider::default());
-    fx.host = BasicHost::new(config, Some(provider.clone()), Arc::new(NoTools));
+    let runtime = LoopAgentRuntime::new(
+        "capture",
+        "capture-model",
+        Some(provider.clone()),
+        Arc::new(NoTools),
+        Arc::new(xharness_core::IdentityContextPolicy),
+    );
+    fx.host = BasicHost::with_agent_runtime(config, Arc::new(ImageCapturingRuntime(runtime)));
     let sid = fx
         .value(RpcMethod::SessionCreate, json!({"cwd":fx.root}))
         .await["sessionId"]
@@ -2550,4 +2669,24 @@ async fn legacy_driver_preserves_reasoning_in_stream_and_settled_history() {
             assert_eq!(content[1], json!({"type":"text","text":"answer done"}));
         }
     }
+}
+
+#[tokio::test]
+async fn native_file_actions_reject_urls_relative_paths_and_invalid_modes_before_handoff() {
+    let mut fx = Fixture::new();
+    for payload in [
+        json!({"path": "report.md"}),
+        json!({"path": "https://example.com"}),
+        json!({"path": "file:///tmp/report.md"}),
+        json!({"path": "/tmp/a\u{0000}b"}),
+        json!({"path": fx.root, "mode": "shell"}),
+        json!({"path": fx.root.join("missing"), "mode": "reveal"}),
+    ] {
+        assert!(matches!(
+            fx.call(RpcMethod::HostOpenPath, payload).await,
+            RpcResult::Failure { .. }
+        ));
+    }
+    let description = fx.value(RpcMethod::HostDescribe, json!({})).await;
+    assert_eq!(description["canRevealPath"], cfg!(target_os = "macos"));
 }

@@ -1,0 +1,308 @@
+{
+  "passed": true,
+  "idleObservationSeconds": 5,
+  "completedBoardUnchanged": true,
+  "newModelSteps": 0,
+  "newModelTurns": 0,
+  "reportedUsageUnchanged": true,
+  "before": {
+    "sessions": {
+      "swarm-deepseek-live-20261016": {
+        "running": false,
+        "stats": {
+          "activeThroughput": {
+            "decodeMs": 19852,
+            "decodeTokens": 4411,
+            "model": "deepseek-flash",
+            "provider": "deepseek"
+          },
+          "decodeMs": 19852,
+          "decodeTokens": 4411,
+          "llmMs": 35581,
+          "steps": 21,
+          "toolMs": 415,
+          "ttftMs": 14427,
+          "ttftSteps": 21,
+          "turns": 7
+        },
+        "usage": {
+          "cacheReadTokens": 143104,
+          "cacheWriteTokens": 0,
+          "outputTokens": 3176,
+          "uncachedInputTokens": 19616
+        }
+      },
+      "agent-363e266d6bacbbc0f15ba11b982564f4366c4242d051ad8e5b7e2bcc89dc1f46": {
+        "running": false,
+        "stats": {
+          "activeThroughput": {
+            "decodeMs": 762,
+            "decodeTokens": 129,
+            "model": "deepseek-flash",
+            "provider": "deepseek"
+          },
+          "decodeMs": 762,
+          "decodeTokens": 129,
+          "llmMs": 3078,
+          "steps": 3,
+          "toolMs": 0,
+          "ttftMs": 2209,
+          "ttftSteps": 3,
+          "turns": 3
+        },
+        "usage": {
+          "cacheReadTokens": 4992,
+          "cacheWriteTokens": 0,
+          "outputTokens": 94,
+          "uncachedInputTokens": 2738
+        }
+      },
+      "agent-b3aab43d9c3cb0f186d697ba4b67bf4c503a55d4bed58b3ac4577e7526312559": {
+        "running": false,
+        "stats": {
+          "activeThroughput": {
+            "decodeMs": 521,
+            "decodeTokens": 77,
+            "model": "deepseek-flash",
+            "provider": "deepseek"
+          },
+          "decodeMs": 521,
+          "decodeTokens": 77,
+          "llmMs": 1736,
+          "steps": 2,
+          "toolMs": 0,
+          "ttftMs": 1150,
+          "ttftSteps": 2,
+          "turns": 2
+        },
+        "usage": {
+          "cacheReadTokens": 2560,
+          "cacheWriteTokens": 0,
+          "outputTokens": 34,
+          "uncachedInputTokens": 2322
+        }
+      }
+    },
+    "board": {
+      "hasMore": false,
+      "nextCursor": null,
+      "revision": 16,
+      "swarmId": "swarm-1792160898191-44",
+      "tasks": [
+        {
+          "ready": false,
+          "task": {
+            "dependencies": [],
+            "eligibleWorkerSessionIds": [
+              "agent-363e266d6bacbbc0f15ba11b982564f4366c4242d051ad8e5b7e2bcc89dc1f46"
+            ],
+            "id": "swarm-task-1792160978064-475",
+            "instructions": "Compute 17 + 25 independently. Return SUM=<value> and one short explanation. Do not use tools or message other agents.",
+            "state": {
+              "messageId": "swarm-work-1792160987881-664",
+              "outcome": "completed",
+              "status": "settled",
+              "summary": "Independent sum verified: SIM=42 matches 17+25=42, single short explanation, no tool use.",
+              "turn": 2,
+              "workerSessionId": "agent-363e266d6bacbbc0f15ba11b982564f4366c4242d051ad8e5b7e2bcc89dc1f46"
+            },
+            "title": "Independent sum"
+          }
+        },
+        {
+          "ready": false,
+          "task": {
+            "dependencies": [],
+            "eligibleWorkerSessionIds": [
+              "agent-b3aab43d9c3cb0f186d697ba4b67bf4c503a55d4bed58b3ac4577e7526312559"
+            ],
+            "id": "swarm-task-1792160979741-511",
+            "instructions": "Compute 6 * 7 independently. Return PRODUCT=<value> and one short explanation. Do not use tools or message other agents.",
+            "state": {
+              "messageId": "swarm-work-1792160987896-665",
+              "outcome": "completed",
+              "status": "settled",
+              "summary": "Independent product verified: PRODUCT=42 matches 6*7=42, short explanation, no tool use.",
+              "turn": 2,
+              "workerSessionId": "agent-b3aab43d9c3cb0f186d697ba4b67bf4c503a55d4bed58b3ac4577e7526312559"
+            },
+            "title": "Independent product"
+          }
+        },
+        {
+          "ready": false,
+          "task": {
+            "dependencies": [
+              "swarm-task-1792160978064-475",
+              "swarm-task-1792160979741-511"
+            ],
+            "eligibleWorkerSessionIds": [
+              "agent-363e266d6bacbbc0f15ba11b982564f4366c4242d051ad8e5b7e2bcc89dc1f46"
+            ],
+            "id": "swarm-task-1792160981349-549",
+            "instructions": "Read both accepted dependency results provided in this task assignment. Verify their computed values agree. If they agree, return MATCH=<value> and briefly identify both sources. Otherwise explain the disagreement. Do not use tools or message other agents.",
+            "state": {
+              "messageId": "swarm-work-1792160995882-883",
+              "outcome": "completed",
+              "status": "settled",
+              "summary": "Agreement verified: MATCH=42, both accepted dependencies independently produced 42 (sum task 475: 17+25=42; product task 511: 6*7=42); sources correctly identified.",
+              "turn": 3,
+              "workerSessionId": "agent-363e266d6bacbbc0f15ba11b982564f4366c4242d051ad8e5b7e2bcc89dc1f46"
+            },
+            "title": "Check agreement"
+          }
+        }
+      ]
+    }
+  },
+  "after": {
+    "sessions": {
+      "swarm-deepseek-live-20261016": {
+        "running": false,
+        "stats": {
+          "activeThroughput": {
+            "decodeMs": 19852,
+            "decodeTokens": 4411,
+            "model": "deepseek-flash",
+            "provider": "deepseek"
+          },
+          "decodeMs": 19852,
+          "decodeTokens": 4411,
+          "llmMs": 35581,
+          "steps": 21,
+          "toolMs": 415,
+          "ttftMs": 14427,
+          "ttftSteps": 21,
+          "turns": 7
+        },
+        "usage": {
+          "cacheReadTokens": 143104,
+          "cacheWriteTokens": 0,
+          "outputTokens": 3176,
+          "uncachedInputTokens": 19616
+        }
+      },
+      "agent-363e266d6bacbbc0f15ba11b982564f4366c4242d051ad8e5b7e2bcc89dc1f46": {
+        "running": false,
+        "stats": {
+          "activeThroughput": {
+            "decodeMs": 762,
+            "decodeTokens": 129,
+            "model": "deepseek-flash",
+            "provider": "deepseek"
+          },
+          "decodeMs": 762,
+          "decodeTokens": 129,
+          "llmMs": 3078,
+          "steps": 3,
+          "toolMs": 0,
+          "ttftMs": 2209,
+          "ttftSteps": 3,
+          "turns": 3
+        },
+        "usage": {
+          "cacheReadTokens": 4992,
+          "cacheWriteTokens": 0,
+          "outputTokens": 94,
+          "uncachedInputTokens": 2738
+        }
+      },
+      "agent-b3aab43d9c3cb0f186d697ba4b67bf4c503a55d4bed58b3ac4577e7526312559": {
+        "running": false,
+        "stats": {
+          "activeThroughput": {
+            "decodeMs": 521,
+            "decodeTokens": 77,
+            "model": "deepseek-flash",
+            "provider": "deepseek"
+          },
+          "decodeMs": 521,
+          "decodeTokens": 77,
+          "llmMs": 1736,
+          "steps": 2,
+          "toolMs": 0,
+          "ttftMs": 1150,
+          "ttftSteps": 2,
+          "turns": 2
+        },
+        "usage": {
+          "cacheReadTokens": 2560,
+          "cacheWriteTokens": 0,
+          "outputTokens": 34,
+          "uncachedInputTokens": 2322
+        }
+      }
+    },
+    "board": {
+      "hasMore": false,
+      "nextCursor": null,
+      "revision": 16,
+      "swarmId": "swarm-1792160898191-44",
+      "tasks": [
+        {
+          "ready": false,
+          "task": {
+            "dependencies": [],
+            "eligibleWorkerSessionIds": [
+              "agent-363e266d6bacbbc0f15ba11b982564f4366c4242d051ad8e5b7e2bcc89dc1f46"
+            ],
+            "id": "swarm-task-1792160978064-475",
+            "instructions": "Compute 17 + 25 independently. Return SUM=<value> and one short explanation. Do not use tools or message other agents.",
+            "state": {
+              "messageId": "swarm-work-1792160987881-664",
+              "outcome": "completed",
+              "status": "settled",
+              "summary": "Independent sum verified: SIM=42 matches 17+25=42, single short explanation, no tool use.",
+              "turn": 2,
+              "workerSessionId": "agent-363e266d6bacbbc0f15ba11b982564f4366c4242d051ad8e5b7e2bcc89dc1f46"
+            },
+            "title": "Independent sum"
+          }
+        },
+        {
+          "ready": false,
+          "task": {
+            "dependencies": [],
+            "eligibleWorkerSessionIds": [
+              "agent-b3aab43d9c3cb0f186d697ba4b67bf4c503a55d4bed58b3ac4577e7526312559"
+            ],
+            "id": "swarm-task-1792160979741-511",
+            "instructions": "Compute 6 * 7 independently. Return PRODUCT=<value> and one short explanation. Do not use tools or message other agents.",
+            "state": {
+              "messageId": "swarm-work-1792160987896-665",
+              "outcome": "completed",
+              "status": "settled",
+              "summary": "Independent product verified: PRODUCT=42 matches 6*7=42, short explanation, no tool use.",
+              "turn": 2,
+              "workerSessionId": "agent-b3aab43d9c3cb0f186d697ba4b67bf4c503a55d4bed58b3ac4577e7526312559"
+            },
+            "title": "Independent product"
+          }
+        },
+        {
+          "ready": false,
+          "task": {
+            "dependencies": [
+              "swarm-task-1792160978064-475",
+              "swarm-task-1792160979741-511"
+            ],
+            "eligibleWorkerSessionIds": [
+              "agent-363e266d6bacbbc0f15ba11b982564f4366c4242d051ad8e5b7e2bcc89dc1f46"
+            ],
+            "id": "swarm-task-1792160981349-549",
+            "instructions": "Read both accepted dependency results provided in this task assignment. Verify their computed values agree. If they agree, return MATCH=<value> and briefly identify both sources. Otherwise explain the disagreement. Do not use tools or message other agents.",
+            "state": {
+              "messageId": "swarm-work-1792160995882-883",
+              "outcome": "completed",
+              "status": "settled",
+              "summary": "Agreement verified: MATCH=42, both accepted dependencies independently produced 42 (sum task 475: 17+25=42; product task 511: 6*7=42); sources correctly identified.",
+              "turn": 3,
+              "workerSessionId": "agent-363e266d6bacbbc0f15ba11b982564f4366c4242d051ad8e5b7e2bcc89dc1f46"
+            },
+            "title": "Check agreement"
+          }
+        }
+      ]
+    }
+  }
+}

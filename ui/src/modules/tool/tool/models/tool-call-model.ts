@@ -10,6 +10,7 @@
 // contract only forwards it (type-definition authority stays with the layer
 // that produces the values).
 import {isRecord, isUnknownArray} from '../../value-guards'
+import {shellErrorSummary} from './shell-error-summary'
 import { abbreviateHomePath } from '../../runtime'
 import type { ToolCallBlock, ToolResultNode } from '../../types'
 
@@ -128,6 +129,21 @@ function parseArgs(argsRaw: string): unknown {
   }
 }
 
+/** Presentation only: exact MCP call target, never a routing heuristic. Keep
+ * unknown/streaming calls generic; do not infer a browser from a tool name. */
+function browserCall(toolName:string,argsRaw:string):{title:string;summary:string}|undefined {
+  if(toolName!=='plugin_mcp')return
+  const args=parseArgs(argsRaw)
+  if(!isRecord(args)||args.action!=='call')return
+  const title=args.plugin==='@xharness/native-browser'&&args.server==='webview'?'Embedded browser'
+    :args.plugin==='browser-use'&&args.server==='browser'?'Background browser':undefined
+  if(!title)return
+  const action=isRecord(args.arguments)?args.arguments.action:undefined
+  const summary=typeof action==='string'&&/^[a-z_]{1,40}$/.test(action)?action
+    :typeof args.tool==='string'&&/^[a-z_]{1,40}$/.test(args.tool)?args.tool:'call'
+  return{title,summary}
+}
+
 function firstLine(text: string): string {
   const nl = text.indexOf('\n')
   return nl === -1 ? text : text.slice(0, nl)
@@ -226,7 +242,8 @@ export function toolRowModel(toolName: string, block: ToolCallBlock, cwd?: strin
   const base = argsRaw === ''
     ? ''
     : abbreviateHomePath(relativizeToCwd(deriveSummary(variant, argsRaw), cwd), home)
-  const toolTitle = TOOL_TITLES[toolName]
+  const browser=browserCall(toolName,argsRaw)
+  const toolTitle = browser?.title ?? TOOL_TITLES[toolName]
   // Others keeps the static "Tool call" title (figma literal); the real tool
   // name rides the mutable summary slot unless the tool owns a specific title.
   const summary = variant === 'others' && toolName !== '' && toolTitle === undefined
@@ -236,11 +253,13 @@ export function toolRowModel(toolName: string, block: ToolCallBlock, cwd?: strin
   // call with blank content has nothing to expand, and a blank first line
   // would erase the collapsed error row's summary slot.
   const output = done ? (resultText(block) || null) : null
-  const errorSummary = state === 'error' && output !== null ? firstLine(output) : null
+  const errorSummary = done
+    ? shellErrorSummary(toolName, block, output ?? '')
+      ?? (state === 'error' && output !== null ? firstLine(output) : null) : null
   return {
     variant,
     title: toolTitle ?? VARIANT_TITLES[variant],
-    summary,
+    summary:browser?.summary ?? summary,
     filePath: deriveFilePath(variant, argsRaw),
     body: deriveBody(variant, argsRaw),
     output,

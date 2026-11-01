@@ -1,0 +1,37 @@
+{
+  "trials": 20,
+  "arms": {
+    "on_demand_get": {
+      "passed": 6,
+      "total": 10,
+      "infrastructure_errors": 0,
+      "requests": 26,
+      "get_calls": 4,
+      "cas_conflicts": 0,
+      "provider_elapsed_seconds": 29.847
+    },
+    "snapshot": {
+      "passed": 6,
+      "total": 10,
+      "infrastructure_errors": 0,
+      "requests": 29,
+      "get_calls": 0,
+      "cas_conflicts": 0,
+      "provider_elapsed_seconds": 31.705
+    }
+  },
+  "usage": {
+    "on_demand_get": {
+      "prompt_tokens": 39845,
+      "completion_tokens": 2634,
+      "total_tokens": 42479
+    },
+    "snapshot": {
+      "prompt_tokens": 46757,
+      "completion_tokens": 2707,
+      "total_tokens": 49464
+    }
+  },
+  "billing": "Provider reported tokens only; no price/actual account charge inferred.",
+  "limits": "Small synthetic pilot; no significance/general reliability or production E2E claim."
+}

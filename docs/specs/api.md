@@ -12,21 +12,38 @@ Harness Web 客户端必须能够继续使用自己的原生协议，而后端�
 
 ## RPC 方法目录
 
-`RpcMethod::ALL` 必须恰好包含上游 52 个 unary RPC：
+`RpcMethod::ALL` 必须恰好包含 56 个 unary RPC，即上游兼容 52 个加本仓库 4 个自有扩展：
 
-- 12 个 `session.*`
+- 14 个 `session.*`（上游 12 加 `session.import`、`session.delete`）
 - 4 个 `subagent.*`
 - 5 个 `host.*`
-- 7 个 `workspace.*`
+- 8 个 `workspace.*`（上游 7 加 `workspace.unarchiveSession`）
 - 1 个 `skill.*`
 - 6 个 `agentPreset.*`
-- 6 个 `goal.*`
+- 7 个 `goal.*`（上游 6 加 `goal.updatePlan`）
 - 5 个 `settings.*`
 - 3 个 `credentials.*`
 - 3 个 `llm.*`
 
-未知方法字符串不可分发。数组顺序必须与上游 `RpcMethodMap` 完全一致，并通过测试
-验证没有重复项。
+### 自有扩展方法
+
+下列 4 个方法不在上游 `RpcMethodMap` 中，由本仓库定义并与本仓库 Web UI 一同发布。上游 Web
+客户端不会发送它们，Host 也不得因它们的存在改变既有 52 个方法的名称、字段或响应形状。
+
+| 方法 | 语义 | Host 实现 |
+|---|---|---|
+| `session.import` | 把外部来源的历史解析为新 Session；不调用模型 | `rpc/session_import.rs`、`xharness-session-import` |
+| `session.delete` | 永久删除**已归档**会话及其 `origin=subagent` 后代；存在未完成工作、或存在独立 Fork 子会话时拒绝，要求先单独删除子会话 | `rpc/session_delete.rs` |
+| `workspace.unarchiveSession` | `workspace.archiveSession` 的逆操作 | `rpc/workspace.rs` |
+| `goal.updatePlan` | 以 `planRevision` CAS 替换 Session 工作计划的条目（`task_plan`）；不激活 Goal，也不唤醒 Runtime | `rpc/session_plan.rs` |
+
+新增扩展方法必须同时更新本节和 `crates/xharness-api/tests/contract.rs` 的
+`SUPPORTED_METHODS`；只改一处视为未完成。
+
+未知方法字符串不可分发。52 个上游方法必须保持上游 `RpcMethodMap` 的相对顺序不变，4 个扩展
+插入各自命名空间的对应位置（`session.import` 在 `session.create` 后、`session.delete` 在
+`session.cancel` 后、`workspace.unarchiveSession` 在 `workspace.archiveSession` 后、
+`goal.updatePlan` 在 `goal.create` 前），并通过测试验证没有重复项。
 
 ## 四象限信封
 
@@ -84,7 +101,7 @@ Host 事件和流错误。序列化时必须把 payload 的 `type` 复制到外�
 
 ## 验收标准
 
-测试必须验证全部 52 个有序方法、唯一性和解析，验证四象限 JSON、严格的
+测试必须验证全部 56 个有序方法（含 4 个自有扩展）、唯一性和解析，验证四象限 JSON、严格的
 result/receipt 判别字段、封闭错误码拼写，以及代表性的 Mux/Host 判别字段和
 camelCase 字段。
 Host 兼容测试还应证明 Context/Sandbox 业务失败以关联 Session 的事件或封闭业务错误呈现，

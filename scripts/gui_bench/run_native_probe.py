@@ -242,8 +242,24 @@ def contract_completed(log_text: str) -> bool:
     return ("Native Tauri DOM probe passed:" in log_text
             and "Native lifecycle probe passed:" in log_text
             and subframe_navigation_passed(log_text)
+            and browser_lifecycle_passed(log_text)
             and "Native observation probe failed:" not in log_text
             and hard_capabilities(log_text).get("status") != "unverified")
+
+
+def browser_lifecycle_passed(log_text: str) -> bool:
+    prefix = 'BROWSER_LIFECYCLE_EVIDENCE '
+    lines = [line[len(prefix):] for line in log_text.splitlines() if line.startswith(prefix)]
+    if len(lines) != 1:
+        return False
+    try:
+        result = json.loads(lines[0])
+        return (result.get('passed') is True and result.get('test_only') is True
+                and result.get('main_alive') is True
+                and all(type(result.get(key)) is int and result[key] > 0
+                        for key in ['created', 'close_accepted']))
+    except (ValueError, TypeError, AttributeError):
+        return False
 
 
 def subframe_navigation_passed(log_text: str) -> bool:
@@ -260,6 +276,23 @@ def subframe_navigation_passed(log_text: str) -> bool:
                 and result.get('guest_caller') == 'denied'
                 and result.get('top_level_address') == 'preserved'
                 and result.get('loaded_owner_receipt') == 'preserved')
+    except (ValueError, TypeError):
+        return False
+
+
+def empty_webview_url_passed(log_text: str) -> bool:
+    prefix = "EMPTY_WEBVIEW_URL_EVIDENCE "
+    lines = [line[len(prefix):] for line in log_text.splitlines() if line.startswith(prefix)]
+    if len(lines) != 1:
+        return False
+    try:
+        result = json.loads(lines[0])
+        return (isinstance(result, dict) and result.get('passed') is True
+                and type(result.get('nil_url_reads')) is int
+                and result.get('nil_url_reads') == 32
+                and result.get('result') == 'recoverable_not_found'
+                and result.get('main_alive') is True
+                and result.get('test_only') is True)
     except (ValueError, TypeError):
         return False
 
@@ -302,7 +335,11 @@ def main() -> int:
     log_text = (args.evidence_dir / "native-probe.log").read_text(encoding="utf-8", errors="replace")
     capabilities = hard_capabilities(log_text)
     receipt['subframe_navigation_passed'] = subframe_navigation_passed(log_text)
+    receipt['browser_lifecycle_passed'] = browser_lifecycle_passed(log_text)
     completed = contract_completed(log_text)
+    receipt['empty_webview_url_passed'] = empty_webview_url_passed(log_text) if sys.platform == 'darwin' else None
+    if sys.platform == 'darwin':
+        completed = completed and receipt['empty_webview_url_passed']
     api = native_api_evidence(log_text, args.evidence_dir)
     (args.evidence_dir / 'native-api-evidence.json').write_text(json.dumps(api,indent=2)+'\n')
     receipt['native_api_prototype_tested'] = api.get('status') == 'tested'
@@ -310,7 +347,14 @@ def main() -> int:
     production=production_native_evidence(log_text,args.evidence_dir)
     (args.evidence_dir/'production-native-evidence.json').write_text(json.dumps(production,indent=2)+'\n')
     receipt['production_native_passed']=production.get('passed') is True
-    completed = completed and receipt['native_api_core_passed'] and receipt['production_native_passed']
+    from scripts.gui_bench.check_fit_viewport import verify as verify_fit
+    try:
+        fit = verify_fit(log_text, args.evidence_dir / 'native-api')
+    except (ValueError, KeyError, TypeError, OSError, zlib.error) as error:
+        fit = dict(passed=False, reason=str(error))
+    (args.evidence_dir/'fit-viewport-evidence.json').write_text(json.dumps(fit,indent=2)+'\n')
+    receipt['fit_viewport_passed'] = fit.get('passed') is True
+    completed = completed and receipt['native_api_core_passed'] and receipt['production_native_passed'] and receipt['fit_viewport_passed']
     (args.evidence_dir / "hard-capabilities.json").write_text(json.dumps(capabilities, indent=2) + "\n", encoding="utf-8")
     receipt["hard_capability_status"] = capabilities.get("parity_gate", capabilities.get("status", "unverified"))
     receipt["cleanup_passed"] = cleaned

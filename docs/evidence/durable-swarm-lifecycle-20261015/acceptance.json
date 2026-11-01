@@ -1,0 +1,88 @@
+{
+  "schema": 1,
+  "feature": "durable-swarm-lifecycle-phase-one",
+  "base": "58012c7a9e272b363ad3086053fafb7ed99c3f60",
+  "branch": "feat/durable-swarm-lifecycle-20261015",
+  "recordedAt": "2026-10-15T14:38:42.240546+00:00",
+  "execution": {
+    "rustHost": "WZU_Server",
+    "source": "~/codex-build/x-harness-rs/durable-swarm-20261015",
+    "localRustCompilation": false,
+    "provider": "deterministic in-process fake; no paid API calls",
+    "restart": "cold Host reconstruction with freshly opened JSONL Session and Control stores",
+    "deployed": false
+  },
+  "validation": {
+    "newTests": {
+      "controlUnit": 2,
+      "hostRuntimeIntegration": 6,
+      "passed": 8
+    },
+    "repeat": {
+      "runs": 5,
+      "newTestsPerRun": 8,
+      "result": "passed"
+    },
+    "fullRustCommand": "cargo test --locked -p xharness-control -p xharness-session -p xharness-session-jsonl -p xharness-api -p xharness-host",
+    "fullRustResult": "passed; existing ignored diagnostics retained (7 Host, 1 JSONL)",
+    "hostUnit": {
+      "passed": 350,
+      "failed": 0,
+      "ignored": 7
+    },
+    "agentRuntimeCommand": "cargo test --locked -p xharness-agent",
+    "agentRuntimeResult": "passed",
+    "clippyCommand": "cargo clippy --locked -p xharness-control -p xharness-host --all-targets -- -D warnings",
+    "clippyResult": "passed",
+    "architectureGate": "passed; 41 crates and 9 extracted processors; content-bound freeze record",
+    "architectureUnitTests": {
+      "passed": 27,
+      "note": "Expected rejection-case diagnostics are printed by the negative tests."
+    },
+    "localFormatting": "cargo fmt --all -- --check passed",
+    "whitespace": "git diff --check passed"
+  },
+  "verified": [
+    "Stable team identity, owner, workspace, lifecycle and original worker assignment survive cold restoration.",
+    "Settled worker journals/results are retained; restart does not issue duplicate provider requests.",
+    "Interrupted non-authoritative tool outcomes remain unresolved under existing PauseIncompleteTools; read-only inspect does not replay or repair them.",
+    "Explicit continuation through existing SubagentPrompt produces the existing OutcomeUnknown fact.",
+    "Lost acknowledgement retries return the original committed ID and revision, including after an append conflict reload.",
+    "Concurrent stale revision updates have exactly one winner.",
+    "Unrelated chats, delegated-owner spoofing and normal fork membership are rejected; independent normal forks may own teams.",
+    "Ordinary chat journals retain identical session snapshots during metadata operations; ordinary prompt execution after restart has no Swarm objective injected.",
+    "Missing/deleted workers are unavailable, never automatically recreated."
+  ],
+  "limits": [
+    "Metadata-only lifecycle: no /swarm command, UI, LLM tool registration, autonomous scheduling, peer messaging or cloud takeover.",
+    "Paused/closed lifecycle does not cancel or pause existing chat execution; use existing session/worker controls.",
+    "Crash-cut fixture simulates an external effect before missing ToolResult; no OS-level process-kill or real-provider acceptance.",
+    "No Windows/macOS runtime execution performed in this phase; Rust tests executed on the Linux server.",
+    "Old logs remain readable. Older binaries are not guaranteed to understand new Swarm Control events.",
+    "No normal-chat or Agent dispatch policies changed; embedded callers retain their existing recovery-policy choice."
+  ],
+  "sourceSha256": {
+    "config/architecture-changes/durable-swarm-lifecycle-v1.json": "1639f3ebb339a0bfe681268c9e8001cfa5bd933311f6978e67048896cf609496",
+    "config/architecture-host-modules.json": "2235ed5dba0bcee120bc5c414948913032eb211d8e9f3f30a8ef5e1d4500cc18",
+    "crates/xharness-control/src/lib.rs": "1bc481211ed6bc15cc266b8de5d77c32281a3ac6fb327122fe6dd67a7733ce44",
+    "crates/xharness-control/src/swarm.rs": "69c9bb4c5903ea00296374927925999e4dd8735633214bf9a32f6dec36b6695f",
+    "crates/xharness-host/src/control.rs": "b71c646a7cbebf78ed9fb52880760e8e23f547226d1479cab74e328ffe9df431",
+    "crates/xharness-host/src/delegation.rs": "22b4d3dbd8c1168a9ff609b7265a743efa4d97d9fba3d762c016f92393089eb5",
+    "crates/xharness-host/src/lib.rs": "5ad9d95fb9b415b3e6bde0da3f1b51e96f48bae73b01085c8fc16da969a6a150",
+    "crates/xharness-host/src/rpc.rs": "ff438571b2694ceb088c782b221c69bdd783c868eefd0896ca344426e4b05e67",
+    "crates/xharness-host/src/rpc/swarm.rs": "ba4b5eceddca6f77b3723bb25152aaeb34e53bcc58daaa59cc785caf940b7593",
+    "crates/xharness-host/src/state.rs": "fca810440cdf81eb15a389bc4ffe539962dab6043083344d395f18fbad5d381f",
+    "crates/xharness-host/src/swarm_processor.rs": "2ca9b734ef093670943ffd5ebe3e6114a45dbc5514d72811c7057d1196512d82",
+    "crates/xharness-host/src/swarm_tests.rs": "4495a6e86d4992be76bc9a717553dd16e9c4d985b5b2bd76b3d198c37f3e5cef",
+    "docs/specs/durable-swarm-lifecycle.md": "28df19fe99e30b8a74416d6e301a99600133ee6bc50bb24347cb2db2ce01ceb7",
+    "scripts/regression/check-architecture.py": "f96c51f25986e5dcf4248e11ec7778965570f1e3a0508e53705c83fb7a110f09"
+  },
+  "logSha256": {
+    "agent-runtime.log": "0b6373beafd32dcc14c8ec7e0cb7b260f2f8197757594dabb9d72df184d02186",
+    "architecture-gate.log": "5a69d74a01d3e84905989c5fe0d8605d5bce53939cad5cc460d4a8f14d39352e",
+    "architecture-tests.log": "cbc763a83f52dc5041a2e3e6927692aa0e61880f026dadf7c982e6328aa2ba32",
+    "repeated-swarm.log": "c2e916f27dd49062b6bcc2c7ee5ce7656131bf1ffc66bd5cf54cff821182875c",
+    "rust-regression-and-clippy.log": "a8df1231317de28683ea58def5bdb472a2f97378917c9b5ce2e150d66df8129f"
+  },
+  "logNormalization": "Captured Rust log has trailing whitespace normalized for repository checks; test messages and results are otherwise unchanged."
+}

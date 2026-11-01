@@ -3,6 +3,39 @@ import { isObjectRecord } from '../../shared/runtime-types'
 const PREVIEW_LENGTH = 80
 const WHITESPACE = /\s/
 
+export interface MessageMarker { readonly key: string; readonly preview: string }
+
+/** Keep navigation chrome independent of unrelated assistant/tool deltas.
+ * Content arrays are immutable publications; weak keys never pin old histories.
+ * Only the current bounded previews and ordered marker list remain resident.
+ */
+export class MessageMarkerCache {
+  private markers: readonly MessageMarker[] = []
+  private readonly previews = new WeakMap<readonly unknown[], string>()
+
+  read(order: readonly string[], contentOf: (key: string) => readonly unknown[] | undefined): readonly MessageMarker[] {
+    let changed: MessageMarker[] | undefined
+    let index = 0
+    for (const key of order) {
+      const content = contentOf(key)
+      if (content === undefined) continue
+      let preview = this.previews.get(content)
+      if (preview === undefined) {
+        preview = messagePreview(content)
+        this.previews.set(content, preview)
+      }
+      const old = this.markers[index]
+      const marker = old?.key === key && old.preview === preview ? old : { key, preview }
+      if (changed === undefined && marker !== old) changed = this.markers.slice(0, index)
+      changed?.push(marker)
+      index++
+    }
+    if (changed !== undefined) this.markers = changed
+    else if (index !== this.markers.length) this.markers = this.markers.slice(0, index)
+    return this.markers
+  }
+}
+
 /** Navigation-only text, equivalent to joining text blocks with a space,
  * collapsing whitespace, trimming, then slicing the first 80 UTF-16 units.
  * Build a small independent string instead of normalizing the entire message

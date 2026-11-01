@@ -2198,6 +2198,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "reasonmap"
+version = "0.4.0"
+source = "git+https://github.com/123123213weqw/reasonmap?rev=44159024c3c7a16d175d2cb3a5d665c39fe47d63#44159024c3c7a16d175d2cb3a5d665c39fe47d63"
+dependencies = [
+ "serde",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4005,6 +4015,7 @@ dependencies = [
  "xharness-control",
  "xharness-core",
  "xharness-debug",
+ "xharness-diagnostics",
  "xharness-fs",
  "xharness-interaction",
  "xharness-jobs",
@@ -4026,12 +4037,14 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
+ "base64",
  "fs2",
  "futures",
  "getrandom 0.3.4",
  "image",
  "keyring",
  "qrcode",
+ "reasonmap",
  "reqwest",
  "rusqlite",
  "serde",
@@ -4063,7 +4076,6 @@ dependencies = [
  "xharness-jobs",
  "xharness-mcp",
  "xharness-mobile",
- "xharness-model-catalog",
  "xharness-platform",
  "xharness-plugins",
  "xharness-process",
@@ -4154,16 +4166,6 @@ dependencies = [
  "url",
  "xharness-api",
  "xharness-remote",
-]
-
-[[package]]
-name = "xharness-model-catalog"
-version = "0.1.1"
-source = "git+https://github.com/123123213weqw/xharness-model-catalog?rev=b76585abb9102690d2dd85e385550e0d2f688601#b76585abb9102690d2dd85e385550e0d2f688601"
-dependencies = [
- "serde",
- "serde_json",
- "url",
 ]
 
 [[package]]
@@ -4334,8 +4336,10 @@ dependencies = [
  "axum",
  "bytes",
  "futures",
+ "hmac",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",

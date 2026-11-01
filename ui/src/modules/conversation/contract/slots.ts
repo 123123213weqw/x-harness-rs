@@ -189,23 +189,22 @@ declare module "../types/slots" {
     // ui-input-trigger, so the type arrives transitively). The runtime declaration
     // (children table in apply.ts) stays here with the other input slots.
     /**
-     * A full-width row of its own, stacked above the composer card — the seat
+     * A full-width row of its own, in the composer card header — the seat
      * for anything that needs a line to itself (queue rows, a todo strip, a
      * goal bar). Pick this over the three seats below when your content wraps
      * or carries prose; pick `conversation.composer.dock` for an ambient
-     * readout under the card, and `conversation.input.left` /
+     * readout inside the toolbar, and `conversation.input.left` /
      * `.right` for a small control INSIDE the card's tool row.
      * Read only `session`/`input` off the owner share ({@link InputZone}) —
      * both are point-in-time snapshots re-rendered for you, never subscribe.
      */
     'conversation.input.dock': { kind: 'list'; scope: 'session'; owner: InputZone }
     /**
-     * The band under the composer card, inside the bar's width column — the
-     * seat for an ambient readout about the conversation (the shipped stats
-     * line lives here). Same {@link InputZone} owner share as the other
-     * regions. Anything the user must click belongs in the tool row instead
-     * (`conversation.input.left` / `.right`); anything needing its own line
-     * above the card belongs in `conversation.input.dock`.
+     * Compact readouts inside the composer toolbar (the shipped statistics
+     * disclosure lives here). Same {@link InputZone} owner share as the other
+     * regions. Keep contributions compact; general actions belong in
+     * `conversation.input.left` / `.right`, and content needing its own line
+     * above the textarea belongs in `conversation.input.dock`.
      */
     'conversation.composer.dock': { kind: 'list'; scope: 'session'; owner: InputZone }
     /**
@@ -542,7 +541,7 @@ export interface ComposerBarOwnerProps {
   leftItems?: (ReactNode) | undefined
   /** input.right slot entries (tool row, before the primary button). */
   rightItems?: (ReactNode) | undefined
-  /** composer.dock entries (stats line), rendered under the card inside the bar's width column. */
+  /** composer.dock entries (stats line), rendered as compact toolbar readouts. */
   footer?: (ReactNode) | undefined
 }
 
@@ -596,6 +595,8 @@ export interface ComposerBarInjected {
 export interface InputControlOwnerProps {
   /** Session-removed lock (the bar's chrome disable state). */
   locked: boolean
+  /** Compact icon trigger; details remain available in the control menu. */
+  compact?: boolean
 }
 
 /** Full composer-bar props: standard kit & owner share & control-seat render share & injected share (hooks bound) & locale seat. */

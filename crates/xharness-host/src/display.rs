@@ -4,11 +4,52 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use tokio_util::sync::CancellationToken;
 use xharness_api::{
-    display::{DisplayFile, DisplayOpen, DisplayRead},
+    display::{DisplayFile, DisplayInspect, DisplayInspection, DisplayOpen, DisplayRead},
     RpcError,
 };
 
 impl BasicHost {
+    pub async fn inspect_display_file(
+        &self,
+        request: DisplayInspect,
+        cancellation: CancellationToken,
+    ) -> Result<DisplayInspection, RpcError> {
+        if cancellation.is_cancelled() {
+            return Err(RpcError::bad_request(
+                "file inspection cancelled",
+                json!([]),
+            ));
+        }
+        if request.path.trim().is_empty()
+            || request.path.len() > 4096
+            || request.path.contains('\0')
+        {
+            return Err(RpcError::bad_request("invalid file path", json!([])));
+        }
+        let (cwd, permission) = {
+            let state = self.state.read().await;
+            let session = state
+                .sessions
+                .get(&request.session_id)
+                .ok_or_else(|| RpcError::bad_request("session not found", json!([])))?;
+            (
+                session.cwd.clone(),
+                session
+                    .active_permission
+                    .unwrap_or(session.permission_preset),
+            )
+        };
+        let path = normalize_path(Path::new(&cwd).join(&request.path))?;
+        tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => Err(RpcError::bad_request("file inspection cancelled",json!([]))),
+            result = self.agent_runtime.inspect_display_file(&request.session_id,&cwd,permission,&path,request.thumbnail) => {
+                if cancellation.is_cancelled() { return Err(RpcError::bad_request("file inspection cancelled",json!([]))); }
+                result.map_err(|e|RpcError::bad_request(e,json!([])))
+            }
+        }
+    }
+
     pub async fn read_display_file(
         &self,
         request: DisplayRead,
@@ -110,15 +151,40 @@ impl BasicHost {
     ) -> Result<DisplayOpen, RpcError> {
         let session_id = request.session_id.clone();
         let git_diff = request.git_diff;
-        let file = self
-            .read_display_file(request, cancellation.clone())
-            .await?;
+        // Native adapters can validate an existing file without reading an
+        // unsupported Office/archive document as text. Older adapters keep
+        // their original read-only validation path.
+        let inspected = if request.git_diff.is_none() && request.relative_to.is_none() {
+            self.inspect_display_file(
+                DisplayInspect {
+                    session_id: request.session_id.clone(),
+                    path: request.path.clone(),
+                    thumbnail: false,
+                },
+                cancellation.clone(),
+            )
+            .await
+            .ok()
+        } else {
+            None
+        };
+        if cancellation.is_cancelled() {
+            return Err(RpcError::bad_request("display cancelled", json!([])));
+        }
+        let path = match inspected {
+            Some(info) => info.path,
+            None => self
+                .read_display_file(request, cancellation.clone())
+                .await?
+                .path()
+                .to_owned(),
+        };
         if cancellation.is_cancelled() {
             return Err(RpcError::bad_request("display cancelled", json!([])));
         }
         let intent = DisplayOpen {
             session_id,
-            path: file.path().into(),
+            path,
             git_diff,
         };
         self.push_host(json!({"type":"host/remote-event","event":"display/open","args":[&intent]}));
@@ -134,6 +200,17 @@ pub(crate) async fn read_rpc(
     let request: DisplayRead = serde_json::from_value(payload.clone())
         .map_err(|e| RpcError::bad_request(e.to_string(), json!([])))?;
     serde_json::to_value(host.read_display_file(request, cancellation).await?)
+        .map_err(|e| RpcError::internal(e.to_string()))
+}
+
+pub(crate) async fn inspect_rpc(
+    host: &BasicHost,
+    payload: &Value,
+    cancellation: CancellationToken,
+) -> Result<Value, RpcError> {
+    let request: DisplayInspect = serde_json::from_value(payload.clone())
+        .map_err(|e| RpcError::bad_request(e.to_string(), json!([])))?;
+    serde_json::to_value(host.inspect_display_file(request, cancellation).await?)
         .map_err(|e| RpcError::internal(e.to_string()))
 }
 

@@ -1,0 +1,4006 @@
+{
+  "expectedPaths": [
+    "reports/报告.md",
+    "updated.txt",
+    "edited.txt"
+  ],
+  "history": [
+    {
+      "event": {
+        "data": {
+          "trigger": {
+            "kind": "message",
+            "source": {
+              "kind": "user"
+            }
+          },
+          "turn": 0
+        },
+        "seq": 0,
+        "time": 1792974419316,
+        "type": "turn/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "content": [
+            {
+              "text": "Controlled file-card projection fixture; no model runs.",
+              "type": "text"
+            }
+          ],
+          "id": "restored-user-1",
+          "role": "user",
+          "source": {
+            "kind": "user",
+            "restored": true
+          }
+        },
+        "seq": 1,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "user/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 2,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "initial"
+        },
+        "seq": 3,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-4",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 4,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"reports/报告.md\"}",
+          "callId": "file-call-1",
+          "name": "write",
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 5,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "generic",
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "reports/报告.md"
+            }
+          ],
+          "title": "Write reports/报告.md"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"created\\\":true,\\\"path\\\":\\\"/controlled-workspace/reports/报告.md\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"created\":true,\"path\":\"/controlled-workspace/reports/报告.md\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-1",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-6",
+            "role": "user",
+            "source": {
+              "callId": "file-call-1",
+              "kind": "tool"
+            }
+          },
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 6,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 7,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 2,
+          "turn": 0
+        },
+        "seq": 8,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 9,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-10",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 2,
+          "turn": 0
+        },
+        "seq": 10,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"reports/报告.md\"}",
+          "callId": "file-call-2",
+          "name": "edit",
+          "step": 2,
+          "turn": 0
+        },
+        "seq": 11,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "generic",
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "reports/报告.md"
+            }
+          ],
+          "title": "Edit reports/报告.md"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"path\\\":\\\"/controlled-workspace/reports/报告.md\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"path\":\"/controlled-workspace/reports/报告.md\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-2",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-12",
+            "role": "user",
+            "source": {
+              "callId": "file-call-2",
+              "kind": "tool"
+            }
+          },
+          "step": 2,
+          "turn": 0
+        },
+        "seq": 12,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 2,
+          "turn": 0
+        },
+        "seq": 13,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 3,
+          "turn": 0
+        },
+        "seq": 14,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 15,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-16",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 3,
+          "turn": 0
+        },
+        "seq": 16,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"updated.txt\"}",
+          "callId": "file-call-3",
+          "name": "write",
+          "step": 3,
+          "turn": 0
+        },
+        "seq": 17,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "generic",
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "updated.txt"
+            }
+          ],
+          "title": "Write updated.txt"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"created\\\":false,\\\"path\\\":\\\"/controlled-workspace/updated.txt\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"created\":false,\"path\":\"/controlled-workspace/updated.txt\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-3",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-18",
+            "role": "user",
+            "source": {
+              "callId": "file-call-3",
+              "kind": "tool"
+            }
+          },
+          "step": 3,
+          "turn": 0
+        },
+        "seq": 18,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 3,
+          "turn": 0
+        },
+        "seq": 19,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 4,
+          "turn": 0
+        },
+        "seq": 20,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 21,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-22",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 4,
+          "turn": 0
+        },
+        "seq": 22,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"edited.txt\"}",
+          "callId": "file-call-4",
+          "name": "edit",
+          "step": 4,
+          "turn": 0
+        },
+        "seq": 23,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "generic",
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "edited.txt"
+            }
+          ],
+          "title": "Edit edited.txt"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"path\\\":\\\"/controlled-workspace/edited.txt\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"path\":\"/controlled-workspace/edited.txt\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-4",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-24",
+            "role": "user",
+            "source": {
+              "callId": "file-call-4",
+              "kind": "tool"
+            }
+          },
+          "step": 4,
+          "turn": 0
+        },
+        "seq": 24,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 4,
+          "turn": 0
+        },
+        "seq": 25,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 5,
+          "turn": 0
+        },
+        "seq": 26,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 27,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-28",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 5,
+          "turn": 0
+        },
+        "seq": 28,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"failed.txt\"}",
+          "callId": "file-call-5",
+          "name": "write",
+          "step": 5,
+          "turn": 0
+        },
+        "seq": 29,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "generic",
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "failed.txt"
+            }
+          ],
+          "title": "Write failed.txt"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"created\\\":true,\\\"path\\\":\\\"/controlled-workspace/failed.txt\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"created\":true,\"path\":\"/controlled-workspace/failed.txt\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": true,
+                "toolCallId": "file-call-5",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-30",
+            "role": "user",
+            "source": {
+              "callId": "file-call-5",
+              "kind": "tool"
+            }
+          },
+          "step": 5,
+          "turn": 0
+        },
+        "seq": 30,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 5,
+          "turn": 0
+        },
+        "seq": 31,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 6,
+          "turn": 0
+        },
+        "seq": 32,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 33,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-34",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 6,
+          "turn": 0
+        },
+        "seq": 34,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"uncertain.txt\"}",
+          "callId": "file-call-6",
+          "name": "write",
+          "step": 6,
+          "turn": 0
+        },
+        "seq": 35,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "generic",
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "uncertain.txt"
+            }
+          ],
+          "title": "Write uncertain.txt"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"created\\\":true,\\\"path\\\":\\\"/controlled-workspace/uncertain.txt\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"created\":true,\"path\":\"/controlled-workspace/uncertain.txt\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": true,
+                "toolCallId": "file-call-6",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-36",
+            "role": "user",
+            "source": {
+              "callId": "file-call-6",
+              "kind": "tool"
+            }
+          },
+          "step": 6,
+          "turn": 0
+        },
+        "seq": 36,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 6,
+          "turn": 0
+        },
+        "seq": 37,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 7,
+          "turn": 0
+        },
+        "seq": 38,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 39,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-40",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 7,
+          "turn": 0
+        },
+        "seq": 40,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"read-only.txt\"}",
+          "callId": "file-call-7",
+          "name": "read",
+          "step": 7,
+          "turn": 0
+        },
+        "seq": 41,
+        "time": 1792974419316,
+        "type": "tool/call"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"path\\\":\\\"/controlled-workspace/read-only.txt\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"path\":\"/controlled-workspace/read-only.txt\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-7",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-42",
+            "role": "user",
+            "source": {
+              "callId": "file-call-7",
+              "kind": "tool"
+            }
+          },
+          "step": 7,
+          "turn": 0
+        },
+        "seq": 42,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 7,
+          "turn": 0
+        },
+        "seq": 43,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 8,
+          "turn": 0
+        },
+        "seq": 44,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 45,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-46",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 8,
+          "turn": 0
+        },
+        "seq": 46,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"not-an-artifact.pdf\"}",
+          "callId": "file-call-8",
+          "name": "bash",
+          "step": 8,
+          "turn": 0
+        },
+        "seq": 47,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "terminal",
+          "title": "echo not-an-artifact.pdf"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"created\\\":true,\\\"path\\\":\\\"/controlled-workspace/not-an-artifact.pdf\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"created\":true,\"path\":\"/controlled-workspace/not-an-artifact.pdf\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-8",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-48",
+            "role": "user",
+            "source": {
+              "callId": "file-call-8",
+              "kind": "tool"
+            }
+          },
+          "step": 8,
+          "turn": 0
+        },
+        "seq": 48,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 8,
+          "turn": 0
+        },
+        "seq": 49,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 9,
+          "turn": 0
+        },
+        "seq": 50,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 51,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "text": "Done. No filenames in this closing prose.",
+                "type": "text"
+              }
+            ],
+            "id": "file-fixture-closing",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 9,
+          "turn": 0
+        },
+        "seq": 52,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 9,
+          "turn": 0
+        },
+        "seq": 53,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "reason": {
+            "kind": "completed"
+          },
+          "turn": 0
+        },
+        "seq": 54,
+        "time": 1792974419316,
+        "type": "turn/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "trigger": {
+            "kind": "message",
+            "source": {
+              "kind": "user"
+            }
+          },
+          "turn": 1
+        },
+        "seq": 55,
+        "time": 1792974419316,
+        "type": "turn/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "content": [
+            {
+              "text": "A second turn produces no files.",
+              "type": "text"
+            }
+          ],
+          "id": "restored-user-56",
+          "role": "user",
+          "source": {
+            "kind": "user",
+            "restored": true
+          }
+        },
+        "seq": 56,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "user/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 1,
+          "turn": 1
+        },
+        "seq": 57,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 58,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "text": "Nothing written.",
+                "type": "text"
+              }
+            ],
+            "id": "restored-assistant-59",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 1,
+          "turn": 1
+        },
+        "seq": 59,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 1,
+          "turn": 1
+        },
+        "seq": 60,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "reason": {
+            "kind": "completed"
+          },
+          "turn": 1
+        },
+        "seq": 61,
+        "time": 1792974419316,
+        "type": "turn/end"
+      }
+    }
+  ],
+  "live": [
+    {
+      "event": {
+        "data": {
+          "trigger": {
+            "kind": "message",
+            "source": {
+              "kind": "user"
+            }
+          },
+          "turn": 0
+        },
+        "seq": 0,
+        "time": 1792974419316,
+        "type": "turn/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "content": [
+            {
+              "text": "Controlled file-card projection fixture; no model runs.",
+              "type": "text"
+            }
+          ],
+          "id": "restored-user-1",
+          "role": "user",
+          "source": {
+            "kind": "user",
+            "restored": true
+          }
+        },
+        "seq": 1,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "user/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 2,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "initial"
+        },
+        "seq": 3,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-4",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 4,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"reports/报告.md\"}",
+          "callId": "file-call-1",
+          "name": "write",
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 5,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "generic",
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "reports/报告.md"
+            }
+          ],
+          "title": "Write reports/报告.md"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"created\\\":true,\\\"path\\\":\\\"/controlled-workspace/reports/报告.md\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"created\":true,\"path\":\"/controlled-workspace/reports/报告.md\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-1",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-6",
+            "role": "user",
+            "source": {
+              "callId": "file-call-1",
+              "kind": "tool"
+            }
+          },
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 6,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 7,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 2,
+          "turn": 0
+        },
+        "seq": 8,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 9,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-10",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 2,
+          "turn": 0
+        },
+        "seq": 10,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"reports/报告.md\"}",
+          "callId": "file-call-2",
+          "name": "edit",
+          "step": 2,
+          "turn": 0
+        },
+        "seq": 11,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "generic",
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "reports/报告.md"
+            }
+          ],
+          "title": "Edit reports/报告.md"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"path\\\":\\\"/controlled-workspace/reports/报告.md\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"path\":\"/controlled-workspace/reports/报告.md\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-2",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-12",
+            "role": "user",
+            "source": {
+              "callId": "file-call-2",
+              "kind": "tool"
+            }
+          },
+          "step": 2,
+          "turn": 0
+        },
+        "seq": 12,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 2,
+          "turn": 0
+        },
+        "seq": 13,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 3,
+          "turn": 0
+        },
+        "seq": 14,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 15,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-16",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 3,
+          "turn": 0
+        },
+        "seq": 16,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"updated.txt\"}",
+          "callId": "file-call-3",
+          "name": "write",
+          "step": 3,
+          "turn": 0
+        },
+        "seq": 17,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "generic",
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "updated.txt"
+            }
+          ],
+          "title": "Write updated.txt"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"created\\\":false,\\\"path\\\":\\\"/controlled-workspace/updated.txt\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"created\":false,\"path\":\"/controlled-workspace/updated.txt\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-3",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-18",
+            "role": "user",
+            "source": {
+              "callId": "file-call-3",
+              "kind": "tool"
+            }
+          },
+          "step": 3,
+          "turn": 0
+        },
+        "seq": 18,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 3,
+          "turn": 0
+        },
+        "seq": 19,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 4,
+          "turn": 0
+        },
+        "seq": 20,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 21,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-22",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 4,
+          "turn": 0
+        },
+        "seq": 22,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"edited.txt\"}",
+          "callId": "file-call-4",
+          "name": "edit",
+          "step": 4,
+          "turn": 0
+        },
+        "seq": 23,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "generic",
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "edited.txt"
+            }
+          ],
+          "title": "Edit edited.txt"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"path\\\":\\\"/controlled-workspace/edited.txt\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"path\":\"/controlled-workspace/edited.txt\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-4",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-24",
+            "role": "user",
+            "source": {
+              "callId": "file-call-4",
+              "kind": "tool"
+            }
+          },
+          "step": 4,
+          "turn": 0
+        },
+        "seq": 24,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 4,
+          "turn": 0
+        },
+        "seq": 25,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 5,
+          "turn": 0
+        },
+        "seq": 26,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 27,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-28",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 5,
+          "turn": 0
+        },
+        "seq": 28,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"failed.txt\"}",
+          "callId": "file-call-5",
+          "name": "write",
+          "step": 5,
+          "turn": 0
+        },
+        "seq": 29,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "generic",
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "failed.txt"
+            }
+          ],
+          "title": "Write failed.txt"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"created\\\":true,\\\"path\\\":\\\"/controlled-workspace/failed.txt\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"created\":true,\"path\":\"/controlled-workspace/failed.txt\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": true,
+                "toolCallId": "file-call-5",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-30",
+            "role": "user",
+            "source": {
+              "callId": "file-call-5",
+              "kind": "tool"
+            }
+          },
+          "step": 5,
+          "turn": 0
+        },
+        "seq": 30,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 5,
+          "turn": 0
+        },
+        "seq": 31,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 6,
+          "turn": 0
+        },
+        "seq": 32,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 33,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-34",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 6,
+          "turn": 0
+        },
+        "seq": 34,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"uncertain.txt\"}",
+          "callId": "file-call-6",
+          "name": "write",
+          "step": 6,
+          "turn": 0
+        },
+        "seq": 35,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "generic",
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "uncertain.txt"
+            }
+          ],
+          "title": "Write uncertain.txt"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"created\\\":true,\\\"path\\\":\\\"/controlled-workspace/uncertain.txt\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"created\":true,\"path\":\"/controlled-workspace/uncertain.txt\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": true,
+                "toolCallId": "file-call-6",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-36",
+            "role": "user",
+            "source": {
+              "callId": "file-call-6",
+              "kind": "tool"
+            }
+          },
+          "step": 6,
+          "turn": 0
+        },
+        "seq": 36,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 6,
+          "turn": 0
+        },
+        "seq": 37,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 7,
+          "turn": 0
+        },
+        "seq": 38,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 39,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-40",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 7,
+          "turn": 0
+        },
+        "seq": 40,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"read-only.txt\"}",
+          "callId": "file-call-7",
+          "name": "read",
+          "step": 7,
+          "turn": 0
+        },
+        "seq": 41,
+        "time": 1792974419316,
+        "type": "tool/call"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"path\\\":\\\"/controlled-workspace/read-only.txt\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"path\":\"/controlled-workspace/read-only.txt\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-7",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-42",
+            "role": "user",
+            "source": {
+              "callId": "file-call-7",
+              "kind": "tool"
+            }
+          },
+          "step": 7,
+          "turn": 0
+        },
+        "seq": 42,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 7,
+          "turn": 0
+        },
+        "seq": 43,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 8,
+          "turn": 0
+        },
+        "seq": 44,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 45,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-46",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 8,
+          "turn": 0
+        },
+        "seq": 46,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"not-an-artifact.pdf\"}",
+          "callId": "file-call-8",
+          "name": "bash",
+          "step": 8,
+          "turn": 0
+        },
+        "seq": 47,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "terminal",
+          "title": "echo not-an-artifact.pdf"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"created\\\":true,\\\"path\\\":\\\"/controlled-workspace/not-an-artifact.pdf\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"created\":true,\"path\":\"/controlled-workspace/not-an-artifact.pdf\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-8",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-48",
+            "role": "user",
+            "source": {
+              "callId": "file-call-8",
+              "kind": "tool"
+            }
+          },
+          "step": 8,
+          "turn": 0
+        },
+        "seq": 48,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 8,
+          "turn": 0
+        },
+        "seq": 49,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 9,
+          "turn": 0
+        },
+        "seq": 50,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 51,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "text": "Done. No filenames in this closing prose.",
+                "type": "text"
+              }
+            ],
+            "id": "file-fixture-closing",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 9,
+          "turn": 0
+        },
+        "seq": 52,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 9,
+          "turn": 0
+        },
+        "seq": 53,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "reason": {
+            "kind": "completed"
+          },
+          "turn": 0
+        },
+        "seq": 54,
+        "time": 1792974419316,
+        "type": "turn/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "trigger": {
+            "kind": "message",
+            "source": {
+              "kind": "user"
+            }
+          },
+          "turn": 1
+        },
+        "seq": 55,
+        "time": 1792974419316,
+        "type": "turn/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "content": [
+            {
+              "text": "A second turn produces no files.",
+              "type": "text"
+            }
+          ],
+          "id": "restored-user-56",
+          "role": "user",
+          "source": {
+            "kind": "user",
+            "restored": true
+          }
+        },
+        "seq": 56,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "user/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 1,
+          "turn": 1
+        },
+        "seq": 57,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 58,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "text": "Nothing written.",
+                "type": "text"
+              }
+            ],
+            "id": "restored-assistant-59",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 1,
+          "turn": 1
+        },
+        "seq": 59,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 1,
+          "turn": 1
+        },
+        "seq": 60,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "reason": {
+            "kind": "completed"
+          },
+          "turn": 1
+        },
+        "seq": 61,
+        "time": 1792974419316,
+        "type": "turn/end"
+      }
+    }
+  ],
+  "partial": [
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"created\\\":true,\\\"path\\\":\\\"/controlled-workspace/reports/报告.md\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"created\":true,\"path\":\"/controlled-workspace/reports/报告.md\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-1",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-6",
+            "role": "user",
+            "source": {
+              "callId": "file-call-1",
+              "kind": "tool"
+            }
+          },
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 6,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    }
+  ],
+  "prefix": [
+    {
+      "event": {
+        "data": {
+          "trigger": {
+            "kind": "message",
+            "source": {
+              "kind": "user"
+            }
+          },
+          "turn": 0
+        },
+        "seq": 0,
+        "time": 1792974419316,
+        "type": "turn/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "content": [
+            {
+              "text": "Controlled file-card projection fixture; no model runs.",
+              "type": "text"
+            }
+          ],
+          "id": "restored-user-1",
+          "role": "user",
+          "source": {
+            "kind": "user",
+            "restored": true
+          }
+        },
+        "seq": 1,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "user/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 2,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "initial"
+        },
+        "seq": 3,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-4",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 4,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"reports/报告.md\"}",
+          "callId": "file-call-1",
+          "name": "write",
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 5,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "generic",
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "reports/报告.md"
+            }
+          ],
+          "title": "Write reports/报告.md"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"created\\\":true,\\\"path\\\":\\\"/controlled-workspace/reports/报告.md\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"created\":true,\"path\":\"/controlled-workspace/reports/报告.md\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-1",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-6",
+            "role": "user",
+            "source": {
+              "callId": "file-call-1",
+              "kind": "tool"
+            }
+          },
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 6,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    }
+  ],
+  "restart": [
+    {
+      "event": {
+        "data": {
+          "trigger": {
+            "kind": "message",
+            "source": {
+              "kind": "user"
+            }
+          },
+          "turn": 0
+        },
+        "seq": 0,
+        "time": 1792974419316,
+        "type": "turn/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "content": [
+            {
+              "text": "Controlled file-card projection fixture; no model runs.",
+              "type": "text"
+            }
+          ],
+          "id": "restored-user-1",
+          "role": "user",
+          "source": {
+            "kind": "user",
+            "restored": true
+          }
+        },
+        "seq": 1,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "user/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 2,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "auditSnapshot": {
+                "kind": "legacy_jsonl",
+                "seq": 3
+              },
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "initial"
+        },
+        "seq": 3,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-4",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 4,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"reports/报告.md\"}",
+          "callId": "file-call-1",
+          "name": "write",
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 5,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "generic",
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "reports/报告.md"
+            }
+          ],
+          "title": "Write reports/报告.md"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"created\\\":true,\\\"path\\\":\\\"/controlled-workspace/reports/报告.md\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"created\":true,\"path\":\"/controlled-workspace/reports/报告.md\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-1",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-6",
+            "role": "user",
+            "source": {
+              "callId": "file-call-1",
+              "kind": "tool"
+            }
+          },
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 6,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 7,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 2,
+          "turn": 0
+        },
+        "seq": 8,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "auditSnapshot": {
+                "kind": "legacy_jsonl",
+                "seq": 9
+              },
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 9,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-10",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 2,
+          "turn": 0
+        },
+        "seq": 10,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"reports/报告.md\"}",
+          "callId": "file-call-2",
+          "name": "edit",
+          "step": 2,
+          "turn": 0
+        },
+        "seq": 11,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "generic",
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "reports/报告.md"
+            }
+          ],
+          "title": "Edit reports/报告.md"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"path\\\":\\\"/controlled-workspace/reports/报告.md\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"path\":\"/controlled-workspace/reports/报告.md\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-2",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-12",
+            "role": "user",
+            "source": {
+              "callId": "file-call-2",
+              "kind": "tool"
+            }
+          },
+          "step": 2,
+          "turn": 0
+        },
+        "seq": 12,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 2,
+          "turn": 0
+        },
+        "seq": 13,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 3,
+          "turn": 0
+        },
+        "seq": 14,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "auditSnapshot": {
+                "kind": "legacy_jsonl",
+                "seq": 15
+              },
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 15,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-16",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 3,
+          "turn": 0
+        },
+        "seq": 16,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"updated.txt\"}",
+          "callId": "file-call-3",
+          "name": "write",
+          "step": 3,
+          "turn": 0
+        },
+        "seq": 17,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "generic",
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "updated.txt"
+            }
+          ],
+          "title": "Write updated.txt"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"created\\\":false,\\\"path\\\":\\\"/controlled-workspace/updated.txt\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"created\":false,\"path\":\"/controlled-workspace/updated.txt\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-3",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-18",
+            "role": "user",
+            "source": {
+              "callId": "file-call-3",
+              "kind": "tool"
+            }
+          },
+          "step": 3,
+          "turn": 0
+        },
+        "seq": 18,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 3,
+          "turn": 0
+        },
+        "seq": 19,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 4,
+          "turn": 0
+        },
+        "seq": 20,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "auditSnapshot": {
+                "kind": "legacy_jsonl",
+                "seq": 21
+              },
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 21,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-22",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 4,
+          "turn": 0
+        },
+        "seq": 22,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"edited.txt\"}",
+          "callId": "file-call-4",
+          "name": "edit",
+          "step": 4,
+          "turn": 0
+        },
+        "seq": 23,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "generic",
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "edited.txt"
+            }
+          ],
+          "title": "Edit edited.txt"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"path\\\":\\\"/controlled-workspace/edited.txt\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"path\":\"/controlled-workspace/edited.txt\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-4",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-24",
+            "role": "user",
+            "source": {
+              "callId": "file-call-4",
+              "kind": "tool"
+            }
+          },
+          "step": 4,
+          "turn": 0
+        },
+        "seq": 24,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 4,
+          "turn": 0
+        },
+        "seq": 25,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 5,
+          "turn": 0
+        },
+        "seq": 26,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "auditSnapshot": {
+                "kind": "legacy_jsonl",
+                "seq": 27
+              },
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 27,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-28",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 5,
+          "turn": 0
+        },
+        "seq": 28,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"failed.txt\"}",
+          "callId": "file-call-5",
+          "name": "write",
+          "step": 5,
+          "turn": 0
+        },
+        "seq": 29,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "generic",
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "failed.txt"
+            }
+          ],
+          "title": "Write failed.txt"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"created\\\":true,\\\"path\\\":\\\"/controlled-workspace/failed.txt\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"created\":true,\"path\":\"/controlled-workspace/failed.txt\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": true,
+                "toolCallId": "file-call-5",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-30",
+            "role": "user",
+            "source": {
+              "callId": "file-call-5",
+              "kind": "tool"
+            }
+          },
+          "step": 5,
+          "turn": 0
+        },
+        "seq": 30,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 5,
+          "turn": 0
+        },
+        "seq": 31,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 6,
+          "turn": 0
+        },
+        "seq": 32,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "auditSnapshot": {
+                "kind": "legacy_jsonl",
+                "seq": 33
+              },
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 33,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-34",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 6,
+          "turn": 0
+        },
+        "seq": 34,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"uncertain.txt\"}",
+          "callId": "file-call-6",
+          "name": "write",
+          "step": 6,
+          "turn": 0
+        },
+        "seq": 35,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "generic",
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "uncertain.txt"
+            }
+          ],
+          "title": "Write uncertain.txt"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"created\\\":true,\\\"path\\\":\\\"/controlled-workspace/uncertain.txt\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"created\":true,\"path\":\"/controlled-workspace/uncertain.txt\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": true,
+                "toolCallId": "file-call-6",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-36",
+            "role": "user",
+            "source": {
+              "callId": "file-call-6",
+              "kind": "tool"
+            }
+          },
+          "step": 6,
+          "turn": 0
+        },
+        "seq": 36,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 6,
+          "turn": 0
+        },
+        "seq": 37,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 7,
+          "turn": 0
+        },
+        "seq": 38,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "auditSnapshot": {
+                "kind": "legacy_jsonl",
+                "seq": 39
+              },
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 39,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-40",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 7,
+          "turn": 0
+        },
+        "seq": 40,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"read-only.txt\"}",
+          "callId": "file-call-7",
+          "name": "read",
+          "step": 7,
+          "turn": 0
+        },
+        "seq": 41,
+        "time": 1792974419316,
+        "type": "tool/call"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"path\\\":\\\"/controlled-workspace/read-only.txt\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"path\":\"/controlled-workspace/read-only.txt\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-7",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-42",
+            "role": "user",
+            "source": {
+              "callId": "file-call-7",
+              "kind": "tool"
+            }
+          },
+          "step": 7,
+          "turn": 0
+        },
+        "seq": 42,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 7,
+          "turn": 0
+        },
+        "seq": 43,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 8,
+          "turn": 0
+        },
+        "seq": 44,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "auditSnapshot": {
+                "kind": "legacy_jsonl",
+                "seq": 45
+              },
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 45,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [],
+            "id": "restored-assistant-46",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 8,
+          "turn": 0
+        },
+        "seq": 46,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "arguments": "{\"command\":\"echo not-an-artifact.pdf\",\"content\":\"new\",\"new\":\"new\",\"old\":\"old\",\"path\":\"not-an-artifact.pdf\"}",
+          "callId": "file-call-8",
+          "name": "bash",
+          "step": 8,
+          "turn": 0
+        },
+        "seq": 47,
+        "time": 1792974419316,
+        "type": "tool/call"
+      },
+      "view": {
+        "for": "call",
+        "view": {
+          "card": "terminal",
+          "title": "echo not-an-artifact.pdf"
+        }
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "content": [
+                  {
+                    "text": "{\"content\":\"{\\\"bytes_written\\\":3,\\\"created\\\":true,\\\"path\\\":\\\"/controlled-workspace/not-an-artifact.pdf\\\",\\\"sha256\\\":\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"}\",\"metadata\":{\"bytes_written\":3,\"created\":true,\"path\":\"/controlled-workspace/not-an-artifact.pdf\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "toolCallId": "file-call-8",
+                "type": "tool-result"
+              }
+            ],
+            "id": "restored-tool-48",
+            "role": "user",
+            "source": {
+              "callId": "file-call-8",
+              "kind": "tool"
+            }
+          },
+          "step": 8,
+          "turn": 0
+        },
+        "seq": 48,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "tool/result"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 8,
+          "turn": 0
+        },
+        "seq": 49,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 9,
+          "turn": 0
+        },
+        "seq": 50,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "auditSnapshot": {
+                "kind": "legacy_jsonl",
+                "seq": 51
+              },
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 51,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "text": "Done. No filenames in this closing prose.",
+                "type": "text"
+              }
+            ],
+            "id": "file-fixture-closing",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 9,
+          "turn": 0
+        },
+        "seq": 52,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 9,
+          "turn": 0
+        },
+        "seq": 53,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "reason": {
+            "kind": "completed"
+          },
+          "turn": 0
+        },
+        "seq": 54,
+        "time": 1792974419316,
+        "type": "turn/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "trigger": {
+            "kind": "message",
+            "source": {
+              "kind": "user"
+            }
+          },
+          "turn": 1
+        },
+        "seq": 55,
+        "time": 1792974419316,
+        "type": "turn/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "content": [
+            {
+              "text": "A second turn produces no files.",
+              "type": "text"
+            }
+          ],
+          "id": "restored-user-56",
+          "role": "user",
+          "source": {
+            "kind": "user",
+            "restored": true
+          }
+        },
+        "seq": 56,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "user/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 1,
+          "turn": 1
+        },
+        "seq": 57,
+        "time": 1792974419316,
+        "type": "step/start"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "header": {
+            "config": {
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            },
+            "input": [],
+            "options": {
+              "auditSnapshot": {
+                "kind": "legacy_jsonl",
+                "seq": 58
+              },
+              "inputMessageCount": 0,
+              "snapshotOnDemand": true,
+              "toolCount": 0
+            },
+            "tools": [],
+            "xharnessVersion": 1
+          },
+          "reason": "change"
+        },
+        "seq": 58,
+        "time": 1792974419316,
+        "type": "request/header"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "message": {
+            "content": [
+              {
+                "text": "Nothing written.",
+                "type": "text"
+              }
+            ],
+            "id": "restored-assistant-59",
+            "role": "assistant",
+            "source": {
+              "kind": "model",
+              "model": "unconfigured",
+              "provider": "openai-compatible"
+            }
+          },
+          "step": 1,
+          "turn": 1
+        },
+        "seq": 59,
+        "surfaceOp": "append",
+        "time": 1792974419316,
+        "type": "assistant/message"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "step": 1,
+          "turn": 1
+        },
+        "seq": 60,
+        "time": 1792974419316,
+        "type": "step/end"
+      }
+    },
+    {
+      "event": {
+        "data": {
+          "reason": {
+            "kind": "completed"
+          },
+          "turn": 1
+        },
+        "seq": 61,
+        "time": 1792974419316,
+        "type": "turn/end"
+      }
+    }
+  ],
+  "schema": 1,
+  "source": "real BasicHost mux, session.history and reopened JSONL; controlled tool payloads"
+}

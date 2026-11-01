@@ -1,5 +1,21 @@
 //! Scoped pull-based streams. No queue grows when a controller is slow; the
 //! Host's bounded broadcast reports a gap, and history must be restored.
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::let_underscore_must_use,
+    unused_must_use
+)]
+#![cfg_attr(
+    not(test),
+    forbid(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        unused_must_use
+    )
+)]
+
 use crate::{
     gateway::{authorize, valid_id, ResultBudget},
     store, *,

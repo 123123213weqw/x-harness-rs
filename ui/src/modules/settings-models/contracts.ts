@@ -32,7 +32,7 @@ export interface ConfigurableProviderView {
   provider: string; displayName: string; settingsNs: string; settingsPath: readonly string[]; active: boolean; declared?: boolean
 }
 export interface CredentialView { configured: boolean; writable: boolean }
-export interface DiscoveredModelView { id: string; name?: string; contextWindow?: number; maxTokens?: number; reasoning?: unknown; imageInput?: boolean }
+export interface DiscoveredModelView { id: string; name?: string; contextWindow?: number; maxTokens?: number; reasoning?: unknown; imageInput?: boolean; imageInputCapability?: unknown }
 export interface IApiClient {
   settings: {
     mutate(params: { ns: string; ops: readonly SettingsPathOpView[]; expectedRevision?: number }): Promise<{ result: ApiResult<SettingsNamespaceView> }>

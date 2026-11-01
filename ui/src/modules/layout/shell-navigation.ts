@@ -1,7 +1,7 @@
 import { SHELL_ROUTE_CHANGED, SHELL_ROUTE_REQUESTED } from '../shared/shell-route'
 
 /** Shell routes only: no transcript copies, browser history, or Agent commands. */
-export type ShellPage = 'chat' | 'plugins' | 'work' | 'review' | 'assistant'
+export type ShellPage = 'chat' | 'plugins' | 'work' | 'review' | 'assistant' | 'swarm'
 export interface ShellRoute { readonly page: ShellPage; readonly sessionId: string | undefined }
 export interface ShellNavigationSnapshot {
   readonly route: ShellRoute
@@ -35,7 +35,7 @@ export interface ShellNavigationControls {
 
 type HistoryRoute = ShellRoute & { readonly selectionPending?: true }
 
-const pages = ['plugins', 'work', 'review', 'assistant'] as const
+const pages = ['plugins', 'work', 'review', 'assistant', 'swarm'] as const
 const sameRoute = (a: ShellRoute, b: ShellRoute): boolean => a.page === b.page && a.sessionId === b.sessionId
 export const SHELL_HISTORY_LIMIT = 128
 
@@ -79,6 +79,7 @@ export class ShellNavigation implements ShellNavigationControls {
     const project = (): void => { this.present(this.snapshot.route.page) }
     target.addEventListener(SHELL_ROUTE_REQUESTED, project)
     target.addEventListener('xharness:assistant:close', this.close)
+    target.addEventListener('xharness:swarm:close', this.close)
     const off = this.sessions.list.subscribe(this.schedule)
     this.flush()
     this.present(this.snapshot.route.page)
@@ -87,6 +88,7 @@ export class ShellNavigation implements ShellNavigationControls {
       for (const remove of bindings) remove()
       target.removeEventListener(SHELL_ROUTE_REQUESTED, project)
       target.removeEventListener('xharness:assistant:close', this.close)
+      target.removeEventListener('xharness:swarm:close', this.close)
       this.target = undefined
       this.generation++
       this.scheduled = false

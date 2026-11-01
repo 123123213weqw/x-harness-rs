@@ -1,4 +1,20 @@
 //! Typed event references only; bytes are resolved by the scoped gateway sender.
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::let_underscore_must_use,
+    unused_must_use
+)]
+#![cfg_attr(
+    not(test),
+    forbid(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        unused_must_use
+    )
+)]
+
 use serde_json::Value;
 use xharness_remote::{Error, ReplyAttachment, ReplyBody, ReplyPlan, MAX_REPLY_BATCH};
 pub(crate) fn event_plans(

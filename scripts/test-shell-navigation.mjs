@@ -105,3 +105,10 @@ test('remounted navigation markers request a projection, not another feature ope
  const f=fixture(),projections=[],intents=[];f.target.addEventListener('xharness:shell-route-changed',e=>projections.push(e.detail.page));f.target.addEventListener('xharness:review:open',()=>intents.push('review'))
  await f.page('review');const before=json(f.nav.getSnapshot());f.target.dispatchEvent(new Event('xharness:shell-route-requested'));assert.deepEqual(projections,['review','review']);assert.deepEqual(intents,['review']);assert.deepEqual(f.writes,[]);assert.deepEqual(json(f.nav.getSnapshot()),before);f.dispose();f.target.dispatchEvent(new Event('xharness:shell-route-requested'));assert.equal(projections.length,2)
 })
+
+test('Swarm is an opt-in presentation route; close/replay never starts or interrupts work',async()=>{
+ const f=fixture();await f.page('swarm');assert.deepEqual(json(f.nav.getSnapshot().route),{page:'swarm',sessionId:'a'});assert.deepEqual(f.writes,[])
+ f.target.dispatchEvent(new Event('xharness:swarm:close'));await tick();assert.equal(f.nav.getSnapshot().route.page,'chat');assert.deepEqual(f.writes,[])
+ f.nav.back();assert.equal(f.nav.getSnapshot().route.page,'swarm');assert.deepEqual(f.writes,[])
+ f.dispose();f.target.dispatchEvent(new Event('xharness:swarm:close'));await tick();assert.equal(f.nav.getSnapshot().route.page,'swarm')
+})

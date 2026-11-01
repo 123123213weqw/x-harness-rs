@@ -168,6 +168,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ValueField = ValueField;
+exports.BooleanField = BooleanField;
 exports.SecretField = SecretField;
 const jsx_runtime_1 = require("react/jsx-runtime");
 /**
@@ -191,12 +192,14 @@ function ValueField(props) {
                         : null] }), (0, jsx_runtime_1.jsx)("input", { id: props.id, className: props.invalid ? fields_styles_1.default.inputInvalid : fields_styles_1.default.input, type: "text", ...props.numeric === true ? { inputMode: 'numeric' } : {}, ...props.invalid ? { 'aria-invalid': true } : {}, value: props.text, placeholder: props.placeholder ?? '', disabled: props.disabled, onChange: (event) => { props.onEdit(event.target.value); } }), (0, jsx_runtime_1.jsx)("p", { className: props.invalid ? fields_styles_1.default.invalid : fields_styles_1.default.hint, children: props.invalid ? props.invalidLabel : props.hint })] }));
 }
 /**
- * A write-only credential control. The value never rides a response, so the
- * control reports only whether one is configured and starts blank; a blank
- * draft writes nothing, which keeps the stored key rather than clearing it.
- * @param props - the field's copy, its staged text, and the configured state.
+ * A staged boolean control. Only the card's Save action writes the setting.
+ * @param props - the field's copy, staged value, and edit action.
  * @returns the labelled control.
  */
+function BooleanField(props) {
+    return ((0, jsx_runtime_1.jsxs)("div", { className: fields_styles_1.default.field, children: [(0, jsx_runtime_1.jsxs)("div", { className: fields_styles_1.default.head, children: [(0, jsx_runtime_1.jsx)("label", { className: fields_styles_1.default.label, htmlFor: props.id, children: props.label }), (0, jsx_runtime_1.jsx)("input", { id: props.id, type: "checkbox", role: "switch", checked: props.text !== 'false', "aria-describedby": `${props.id}-hint`, disabled: props.disabled, onChange: event => { props.onEdit(String(event.target.checked)); } })] }), (0, jsx_runtime_1.jsx)("p", { id: `${props.id}-hint`, className: fields_styles_1.default.hint, children: props.hint })] }));
+}
+/** Write-only credential control: blank drafts preserve the stored key. */
 function SecretField(props) {
     return ((0, jsx_runtime_1.jsxs)("div", { className: fields_styles_1.default.field, children: [(0, jsx_runtime_1.jsxs)("div", { className: fields_styles_1.default.head, children: [(0, jsx_runtime_1.jsx)("label", { className: fields_styles_1.default.label, htmlFor: props.id, children: props.label }), (0, jsx_runtime_1.jsx)("span", { className: fields_styles_1.default.badges, children: (0, jsx_runtime_1.jsx)("span", { className: props.configured ? fields_styles_1.default.badge : fields_styles_1.default.badgeMuted, children: props.stateLabel }) })] }), (0, jsx_runtime_1.jsx)("input", { id: props.id, className: fields_styles_1.default.input, type: "password", autoComplete: "off", value: props.text, disabled: props.disabled, onChange: (event) => { props.onEdit(event.target.value); } }), (0, jsx_runtime_1.jsx)("p", { className: fields_styles_1.default.hint, children: props.hint })] }));
 }
@@ -524,7 +527,7 @@ function WebSearchCard(props) {
                 // itself is read-only; they are separate stores with separate refusals.
                 // Its own writability is what disables this control — a key sourced
                 // from the process environment cannot be written from here.
-                disabled: !state.apiKeyWritable, text: state.apiKey.text, configured: state.apiKeyConfigured, stateLabel: state.apiKeyConfigured ? t('webSearchApiKeySet') : t('webSearchApiKeyUnset'), onEdit: (text) => { props.edit('apiKey', text); } }), (0, jsx_runtime_1.jsx)(fields_1.ValueField, { id: "plugin-config-web-search-endpoint", label: t('webSearchBaseUrl'), hint: t('webSearchBaseUrlHint'), overriddenLabel: t('overridden'), resetLabel: t('reset'), invalidLabel: t('invalidNumber'), disabled: disabled, ...state.baseURL, onEdit: (text) => { props.edit('baseURL', text); }, onReset: () => { props.resetField('baseURL'); } }), (0, jsx_runtime_1.jsx)(fields_1.ValueField, { id: "plugin-config-web-search-max-uses", label: t('webSearchMaxUses'), hint: t('webSearchMaxUsesHint'), overriddenLabel: t('overridden'), resetLabel: t('reset'), invalidLabel: t('invalidNumber'), numeric: true, disabled: disabled, ...state.maxUses, onEdit: (text) => { props.edit('maxUses', text); }, onReset: () => { props.resetField('maxUses'); } })] }));
+                disabled: !state.apiKeyWritable, text: state.apiKey.text, configured: state.apiKeyConfigured, stateLabel: state.apiKeyConfigured ? t('webSearchApiKeySet') : t('webSearchApiKeyUnset'), onEdit: (text) => { props.edit('apiKey', text); } }), (0, jsx_runtime_1.jsx)(fields_1.BooleanField, { id: "plugin-config-web-search-enabled", label: t('webSearchEnabled'), hint: t('webSearchEnabledHint'), disabled: disabled, text: state.enabled.text, onEdit: text => { props.edit('enabled', text); } })] }));
 }
 
 },
@@ -986,7 +989,11 @@ class WebSearchCardController {
         this.scope = scope;
         this.api = api;
         this.credential = { ref: '', configured: false, writable: true };
-        this.form = new card_form_1.CardForm(scope, [(0, card_form_1.textField)('baseURL'), (0, card_form_1.numberField)('maxUses')], [{ field: API_KEY_FIELD, write: text => this.writeKey(text) }]);
+        this.form = new card_form_1.CardForm(scope, [{
+                field: 'enabled',
+                format: value => value === false ? 'false' : 'true',
+                parse: text => text === 'true' || text === 'false' ? { kind: 'set', value: text === 'true' } : undefined,
+            }], [{ field: API_KEY_FIELD, write: text => this.writeKey(text) }]);
         this.store = this.form.bind(() => this.projection());
         scope.subscribe(() => { void this.readCredential(); });
         void this.readCredential();
@@ -994,8 +1001,7 @@ class WebSearchCardController {
     projection() {
         return {
             ...this.form.shell(),
-            baseURL: this.form.field('baseURL'),
-            maxUses: this.form.field('maxUses'),
+            enabled: this.form.field('enabled'),
             apiKey: this.form.field(API_KEY_FIELD),
             apiKeyConfigured: this.credential.configured,
             apiKeyWritable: this.credential.writable,
@@ -1067,15 +1073,21 @@ class WebSearchCardController {
      * @returns whether the Host reports a configured credential afterwards.
      */
     async writeKey(value) {
+        const reference = refOf(this.scope.getSnapshot());
         try {
-            await this.api.credentials.set({ ref: refOf(this.scope.getSnapshot()), value });
+            const response = await this.api.credentials.set({ ref: reference, value });
+            if (!response.result.ok)
+                return false;
         }
         catch (_credentialWriteFailure) {
-            // Refusals surface through the re-read below: the Host is the only
-            // authority on whether the key now exists.
+            return false;
         }
+        // A pre-existing key is not evidence that this write succeeded, and a
+        // concurrent reference change must not acknowledge the wrong credential.
+        if (reference !== refOf(this.scope.getSnapshot()))
+            return false;
         await this.readCredential();
-        return this.credential.configured;
+        return reference === this.credential.ref && this.credential.configured;
     }
 }
 exports.WebSearchCardController = WebSearchCardController;
@@ -1126,16 +1138,14 @@ exports.en = {
     agentLoopDescription: 'How the agent dispatches tool calls.',
     agentLoopMaxParallel: 'Parallel tool calls',
     agentLoopMaxParallelHint: 'Upper bound on parallel-safe calls running at once within one step.',
-    webSearchTitle: 'Web search',
-    webSearchDescription: 'Provider used for web search.',
-    webSearchApiKey: 'API key',
+    webSearchTitle: 'DeepSeek web search',
+    webSearchDescription: 'Search the web independently of the selected chat model.',
+    webSearchEnabled: 'Enable web search',
+    webSearchEnabledHint: 'Applies to every tool-capable chat model. Changes affect subsequent searches.',
+    webSearchApiKey: 'DeepSeek API key',
     webSearchApiKeyHint: 'Stored outside the settings file. Leave blank to keep the current key.',
     webSearchApiKeySet: 'A key is configured.',
     webSearchApiKeyUnset: 'No key is configured; search is unavailable until one is.',
-    webSearchBaseUrl: 'Endpoint',
-    webSearchBaseUrlHint: 'Leave blank to use the provider default.',
-    webSearchMaxUses: 'Max searches per request',
-    webSearchMaxUsesHint: 'How many times one request may search before it must answer.',
 };
 /** Simplified Chinese copy. */
 exports.zh = {
@@ -1166,16 +1176,14 @@ exports.zh = {
     agentLoopDescription: 'Agent 如何派发工具调用。',
     agentLoopMaxParallel: '并行工具调用数',
     agentLoopMaxParallelHint: '同一步内最多同时运行多少个可并行的调用。',
-    webSearchTitle: '网页搜索',
-    webSearchDescription: '用于网页搜索的提供方。',
-    webSearchApiKey: 'API Key',
+    webSearchTitle: 'DeepSeek web search',
+    webSearchDescription: 'Search the web independently of the selected chat model.',
+    webSearchEnabled: 'Enable web search',
+    webSearchEnabledHint: 'Applies to every tool-capable chat model. Changes affect subsequent searches.',
+    webSearchApiKey: 'DeepSeek API key',
     webSearchApiKeyHint: '不写入设置文件。留空表示保持当前密钥。',
     webSearchApiKeySet: '已配置密钥。',
     webSearchApiKeyUnset: '未配置密钥；配置之前搜索不可用。',
-    webSearchBaseUrl: '接口地址',
-    webSearchBaseUrlHint: '留空则使用提供方默认地址。',
-    webSearchMaxUses: '单次请求最多搜索次数',
-    webSearchMaxUsesHint: '一次请求在必须作答前最多可以搜索多少次。',
 };
 
 }

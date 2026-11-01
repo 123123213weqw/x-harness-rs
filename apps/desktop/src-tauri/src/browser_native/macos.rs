@@ -39,6 +39,10 @@ fn top_content_inset(view: &WKWebView) -> Result<f64, String> {
     )
 }
 
+pub fn content_inset(handle: PlatformWebview) -> Result<f64, String> {
+    top_content_inset(view(&handle)?)
+}
+
 fn content_point(x: f64, y: f64, height: f64, flipped: bool, top: f64) -> Result<NSPoint, String> {
     if ![x, y, height, top].iter().all(|value| value.is_finite())
         || x < 0.0
@@ -54,7 +58,13 @@ fn content_point(x: f64, y: f64, height: f64, flipped: bool, top: f64) -> Result
         if flipped { y + top } else { height - y - top },
     ))
 }
-fn pointer(handle: &PlatformWebview, x: f64, y: f64, phase: u8) -> Result<(), String> {
+fn pointer(
+    handle: &PlatformWebview,
+    x: f64,
+    y: f64,
+    viewport: (f64, f64),
+    phase: u8,
+) -> Result<(), String> {
     (|| {
         let view = view(handle)?;
         let window = view.window().ok_or("WKWebView window missing")?;
@@ -76,6 +86,12 @@ fn pointer(handle: &PlatformWebview, x: f64, y: f64, phase: u8) -> Result<(), St
         let flipped = view.isFlipped();
         let bounds = view.bounds();
         let height = bounds.size.height;
+        let (x, y) = crate::browser::viewport::content_point(
+            x,
+            y,
+            viewport,
+            (bounds.size.width, height - top),
+        )?;
         if x >= bounds.size.width {
             return Err("native browser point is outside its content viewport".into());
         }
@@ -134,16 +150,18 @@ fn pointer(handle: &PlatformWebview, x: f64, y: f64, phase: u8) -> Result<(), St
 pub fn input(
     handle: PlatformWebview,
     request: super::InputRequest,
+    viewport: (f64, f64),
     reply: Sender<Result<(), String>>,
 ) {
     use super::InputRequest;
     match request {
         InputRequest::Click { x, y, .. } => {
-            let result = pointer(&handle, x, y, 0).and_then(|_| pointer(&handle, x, y, 1));
+            let result = pointer(&handle, x, y, viewport, 0)
+                .and_then(|_| pointer(&handle, x, y, viewport, 1));
             let _ = reply.send(result);
         }
         InputRequest::Move { x, y, .. } => {
-            let _ = reply.send(pointer(&handle, x, y, 2));
+            let _ = reply.send(pointer(&handle, x, y, viewport, 2));
         }
         InputRequest::Key { key, modifiers, .. } => {
             let result = (|| {

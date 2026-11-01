@@ -1,0 +1,74 @@
+{
+  "schema": "xharness.reference-source.v1",
+  "repository": "https://github.com/zai-org/ZCode.git",
+  "revision": "3c5b227649371507ddc4eb46ac5133afe6db1cab",
+  "extractor": "git show exact object bytes; no source modifications",
+  "files": [
+    {
+      "path": "apps/zcode-cli/packages/adapters/src/browser/descriptor.ts",
+      "gitBlob": "dabce637ec9681f3454b477f7fa5245e28d8eae2",
+      "sha256": "b9178cd73d767f5f2ff300933b88fe001ba2909f47ab092b8cfb1a7d259c5815",
+      "bytes": 862
+    },
+    {
+      "path": "apps/zcode-cli/packages/adapters/src/browser/executable.ts",
+      "gitBlob": "91e3509c308d45d626c1628ce4f13e584398ca3d",
+      "sha256": "a85d37fe974232626bd0313a8b1d5d7dc83bd203ef17bedd7bf371d8a5fd6268",
+      "bytes": 3268
+    },
+    {
+      "path": "apps/zcode-cli/packages/adapters/src/browser/index.ts",
+      "gitBlob": "e7699de069438e1acb0c13768cd9639f2ec118a7",
+      "sha256": "1d9018fbd72962b5dfc0dbe3ac276a821a8e0c3666d7771a595be31ded0f33f8",
+      "bytes": 15738
+    },
+    {
+      "path": "apps/zcode-cli/packages/adapters/src/browser/page-command.ts",
+      "gitBlob": "a8bd460db66941d46b99bf91397fd715ae9b3262",
+      "sha256": "b553826ed19d6a3f09b8f6c18c1b44dea3189f68a3f91f2bfd7d12e6b96534d0",
+      "bytes": 10451
+    },
+    {
+      "path": "apps/zcode-cli/packages/adapters/src/browser/playwright-command.ts",
+      "gitBlob": "6a894851398287d5b063da5034bc704bdebc44b9",
+      "sha256": "6d21b05ac23f361b069fd495ace51c3ced9d65403aeec35af52813c6dc8896fa",
+      "bytes": 8954
+    },
+    {
+      "path": "apps/zcode-cli/packages/adapters/src/browser/request.ts",
+      "gitBlob": "ce83a055142d9dd67c84b8c65dbae612f456c422",
+      "sha256": "2b42e23fb8fd2211b513ee8462e20072af80126333d458af4adfa0e2db633552",
+      "bytes": 1697
+    },
+    {
+      "path": "apps/zcode-cli/packages/adapters/src/browser/session.ts",
+      "gitBlob": "1d606527183852e68971f9b3154b1eb9941e5912",
+      "sha256": "65f23a112f3b8665f7242b8994c4b0c25309a6263210117346a23c1f8bb4402d",
+      "bytes": 3913
+    },
+    {
+      "path": "apps/zcode-cli/packages/adapters/src/browser/snapshot.ts",
+      "gitBlob": "1384192d68d9e9afc771739e4abe713b5dedc1be",
+      "sha256": "09df4b61ee9316de478f3bdc94fc6deedf61dec7a3474212da569157b4684bcc",
+      "bytes": 9971
+    },
+    {
+      "path": "apps/zcode-cli/packages/adapters/package.json",
+      "gitBlob": "6d4a95582e034d5fcd9f167755f526636139c8af",
+      "sha256": "12316ccf002e19a4fbc6536007b2e89ded5704a8f757baeec4dc83d47c0ea345",
+      "bytes": 3520
+    },
+    {
+      "path": "apps/zcode-cli/packages/contracts/src/interfaces/browser-control.port.ts",
+      "gitBlob": "b1dea811db391070fa614fa36b0f7ec266282053",
+      "sha256": "d74174b0d1cbbd6d74e89bde667a1e5ae6f7f59aa5bcfcbc65fee4c916d3b705",
+      "bytes": 17434
+    },
+    {
+      "path": "LICENSE",
+      "gitBlob": "550d8df4cfc74878663a511caa97852f15fd9592",
+      "sha256": "606c36baf38b973227273df12a74930e4b4137280eea835c5cd623aa4553c13b",
+      "bytes": 11344
+    }
+  ]
+}

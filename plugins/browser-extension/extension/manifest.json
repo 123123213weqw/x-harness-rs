@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "XHarness Browser",
+  "version": "0.1.0",
+  "minimum_chrome_version": "123",
+  "description": "Connect explicitly authorized browser tabs to XHarness without taking over your desktop.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAq4lLALn/u90UbX4v02S0TUie6LtruZ8ybUigdfH6OGNu0qDwrn/Ajhsixv/f4/JiNpdTyAw+NGq069VFigVremlKK/DmYvvYfSunRRcXA+tDWAnVs2PGcQyjAp/rueuhuMFedbMCnmWCCZT1pm94QMAfchTtdmlFsV7Bfv13Jvfetd0f8BFfR4vWvxU6hef9z7vGb9keQDCVN3AQG02xqThNqeEhYsQCNX2NSujYfF4umJ3pECraS5Tz1YYQUpQkan9ZS6Pc1qqIm7/z4ck/huywaxvFapsYPjK7y1pwN7sNicx2nFsmFTrv0+PZvBRMv4DugTKOI7J+7EfVSV/l4wIDAQAB",
+  "permissions": [
+    "debugger",
+    "nativeMessaging",
+    "scripting",
+    "tabs",
+    "storage",
+    "alarms"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "extension/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "XHarness Browser",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

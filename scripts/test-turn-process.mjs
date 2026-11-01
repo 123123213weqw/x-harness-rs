@@ -15,7 +15,7 @@ const answer={status:'settled',turn:1,step:1,blocks,finalNode:{kind:'assistant',
 const tail = { turn:1,seq:25,time:165000,closing:answer,branchUnavailable:false }
 const node = (kind,data={}) => ({key:kind,kind,data})
 
-test('running status uses Working in both locales, keeps the elapsed clock, and disappears when idle', () => {
+test('running status uses the accessible spinner in both locales, keeps the elapsed clock, and disappears when idle', () => {
   for (const language of ['en', 'zh']) {
     assert.equal(plugin[language]['xh.turn.working'], 'Working…')
     const localized = (key, args = {}) => (plugin[language][key] ?? key).replace(/\{(\w+)\}/g, (_, k) => args[k])
@@ -35,9 +35,16 @@ test('running status uses Working in both locales, keeps the elapsed clock, and 
       if (!running) continue
       hooks.reset()
       const status = hooks.render(() => statuses[0].type(statuses[0].props))
-      assert.equal(status.props.role, 'status')
-      assert.equal(status.props['aria-live'], 'polite')
-      assert.equal(status.props.children[0], 'Working…')
+      assert.match(status.props.className, /_turnStatus$/) // stream-motion activity gate
+      const indicators = descendants(status, n => typeof n.type === 'function' && n.type.name === 'LoadingIndicator')
+      assert.equal(indicators.length, 1)
+      assert.equal(indicators[0].props.active, true)
+      assert.equal(indicators[0].props.label, 'Working…')
+      const indicator = indicators[0].type(indicators[0].props)
+      assert.equal(indicator.props.role, 'status')
+      assert.equal(indicator.props['aria-live'], 'polite')
+      assert.equal(indicator.props['aria-label'], 'Working…')
+      assert.equal(indicator.props['data-xh-loading-indicator'], 'true')
       const clocks = descendants(status, n => n.type === 'span')
       assert.equal(clocks.length, start === null ? 0 : 1)
       if (start !== null) assert.match(clocks[0].props.children, language === 'en' ? /^\d+s$/ : /^\d+秒$/)

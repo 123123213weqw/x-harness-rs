@@ -1,12 +1,20 @@
 import type {ClientConnectionRpc} from '../../client-connection/rpc-contracts'
+import {FileInspectionCache} from '../../shared/file-inspection'
+import {resolveWorkspacePath} from '../../client-runtime/workspaces/path'
+import {parentPath} from '../../shared/file-types'
+import type {DisplayInspection} from '../../shared/file-inspection'
 import {DisplayFileSchema} from '../../shared/generated/file-display'
 import type {DisplayFile,GitDiffScope} from '../../shared/generated/file-display'
 export const MAX_IMAGE_BYTES=8*1024*1024
 export const MAX_TEXT_BYTES=512*1024
 export class FileDisplayClient {
-  constructor(private readonly rpc:ClientConnectionRpc,private readonly external?:{available():boolean;open(path:string):Promise<void>}){}
-  canOpenExternal(path:string):boolean{return this.external?.available()===true&&(path.startsWith('/')||/^[a-z]:[\\/]/i.test(path)||path.startsWith('\\\\'))}
+  private readonly inspections:FileInspectionCache
+  constructor(private readonly rpc:ClientConnectionRpc,private readonly external?:{available():boolean;open(path:string):Promise<void>;canReveal?():boolean;reveal?(path:string):Promise<void>}){this.inspections=new FileInspectionCache(rpc)}
+  inspect(sessionId:string,path:string,signal:AbortSignal,relativeTo?:string,revision=0):Promise<DisplayInspection|undefined>{return this.inspections.read(sessionId,relativeTo?resolveWorkspacePath(parentPath(relativeTo),path):path,revision,false,signal)}
+  canOpenExternal(path:string):boolean{return this.external?.available()===true&&!path.includes('\0')&&(path.startsWith('/')||/^[a-z]:[\\/]/i.test(path)||path.startsWith('\\\\'))}
   async openExternal(path:string):Promise<void>{if(!this.external||!this.canOpenExternal(path))throw new Error("System opener requires a resolved absolute path");await this.external.open(path)}
+  canReveal(path:string):boolean{return this.canOpenExternal(path)&&this.external?.canReveal?.()===true&&this.external.reveal!==undefined}
+  async reveal(path:string):Promise<void>{if(!this.external?.reveal||!this.canReveal(path))throw new Error('Showing in folder is unavailable');await this.external.reveal(path)}
   async read(sessionId:string,path:string,signal:AbortSignal,relativeTo?:string,gitDiff?:GitDiffScope):Promise<DisplayFile>{
     const response=await this.rpc.call('/api','display/read',{sessionId,path,...relativeTo===undefined?{}:{relativeTo},...gitDiff===undefined?{}:{gitDiff}},AbortSignal.any([signal,AbortSignal.timeout(20000)]))
     if(!response.ok)throw new Error(response.error.message)
@@ -14,6 +22,8 @@ export class FileDisplayClient {
     if(file.path.length===0||file.path.length>4096)throw new Error('Invalid display path')
     if(file.kind==='image'){
       if(!['image/png','image/jpeg','image/webp','image/gif'].includes(file.mediaType)||file.width<1||file.height<1||file.width*file.height>16*1024*1024||file.dataBase64.length>Math.ceil(MAX_IMAGE_BYTES/3)*4||file.dataBase64.length%4!==0||!(/^[A-Za-z0-9+/]*={0,2}$/).test(file.dataBase64))throw new Error('Invalid or oversized preview image')
+    }else if(file.kind==='pdf'){
+      if(!validBase64(file.dataBase64)||!file.dataBase64.startsWith('JVBERi0'))throw new Error('Invalid or oversized PDF')
     }else if(file.text.length>MAX_TEXT_BYTES||new TextEncoder().encode(file.text).length>MAX_TEXT_BYTES||file.text.includes('\0'))throw new Error('Invalid or oversized preview text')
     return file
   }
@@ -41,4 +51,29 @@ export const codeLanguage=(path:string):string|undefined=>{
   const extension=path.split('.').at(-1)?.toLowerCase()??''
   const languages:Readonly<Record<string,string>>={rs:'rust',py:'python',js:'javascript',jsx:'jsx',ts:'typescript',tsx:'tsx',json:'json',toml:'toml',yaml:'yaml',yml:'yaml',sh:'bash',css:'css',html:'html',c:'c',h:'c',cpp:'cpp',sql:'sql'}
   return languages[extension]
+}
+
+function validBase64(data:string):boolean {
+  return data.length>0&&data.length<=Math.ceil(MAX_IMAGE_BYTES/3)*4&&data.length%4===0&&/^[A-Za-z0-9+/]*={0,2}$/.test(data)
+}
+export function pdfObjectUrl(file:Extract<DisplayFile,{kind:'pdf'}>):string {
+  if(!validBase64(file.dataBase64))throw new Error('Invalid or oversized PDF')
+  const binary=atob(file.dataBase64)
+  if(binary.length>MAX_IMAGE_BYTES||!binary.startsWith('%PDF-'))throw new Error('Invalid PDF bytes')
+  return URL.createObjectURL(new Blob([Uint8Array.from(binary,c=>c.charCodeAt(0))],{type:'application/pdf'}))
+}
+export const isHtmlPath=(path:string):boolean=>/\.(?:html?|svg)$/i.test(path)
+/** Static, isolated preview: no scripts, remote resources, navigation or Host IPC. */
+export function staticHtmlDocument(text:string):string {
+  const document=new DOMParser().parseFromString(text,'text/html')
+  document.querySelectorAll('script,iframe,frame,object,embed,base,meta,link,form').forEach(node=>node.remove())
+  for(const node of document.querySelectorAll('*'))for(const attribute of Array.from(node.attributes)){
+    const name=attribute.name.toLowerCase()
+    if(name.startsWith('on')||['href','xlink:href','action','formaction','poster','background','srcset','srcdoc','ping'].includes(name)
+      ||name==='src'&&!/^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(attribute.value))node.removeAttribute(attribute.name)
+  }
+  const policy=document.createElement('meta');policy.httpEquiv='Content-Security-Policy'
+  policy.content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'"
+  document.head.prepend(policy)
+  return '<!doctype html>'+document.documentElement.outerHTML
 }

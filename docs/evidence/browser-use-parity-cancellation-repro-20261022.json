@@ -1,0 +1,30 @@
+{
+  "schema": "xharness.browser-use.navigation-cancellation-repro.v1",
+  "sourceOfReceipt": "/Users/wangyue/codex-build/xharness-browser-use-parity-evidence-20261022/logs/legacy-pre-fix-raw.jsonl",
+  "sourceSha256": "d4f8cf7c358519b091b0c5e15b5b9e2c7b8503daf4baf3623100edf951602ffd",
+  "beforeFix": {
+    "legacyTestUnchanged": true,
+    "failureLine": 193,
+    "mcpReplyId": 14,
+    "receipt": {
+      "action": "click",
+      "outcome": "applied",
+      "tabId": "tab-a5f47b62-30f6-4d50-9365-e84d0b4af4f2",
+      "result": {},
+      "replaySafe": false,
+      "error": {
+        "code": "operation_rejected",
+        "message": "Native origin enforcement failed closed: Invalid InterceptionId."
+      },
+      "effect": "applied"
+    }
+  },
+  "scope": "First-party local fixture: before this navigation only allowed same-origin report requests had been dispatched. Exact native continuation cancellation misclassified as global policy failure. No claim of full CDP protocol trace.",
+  "fix": "Tolerate only exact Invalid InterceptionId. from already-allowed Fetch.continueRequest; no request or action retry. Denial/unknown/timeout remain fail-closed.",
+  "coverage": [
+    "cancel-fetch",
+    "scripts/browser_use/policy-contract.test.mjs",
+    "scripts/gui_bench/test_browser.mjs"
+  ],
+  "reference": "https://github.com/microsoft/playwright/blob/v1.61.1/packages/playwright-core/src/server/chromium/crNetworkManager.ts#L680-L694"
+}

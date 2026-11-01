@@ -11,3 +11,5 @@ public static class Fixture { public static void Main() {} }
 '@
 & "$PSScriptRoot/test-install-ownership-logic.ps1" -DesktopBinary $fixture
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
+& "$PSScriptRoot/test-install-native-shell.ps1" -DesktopBinary $fixture
+if ($LASTEXITCODE) { exit $LASTEXITCODE }

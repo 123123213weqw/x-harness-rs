@@ -4,8 +4,6 @@
  * @module @deepseek-ai/dsh-agent/types
  */
 
-import type { UserMessage } from '../../client-connection/contracts/llm/llm/types'
-
 /** One of the two ordered pending-message lists owned by an agent. */
 export type InboxTarget = 'next-turn' | 'next-step'
 
@@ -20,7 +18,7 @@ declare module '../../client-connection/contracts/core/session/types' {
       target: InboxTarget
       start: number
       removedCount?: number
-      inserted: UserMessage[]
+      inserted: readonly { readonly id: string }[]
       outcome?: 'canceled'
     }
   }

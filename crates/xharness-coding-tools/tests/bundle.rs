@@ -659,7 +659,12 @@ async fn cancelled_bash_result_is_published_only_after_the_process_tree_is_dead(
 
 #[cfg(target_os = "linux")]
 fn linux_process_state(pid: u32) -> Option<char> {
-    match fs::read_to_string(format!("/proc/{pid}/stat")) {
+    linux_process_state_from_read(pid, fs::read_to_string(format!("/proc/{pid}/stat")))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_process_state_from_read(pid: u32, read: std::io::Result<String>) -> Option<char> {
+    match read {
         Ok(stat) => Some(
             stat.rsplit_once(") ")
                 .expect("process stat has a command name")
@@ -668,8 +673,107 @@ fn linux_process_state(pid: u32) -> Option<char> {
                 .next()
                 .expect("process stat has a state"),
         ),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        // Linux procfs can lose its task between opening stat and reading it:
+        // ESRCH (Linux errno 3), like ENOENT, proves that PID has disappeared.
+        // Permission, I/O and malformed-stat errors must still fail the test.
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound || error.raw_os_error() == Some(3) =>
+        {
+            None
+        }
         Err(error) => panic!("cannot inspect managed pid {pid}: {error}"),
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_proc_reader_recognizes_a_pid_reaped_during_stat_read() {
+    // Linux can report ESRCH after /proc/<pid>/stat was opened but before read.
+    // ENOENT instead covers a PID that vanished before opening the file.
+    for errno in [2, 3] {
+        assert_eq!(
+            linux_process_state_from_read(42, Err(std::io::Error::from_raw_os_error(errno))),
+            None
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_proc_reader_keeps_live_and_zombie_states_distinct() {
+    for state in ['R', 'S', 'Z'] {
+        assert_eq!(
+            linux_process_state_from_read(42, Ok(format!("42 (a (process) name) {state} 1 2"))),
+            Some(state)
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_proc_reader_does_not_hide_inspection_failures_as_process_exit() {
+    for kind in [
+        std::io::ErrorKind::PermissionDenied,
+        std::io::ErrorKind::Other,
+    ] {
+        assert!(std::panic::catch_unwind(|| {
+            linux_process_state_from_read(42, Err(std::io::Error::from(kind)))
+        })
+        .is_err());
+    }
+    assert!(std::panic::catch_unwind(|| {
+        linux_process_state_from_read(42, Ok("invalid stat".to_owned()))
+    })
+    .is_err());
+}
+
+#[tokio::test]
+async fn grep_previews_minified_lines_and_bounds_many_matches() {
+    let workspace = TempWorkspace::new();
+    fs::write(
+        workspace.0.join("minified.js"),
+        format!("needle{}\n", "x".repeat(300_000)),
+    )
+    .unwrap();
+    fs::write(
+        workspace.0.join("ordinary.txt"),
+        "needle keep this exact line\n",
+    )
+    .unwrap();
+    fs::write(
+        workspace.0.join("many.txt"),
+        "needle matched line\n".repeat(10_000),
+    )
+    .unwrap();
+    let e = executor(&workspace).await;
+    for file in ["minified.js", "ordinary.txt", "many.txt"] {
+        let result = e
+            .execute(ToolRequest::new(
+                "grep",
+                serde_json::json!({"pattern":"needle","path":file}).to_string(),
+            ))
+            .await;
+        assert!(result.is_ok(), "{result:?}");
+        let output: Value = serde_json::from_str(&result.output.unwrap().content).unwrap();
+        let stdout = output["stdout"].as_str().unwrap();
+        // Capture retains 32 KiB plus its explicit fixed-format omission notice.
+        assert!(stdout.len() <= 32 * 1024 + 64);
+        assert!(!output["no_matches"].as_bool().unwrap());
+        if file == "ordinary.txt" {
+            assert!(stdout.contains("needle keep this exact line"));
+        }
+        if file == "minified.js" {
+            assert!(stdout.contains("needle"));
+            assert!(
+                stdout.contains("omitted"),
+                "long-line preview must announce omission: {stdout}"
+            );
+            assert!(stdout.len() < 1000);
+        }
+        if file == "many.txt" {
+            assert_eq!(output["stdout_truncated"], true);
+            assert!(output["stdout_omitted_bytes"].as_u64().unwrap() > 0);
+        }
     }
 }
 
@@ -695,5 +799,45 @@ async fn search_tools_distinguish_no_matches_and_real_errors() {
         if !ok {
             assert!(result.failure.unwrap().message.contains("stderr"));
         }
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn log_filter_no_match_does_not_replace_the_producer_exit_status() {
+    let workspace = TempWorkspace::new();
+    let executor = executor(&workspace).await;
+    let no_match = executor
+        .execute(ToolRequest::new(
+            "bash",
+            serde_json::json!({"command":"printf 'Build complete\\n' | grep '^error'"}).to_string(),
+        ))
+        .await;
+    assert_eq!(
+        no_match.failure_kind(),
+        Some(xharness_tools::ToolFailureKind::CommandFailed)
+    );
+    let value: Value = serde_json::from_str(&no_match.output.unwrap().content).unwrap();
+    assert_eq!(
+        value["exit_code"], 1,
+        "no-match must not be silently reclassified"
+    );
+
+    for code in [0, 7] {
+        // Synthetic producers, not Rust compilation. Capturing the status before
+        // displaying a log preserves success and failure without blanket recovery.
+        let command = format!(
+            "(printf 'Build fixture\\n'; exit {code}) > build.log 2>&1; producer_status=$?; sed -n '1,8p' build.log; exit \"$producer_status\""
+        );
+        let result = executor
+            .execute(ToolRequest::new(
+                "bash",
+                serde_json::json!({"command":command}).to_string(),
+            ))
+            .await;
+        assert_eq!(result.is_ok(), code == 0);
+        let value: Value = serde_json::from_str(&result.output.unwrap().content).unwrap();
+        assert_eq!(value["exit_code"], code);
+        assert!(value["stdout"].as_str().unwrap().contains("Build fixture"));
     }
 }

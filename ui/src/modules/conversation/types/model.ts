@@ -361,6 +361,9 @@ export interface PromptError {
  * through this store.
  */
 export interface ChatNodeStore {
+  /** Changes only when node kind, location or order-relevant metadata changes. */
+  readonly structureVersion?: number
+
   /** @param key - stable Conversation Context key. @returns current Node, when visible or hidden. */
   get(key: string): ChatConversationViewNode | undefined
   /** @returns all currently materialized Nodes without imposing render order. */
@@ -444,6 +447,8 @@ export interface ConversationSnapshot {
   /** Authoritative transient inbox snapshot, including queued and steering placements. */
   queue: readonly QueuedMessage[]
   running: boolean
+  /** Local stop admission; acceptance is not authoritative turn completion. */
+  stopRequested?: boolean
   /**
    * Catalog-discovered continuation address. Its parent availability controls
    * human input; null means ordinary session transport.

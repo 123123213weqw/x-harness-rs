@@ -1,0 +1,349 @@
+{
+  "passed": true,
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "kind": "bounded real arithmetic orchestration and live visibility test",
+  "owner": "swarm-scale12-1792161988",
+  "team": "swarm-1792161988730-373",
+  "workers": 12,
+  "acceptedTasks": 13,
+  "actualWorkerAnswers": {
+    "Scale 01": "RANGE_01=55\nThis is the inclusive range of integers from 1 to 10.",
+    "Scale 02": "RANGE_02=155\nThe range covers the integers 11 through 20 inclusive.",
+    "Scale 03": "RANGE_03=255\n\nThe range covers the integers 21 through 30 inclusive.",
+    "Scale 04": "RANGE_04=355\n\nThe range spans the integers 31 through 40 inclusive.",
+    "Scale 05": "RANGE_05=455\n\nThe sum covers the inclusive integer range from 41 to 50.",
+    "Scale 06": "RANGE_06=555\n\nSum of the integers 51 through 60 inclusive.",
+    "Scale 07": "RANGE_07=655\n\nThe range spans the integers 61 through 70 inclusive.",
+    "Scale 08": "RANGE_08=755\nThe range covers the ten consecutive integers from 71 through 80.",
+    "Scale 09": "RANGE_09=855\n\nThe range spans the ten consecutive integers from 81 through 90 inclusive.",
+    "Scale 10": "RANGE_10=955\n\nThe range covered the consecutive integers from 91 through 100 inclusive.",
+    "Scale 11": "RANGE_11=1055\n\nThe range is the ten consecutive integers from 101 through 110 inclusive.",
+    "Scale 12": "RANGE_12=1155\n\nThis is the sum of the inclusive integer range 111 through 120.",
+    "Scale checksum": "CHECKSUM=7260\n\nSource values in range order: RANGE_01=55, RANGE_02=155, RANGE_03=255, RANGE_04=355, RANGE_05=455, RANGE_06=555, RANGE_07=655, RANGE_08=755, RANGE_09=855, RANGE_10=955, RANGE_11=1055, RANGE_12=1155."
+  },
+  "matchingAssignmentTurns": {
+    "swarm-task-1792162044253-1895": 2,
+    "swarm-task-1792162046071-1930": 2,
+    "swarm-task-1792162047422-1958": 2,
+    "swarm-task-1792162049012-1991": 2,
+    "swarm-task-1792162050623-2024": 2,
+    "swarm-task-1792162052082-2057": 2,
+    "swarm-task-1792162053374-2090": 2,
+    "swarm-task-1792162055037-2123": 2,
+    "swarm-task-1792162056444-2156": 2,
+    "swarm-task-1792162058020-2189": 2,
+    "swarm-task-1792162059714-2222": 2,
+    "swarm-task-1792162060951-2255": 2,
+    "swarm-task-1792162063599-2312": 3
+  },
+  "consumedDeliveryCounts": {
+    "swarm-task-1792162044253-1895": 1,
+    "swarm-task-1792162046071-1930": 1,
+    "swarm-task-1792162047422-1958": 1,
+    "swarm-task-1792162049012-1991": 1,
+    "swarm-task-1792162050623-2024": 1,
+    "swarm-task-1792162052082-2057": 1,
+    "swarm-task-1792162053374-2090": 1,
+    "swarm-task-1792162055037-2123": 1,
+    "swarm-task-1792162056444-2156": 1,
+    "swarm-task-1792162058020-2189": 1,
+    "swarm-task-1792162059714-2222": 1,
+    "swarm-task-1792162060951-2255": 1,
+    "swarm-task-1792162063599-2312": 1
+  },
+  "claimControlSequences": {
+    "swarm-task-1792162044253-1895": 94,
+    "swarm-task-1792162046071-1930": 96,
+    "swarm-task-1792162047422-1958": 98,
+    "swarm-task-1792162049012-1991": 100,
+    "swarm-task-1792162050623-2024": 102,
+    "swarm-task-1792162052082-2057": 104,
+    "swarm-task-1792162053374-2090": 106,
+    "swarm-task-1792162055037-2123": 108,
+    "swarm-task-1792162056444-2156": 126,
+    "swarm-task-1792162058020-2189": 128,
+    "swarm-task-1792162059714-2222": 130,
+    "swarm-task-1792162060951-2255": 132,
+    "swarm-task-1792162063599-2312": 166
+  },
+  "acceptedControlSequences": {
+    "swarm-task-1792162044253-1895": 142,
+    "swarm-task-1792162046071-1930": 144,
+    "swarm-task-1792162047422-1958": 146,
+    "swarm-task-1792162049012-1991": 148,
+    "swarm-task-1792162050623-2024": 150,
+    "swarm-task-1792162052082-2057": 152,
+    "swarm-task-1792162053374-2090": 154,
+    "swarm-task-1792162055037-2123": 156,
+    "swarm-task-1792162056444-2156": 158,
+    "swarm-task-1792162058020-2189": 160,
+    "swarm-task-1792162059714-2222": 162,
+    "swarm-task-1792162060951-2255": 164,
+    "swarm-task-1792162063599-2312": 170
+  },
+  "coordinatorToolCalls": [
+    {
+      "name": "agent",
+      "action": "start",
+      "command": null
+    },
+    {
+      "name": "agent",
+      "action": "start",
+      "command": null
+    },
+    {
+      "name": "agent",
+      "action": "start",
+      "command": null
+    },
+    {
+      "name": "agent",
+      "action": "start",
+      "command": null
+    },
+    {
+      "name": "agent",
+      "action": "start",
+      "command": null
+    },
+    {
+      "name": "agent",
+      "action": "start",
+      "command": null
+    },
+    {
+      "name": "agent",
+      "action": "start",
+      "command": null
+    },
+    {
+      "name": "agent",
+      "action": "start",
+      "command": null
+    },
+    {
+      "name": "agent",
+      "action": "start",
+      "command": null
+    },
+    {
+      "name": "agent",
+      "action": "start",
+      "command": null
+    },
+    {
+      "name": "agent",
+      "action": "start",
+      "command": null
+    },
+    {
+      "name": "agent",
+      "action": "start",
+      "command": null
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "list"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "add"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "add"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "add"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "add"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "add"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "add"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "add"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "add"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "add"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "add"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "add"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "add"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "add"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "list"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "list"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "list"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "review"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "review"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "review"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "review"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "review"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "review"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "review"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "review"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "review"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "review"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "review"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "review"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "list"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "review"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "list"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "list"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "list"
+    }
+  ],
+  "peakOverlappingAssignmentTurns": 4,
+  "peakWorkersObservedRunningAtTwoSecondSampling": 11,
+  "dispatchStageSeconds": 75.6,
+  "humanDriver": "Created isolated root/team, linked model-created workers, enabled dispatch; did not add/assign/review tasks.",
+  "limits": {
+    "workers": 12,
+    "tasks": 13,
+    "wallSeconds": 600,
+    "coordinatorTurns": 60
+  },
+  "notClaimed": [
+    "coding-task quality",
+    "hundreds of concurrent workers",
+    "broad autonomy",
+    "Host/WebKit peak-memory benchmark"
+  ],
+  "journalSha256": {
+    "state-ui/control/host-control.jsonl": "f670c575a40bb0a94a7411c83364fd7d5449441a37cd4ab18cf56f5e302b05b0",
+    "state-ui/sessions/swarm-scale12-1792161988.jsonl": "5ff60640ef5882ecabacf0dc0c541f65c92bcd92e204b0549c137a31e1d50f50",
+    "state-ui/sessions/agent-004f53be599f82dea3d7a17fe424652ddc350ebfa47ccbe3412b4a1804131a7d.jsonl": "bc339329db83a0b8c8e0fa15623dddb16fd1f348bef6050e21c63c9f6938d82f",
+    "state-ui/sessions/agent-2905fc9ae3914b070fc16bc78484d15a153a0d1fdfb3b2bcb5e9963a81b5e27d.jsonl": "60ecd7137d66a937dcc1d2aaf02c9fb5176e8db47a29af43934e998037ef92c1",
+    "state-ui/sessions/agent-47dee621e644446b0afd4618ed762d28fa695b8d10231c544829474d8bc32732.jsonl": "3864eb28d0902230d6cd178b4a8c233c239dccd65b3e7e662156057319b0305f",
+    "state-ui/sessions/agent-4df6df899e3e82fbc01a3adec9a0fac5af1b8e20538492e03494ea809b769df7.jsonl": "6a4b5109ba03477fb4965695e9ca21c4148be0e33a27c97446602501313d41ed",
+    "state-ui/sessions/agent-60913e4f00a725259e13c12aec348e7c25160f828574cd8d0c73408f7855d91c.jsonl": "a7872396282d52224839299f18aa8efaa6856716fc1921fc1ed33d44d99c8655",
+    "state-ui/sessions/agent-6f8707275bbb3be7299dc94ff72f05447a87a588dbafcca483eb400e63416eb6.jsonl": "a9a23cec68ad37cfb56a8ab72eed13aa9ddbd485d692565f157fc38d9bf5ca22",
+    "state-ui/sessions/agent-966b876350ddee18edcd9f7fcf90369761890bbf2b1ab19350f83b53bb5fa1eb.jsonl": "e475ce854279a398d53228f0149522c32622676f75a98d594856448c2f3784fe",
+    "state-ui/sessions/agent-b88c3622f647dd8ebff6cf0358373b2e7720dc87f3e1d1d04b73d7f98f97ccc4.jsonl": "cee8f2e9355d9c12e878be9179e7143d9a27033f83b8226f7c17c4084a032e28",
+    "state-ui/sessions/agent-c6f5ac795474cd9a6aff2934b2bb7bfd44f2ed5ffea07735b87ffc666a4c6dba.jsonl": "6e7346dd87b900cb63b3f106d6a4903ff5e883fbbf997f943dd2db9656da70cf",
+    "state-ui/sessions/agent-d11cd2b13b027d1a9fec35aa685c3ba34326cecfc591cb4765768b4e64fed4a9.jsonl": "459bffae90758f0f7d7dc121c0dc3fa8103d6a7d4dd8255cd39ac35da0984c6b",
+    "state-ui/sessions/agent-e1b01efdfd659561cc5abe88d1dcb3d28551efb4210da06091657003411e6daa.jsonl": "e44924f0dd3d4f8bcc0dad9403f35af1168f6005aae44dbb9420e7fcbd6863ee",
+    "state-ui/sessions/agent-f9198141bc75e0a1eb655430496eac2729223a124dc7265475818713e7c2da82.jsonl": "7c01ff49421bc4a8ef1e98e5df328e5f4e1361601b2618117cf73d79131c2974"
+  }
+}

@@ -1,4 +1,4 @@
-use crate::DebugEvent;
+use crate::{DebugEvent, DebugScope};
 use std::{
     fs,
     io::Read,
@@ -114,13 +114,28 @@ impl Observer {
         Self { sender, dropped }
     }
     pub fn record(&self, event: &DebugEvent) {
+        self.record_metadata(&event.layer, &event.event, &event.scope);
+    }
+    pub fn record_metadata(&self, layer: &str, event: &str, scope: &DebugScope) {
         let mut record = Record::new(Phase::Activity);
         record.pid = Some(std::process::id());
-        record.activity = Some(classify(&event.layer, &event.event));
-        record.sequence = event.scope.step;
+        record.activity = Some(classify(layer, event));
+        record.sequence = scope.step;
         if self.sender.try_send(record).is_err() {
             self.dropped.fetch_add(1, Ordering::Relaxed);
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn test_channel(capacity: usize) -> (Self, mpsc::Receiver<Record>) {
+        let (sender, receiver) = mpsc::sync_channel(capacity);
+        (
+            Self {
+                sender,
+                dropped: Arc::new(AtomicU64::new(0)),
+            },
+            receiver,
+        )
     }
 }
 
@@ -169,6 +184,17 @@ impl ControlLease {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn metadata_queue_overflow_is_counted_without_waiting() {
+        let (observer, receiver) = Observer::test_channel(1);
+        let scope = DebugScope::default().with_turn_step(1, 9);
+        observer.record_metadata("core", "tool.result", &scope);
+        observer.record_metadata("provider.openai", "stream.event", &scope);
+        assert_eq!(observer.dropped.load(Ordering::Relaxed), 1);
+        assert_eq!(receiver.try_recv().unwrap().sequence, Some(9));
+        assert!(receiver.try_recv().is_err());
+    }
+
     #[test]
     fn same_control_file_cannot_extend_an_expired_monotonic_lease() {
         let mut lease = ControlLease::default();

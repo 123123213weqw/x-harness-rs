@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "baseline_commit": "2f72bdd4d616d5bf81ab22237d2892f27bea528e",
+  "binary_sha256": {
+    "baseline": "c3eb6b3c2caf4ecfc67c0e999ab60da9c2dfd052ddc98f9c9b9236a50111a23f",
+    "candidate": "3fd81be9fbd8c95181a5c848f4a5b16cdf1f5e79c4201dc136a518ebffe4d324"
+  },
+  "fixture_trials": 30,
+  "fixture_passed": 30,
+  "fixture_medians": {
+    "small": {
+      "baseline": {
+        "task_ms": 91.421875,
+        "host_cpu_ms": 40.0,
+        "peak_host_rss_kib": 33480
+      },
+      "candidate": {
+        "task_ms": 89.41650390625,
+        "host_cpu_ms": 30.0,
+        "peak_host_rss_kib": 33392
+      }
+    },
+    "large_context": {
+      "baseline": {
+        "task_ms": 609.380615234375,
+        "host_cpu_ms": 830.0,
+        "peak_host_rss_kib": 151776
+      },
+      "candidate": {
+        "task_ms": 602.33740234375,
+        "host_cpu_ms": 840.0,
+        "peak_host_rss_kib": 147636
+      }
+    },
+    "streaming": {
+      "baseline": {
+        "task_ms": 393.63818359375,
+        "host_cpu_ms": 800.0,
+        "peak_host_rss_kib": 71892
+      },
+      "candidate": {
+        "task_ms": 317.373291015625,
+        "host_cpu_ms": 670.0,
+        "peak_host_rss_kib": 68832
+      }
+    }
+  },
+  "real_model": {
+    "model": "deepseek-flash",
+    "effort_variants": {
+      "xhigh": {
+        "thinking": {
+          "type": "enabled"
+        },
+        "reasoning_effort": "max"
+      }
+    },
+    "output_reserve": 65536,
+    "binary_sha256": "3fd81be9fbd8c95181a5c848f4a5b16cdf1f5e79c4201dc136a518ebffe4d324",
+    "functional_passed": 3,
+    "test_receipts_verified": 3,
+    "strict_format_passed": 2,
+    "total": 3
+  },
+  "regressions": {
+    "rust_tests_passed": 273,
+    "architecture_tests_passed": 27,
+    "clippy": "passed"
+  },
+  "limitations": [
+    "Five fixture repetitions per case/arm on a shared V100 server, not a confidence interval or p95.",
+    "Host-only Linux resources and synthetic loopback streaming, not UI or inference time.",
+    "Real model runs are behavior smoke tests, not an end-to-end speed comparison.",
+    "One final smoke task missed strict final-marker formatting."
+  ]
+}

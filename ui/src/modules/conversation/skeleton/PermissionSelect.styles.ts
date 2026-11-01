@@ -1,5 +1,6 @@
 import css from './PermissionSelect.css'
 export default {
+      compact: "Qgao_G_compact",
 			"chevron": "Qgao_G_chevron",
 			"chevronOpen": "Qgao_G_chevronOpen",
 			"trigger": "Qgao_G_trigger",

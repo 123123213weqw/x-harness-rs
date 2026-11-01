@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Add regression coverage ensuring existing metric replay preserves additive numeric provenance categories and provider-reported totals.",
+  "compatibility": "Projection production code and event framing are unchanged. The added test pins replay parity and old-reader compatibility; attribution is optional metadata under existing request options.",
+  "paths": {
+    "crates/xharness-projection/src/metrics.rs": {
+      "before": "5a3243d68fc421cc79c667582c628f0de0b0faac71d916b21962e38c857fbccb",
+      "after": "de1f99f1e011bd39cc652ad5d5682cd12b787f80108b78cc0a221bb0289687cc"
+    }
+  },
+  "regressions": [
+    "native",
+    "windows",
+    "wire"
+  ]
+}

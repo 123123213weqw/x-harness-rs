@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Preserve completed capture results when the other process output stream exceeds its drain deadline, preventing a supervisor panic during SSH or child-process cleanup.",
+  "compatibility": "Keep command timeout, cancellation, process-tree termination, output limits, successful output and CaptureDrainTimedOut semantics unchanged. A pinned aggregate join owns each completed result exactly once; cleanup aborts and reaps unfinished captures without polling consumed handles again. Cross-platform unit cases and Linux native exit/timeout/cancel regressions remain required; native and Windows CI gates are retained.",
+  "paths": {
+    "crates/xharness-process/src/lib.rs": {
+      "before": "25aef4e2ee25d2412c36bb787b083c8605fb127aebb0e8af4874429a0dcc8c4f",
+      "after": "04ee90670c41ace6959f5093916b6321799692d2726db5bf78dac47f7ddaccb2"
+    },
+    "crates/xharness-process/tests/process.rs": {
+      "before": "84736a9282284b6830515b0544c571591925b50f0a3cc43f42ab99c05403dfca",
+      "after": "b973299b72e640225e0daed8d4398caf5b20a00dd53494f667b3c03af26e5982"
+    }
+  },
+  "regressions": [
+    "native",
+    "windows"
+  ]
+}

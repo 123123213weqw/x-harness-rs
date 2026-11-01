@@ -1,3 +1,4 @@
+import {fixtureUiRoot} from './fixtures/ui-fixture-build.mjs'
 /** Genuine generated platform/module graph, built-in fixture transport only. */
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
@@ -8,7 +9,7 @@ const deps = process.env.UI_TEST_DEPS ?? '/Users/wangyue/codex-build/xharness-pl
 const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
 const require = createRequire(resolve(deps, 'package.json'))
 assert.ok(['chromium', 'webkit'].includes(engine))
-const base = resolve('ui/dist'), evidence = resolve('dist/runtime-environment-20261011')
+const base = fixtureUiRoot(), evidence = resolve('dist/runtime-environment-20261011')
 mkdirSync(evidence, { recursive: true })
 const browser = await require('playwright')[engine].launch({ headless: true })
 try {

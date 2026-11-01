@@ -123,6 +123,7 @@ rpc_methods! {
     AgentPresetCopy => "agentPreset.copy",
     AgentPresetOpenDocument => "agentPreset.openDocument",
     AgentPresetRemove => "agentPreset.remove",
+    GoalUpdatePlan => "goal.updatePlan",
     GoalCreate => "goal.create",
     GoalEdit => "goal.edit",
     GoalPause => "goal.pause",

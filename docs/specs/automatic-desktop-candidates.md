@@ -1,6 +1,6 @@
 # Automatic desktop candidates (prepare, never publish)
 
-`master` push → latest exact-SHA `CI` succeeds → `Desktop Candidate Prepare` →
+`master` push → latest exact-SHA `CI` succeeds → quiet/idle admission → `Desktop Candidate Prepare` →
 reserve an immutable `desktop-vX.Y.Z` tag → existing `Desktop Release` **on that
 tag**, with integrated acceptance → four protected signing/native workers →
 complete private draft and receipts → stop at `awaiting_confirmation`.
@@ -9,6 +9,88 @@ Targets: Windows x64, Linux x64 AppImage, macOS arm64 and macOS x64. PR/fork run
 failed/cancelled/skipped gates and obsolete CI attempts cannot prepare candidates.
 A master CI cancelled by a newer commit has no green result, hence no candidate.
 
+## Idle prebuilds and fast delivery
+
+The CI-completion trigger is supplemented by a scheduled check at minutes 17 and
+47 of each hour and a manual `Desktop Candidate Prepare` dispatch on master.
+These are admission checks, not unconditional builds. GitHub may delay scheduled
+runs; this is not an exact delivery-time guarantee.
+
+Before installing the checkpoint SDK or reserving a version, the read-only
+`scripts/desktop-candidate-idle.py` admission must establish:
+
+1. The controller checkout still equals current master, with its latest exact-SHA
+   successful push CI and **every** CI job successful. An older `workflow_run`
+   event cannot select a different source or an older green attempt.
+2. That CI has been completed for at least **10 minutes**. A burst of merges
+   therefore converges on the latest green source instead of packaging each commit.
+3. No CI/desktop release workflow is queued, requested, pending, waiting for
+   approval, or running. Any other actively running workflow also takes priority.
+   Unrelated queued housekeeping does not consume a runner and does not starve
+   preparation. For example, a stalled Gitee mirror queue is not release load.
+4. No earlier failed/uncertain controller for this same source could have entered
+   the journaled preparation action. Exact-attempt step evidence can prove a
+   controller was cancelled while pending or failed **before** preparation; those
+   runs do not poison the source. Missing/ambiguous evidence fails closed. No
+   failed or unaccepted immutable build can be hidden by allocating a replacement
+   version automatically.
+5. There is no already accepted immutable candidate. An existing candidate is
+   authenticated through its small plan, exact CI attempt, four native workers
+   and signing policy. A ready candidate produces its promotion-only command;
+   no package is downloaded or rebuilt during admission. Changed/expired evidence
+   requires inspection rather than a silent rebuild.
+
+Current master, CI identity, and activity are checked again before admission.
+The existing coordinator rechecks source/CI before its first allocation and
+dispatch. After allocation, source/version remain pinned even when master moves.
+The idle controller has a single non-cancelling concurrency group, separate from
+the stable publication lock. This prevents duplicate planning/allocation across
+scheduled, manual, and CI-completion triggers. It is **best-effort admission**,
+not hosted-runner priority or preemption: newly arriving CI may overlap a prebuild
+that has already started. Do not cancel uncertain allocation/dispatch intents.
+
+Rerunning the **same coordinator** restores and validates its write-ahead journal
+before idle/latest-master selection. It continues the original source, CI,
+version and signing policy; missing journals, changed policy, or stale CI fail
+closed. An idle/deferred run with no journal should not be rerun as a recovery;
+use the next scheduled check or a fresh manual dispatch instead.
+
+Small `desktop-candidate-idle` JSON evidence and the job summary distinguish
+`quiet_period`, `waiting_for_ci`, `master_moved`, `superseded_trigger`,
+`repository_busy`, `resume_existing_controller`, `inspect_existing_build`,
+`candidate_evidence_changed`, `candidate_ready`, and `idle_green_master`.
+None of these decisions publishes a release or restarts an installed app.
+
+After packaging, explicit release confirmation reuses the **same signed bytes**
+and native receipts through the existing promotion-only entry below. Delivery
+then avoids the compilation/signing/native-test stage, but still freshly checks
+the live channel, draft, signatures, provenance, CI, and upgrade base. A prebuild
+is preparation, not a promise that later publication cannot become stale.
+
+### Activation and read-only inspection
+
+The old automatic workflow was manually disabled on October 15 after a Windows
+acceptance failure. A workflow edit does **not** clear GitHub's server-side
+disabled flag. Only after this change reaches master and its exact-source CI is
+green, enable the corrected controller:
+
+```sh
+gh workflow enable desktop-candidates.yml --repo 123123213weqw/x-harness-rs
+gh workflow run desktop-candidates.yml --ref master --repo 123123213weqw/x-harness-rs
+```
+
+The existing exact-repository `XHARNESS_FRIENDS_RELEASE_REPOSITORY` opt-in and
+protected signing environments remain required. Disabling the workflow stops
+future admission checks; do not cancel an in-flight journaled controller as a
+substitute for recovery. No publication consent is implied by enabling prebuilds.
+
+Inspect the live decision without enabling or dispatching anything:
+
+```sh
+python3 -B scripts/desktop-candidate-idle.py --inspect \
+  --repo 123123213weqw/x-harness-rs --scope all-macos-preview
+```
+
 The controller never invokes `Desktop Promote`, publishes a release, changes the
 public `latest.json` or website, or restarts installed apps. Draft assets are not
 an update channel; users keep receiving the last **published** stable release.
@@ -16,8 +98,9 @@ an update channel; users keep receiving the last **published** stable release.
 ## Source, version and recovery
 
 - Controls come from trusted master. Authenticate CI through REST and verify the
-  trigger SHA is a master ancestor. No PR artifacts, no substitution of current
-  HEAD for the trigger SHA, even when master advances while work is queued.
+  newly admitted source is current master. A restored journal may continue its
+  pinned master ancestor. No PR artifacts, no substitution of current HEAD for
+  an already allocated source, even when master advances while work is queued.
 - Version = next patch after the highest canonical desktop/friends release or
   reserved desktop tag, including drafts/failed builds. Gaps are expected. Failed
   version numbers, drafts and tags are never reused/deleted/overwritten.
@@ -29,8 +112,9 @@ an update channel; users keep receiving the last **published** stable release.
   receipts identify the same source. Only the build workflow allows this mode;
   tags must resolve to commits in master ancestry. All four native workers must
   pass; a successful aggregator alone is not acceptance.
-- Per-tag candidate locks are separate from the serialized stable publication
-  lock. A controller rerun restores its run-bound journal before doing anything.
+- Global idle-controller and per-tag build locks are separate from the serialized
+  stable publication lock. A controller rerun restores its run-bound journal
+  before planning any new work.
 
 ### 2026-10-14：首个自动候选的 Run 可见性竞争
 
@@ -186,6 +270,7 @@ the original failed candidate or skip a fresh release's formal acceptance.
 
 ```sh
 python3 -B scripts/test-desktop-candidates.py
+python3 -B scripts/test-desktop-candidate-idle.py
 python3 -B scripts/test-release-orchestrator.py
 python3 -B scripts/test-release-service.py
 python3 -B scripts/test-desktop-release-build.py

@@ -150,7 +150,7 @@ export function TranscriptWindowRow({ children, keepMounted = false, estimatedHe
   const element = React.useRef<HTMLDivElement>(null), binding = React.useRef<Binding | null>(null)
   // The keyed Node seat may outlive a folded/unmounted WindowRow. Use its
   // lightweight state when provided; standalone window rows retain their own.
-  const values = React.useRef(presentationState ?? new Map<string, unknown>())
+  const [values] = React.useState(() => presentationState ?? new Map<string, unknown>())
   const estimate = Number.isFinite(estimatedHeight) && estimatedHeight > 0 ? estimatedHeight : 240
   const [view, setView] = React.useState<View>({ mounted: keepMounted, height: estimate })
   React.useLayoutEffect(() => {
@@ -167,7 +167,7 @@ export function TranscriptWindowRow({ children, keepMounted = false, estimatedHe
   React.useLayoutEffect(() => {
     if (!view.mounted) return
     element.current?.querySelectorAll('details').forEach((node, index) => {
-      const restored = values.current.get('native-details:' + detailKey(node, index))
+      const restored = values.get('native-details:' + detailKey(node, index))
       if (typeof restored === 'boolean') node.open = restored
     })
   }, [view.mounted])
@@ -182,14 +182,14 @@ export function TranscriptWindowRow({ children, keepMounted = false, estimatedHe
     if (!(target instanceof HTMLDetailsElement)) return
     const nodes = [...element.current?.querySelectorAll('details') ?? []]
     const index = nodes.indexOf(target)
-    if (index >= 0) values.current.set('native-details:' + detailKey(target, index), target.open)
+    if (index >= 0) values.set('native-details:' + detailKey(target, index), target.open)
   }
   return <div {...attributes} ref={element} data-transcript-mounted={view.mounted ? 'true' : 'false'}
     onFocusCapture={event => { attributes.onFocusCapture?.(event); binding.current?.focus(focusedControl()) }}
     onBlurCapture={event => { attributes.onBlurCapture?.(event); queueMicrotask(() => binding.current?.focus(focusedControl())) }}
     {...{ onToggleCapture: (event: React.SyntheticEvent<HTMLDivElement>) => { attributes.onToggleCapture?.(event); onToggle(event) } }}
     style={view.mounted ? attributes.style : { ...attributes.style, display: 'block', height: view.height, boxSizing: 'border-box' }}>
-    {view.mounted ? <transcriptState.Context.Provider value={values.current}>{children}</transcriptState.Context.Provider> : null}
+    {view.mounted ? <transcriptState.Context.Provider value={values}>{children}</transcriptState.Context.Provider> : null}
   </div>
 }
 

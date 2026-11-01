@@ -18,6 +18,7 @@ pub struct GoalBootstrapSpec {
     pub goal_id: String,
     pub objective: String,
     pub acceptance_criteria: Vec<String>,
+    /// Retired v1 wire metadata retained for stable bootstrap fingerprints; not enforced.
     pub max_goal_rounds: u64,
     pub created_at_ms: u64,
     pub workspace: String,

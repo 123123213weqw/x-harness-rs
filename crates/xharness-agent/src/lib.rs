@@ -20,10 +20,13 @@ pub use lifecycle::*;
 pub use xharness_session::{InboxMessage, InboxTarget};
 
 mod delegation;
-pub use delegation::{AgentOperation, DelegationRuntime};
+pub use delegation::{AgentOperation, AgentTaskCommand, DelegationRuntime, TaskReviewOutcome};
 
 mod goal;
 pub use goal::*;
 
 #[cfg(test)]
 mod stability_repro;
+
+#[cfg(test)]
+mod retirement_tests;

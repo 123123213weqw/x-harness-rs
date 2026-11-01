@@ -1,3 +1,4 @@
+import {fixtureUiRoot} from './fixtures/ui-fixture-build.mjs'
 /** Genuine generated graph. Only the built-in Host fixture transport is
  * enriched with request/header events and scope-bound snapshot responses. */
 import assert from 'node:assert/strict'
@@ -6,7 +7,7 @@ import {readFileSync,existsSync,mkdirSync} from 'node:fs'
 import {resolve,sep,extname} from 'node:path'
 const engine=process.env.UI_TEST_BROWSER??'chromium'
 const require=createRequire(resolve(process.env.UI_TEST_DEPS??'/tmp/ui-tests','package.json'))
-const base=resolve('ui/dist'), browser=await require('playwright')[engine].launch({headless:true})
+const base=fixtureUiRoot(), browser=await require('playwright')[engine].launch({headless:true})
 const tools=[{name:'fixture_read',description:'Read archived request content',parameters:{type:'object',properties:{path:{type:'string'}}}},{name:'fixture_write',description:'Write with archived configuration',parameters:{type:'object'}}]
 const archived={harnessSnapshot:{kind:'archive',version:1,sha256:'fixture'},auditSnapshot:{kind:'omitted',reason:'capture_disabled'}}
 const headers=[

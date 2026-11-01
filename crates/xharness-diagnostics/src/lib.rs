@@ -8,6 +8,12 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+mod failure;
+pub use failure::{
+    diagnostic_stderr, failure_status, install_failure_recorder, record_failure, FailureCode,
+    FailureStatus,
+};
+
 pub const SEGMENT_BYTES: u64 = 1024 * 1024;
 pub const SEGMENTS: usize = 4;
 pub const DEEP_SECONDS: u64 = 15 * 60;
@@ -225,6 +231,7 @@ pub fn now_ms() -> u64 {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
+    RuntimeFailure,
     HeapValidation,
     Activity,
     DesktopStart,
@@ -245,6 +252,50 @@ pub enum Phase {
     CaptureFinished,
     CaptureFailed,
     DesktopExit,
+    DesktopCloseRequested,
+    DesktopExitRequested,
+    DesktopExitBlocked,
+    DesktopExitUnclean,
+    DesktopWindowDestroyed,
+    HostReconnectAttempt,
+    HostReconnected,
+    HostReconnectRejected,
+    HostShutdownRequested,
+    HostShutdownFinished,
+    HostShutdownFailed,
+    BrowserLifecycle,
+    RendererTerminated,
+}
+
+/// Closed metadata only: never persist key events, URLs, labels or page text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExitSource {
+    MainWindow,
+    Runtime,
+    Menu,
+    Update,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserEvent {
+    Navigate,
+    Created,
+    Loading,
+    Loaded,
+    Close,
+    CloseAccepted,
+    CloseFailed,
+    Activate,
+    Hidden,
+    Reload,
+    Back,
+    Forward,
+    Stop,
+    Evicted,
+    ClearAll,
+    UiReload,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -269,6 +320,8 @@ pub struct Resources {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Record {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<FailureCode>,
     pub version: Option<[u32; 3]>,
     pub activity: Option<Activity>,
     pub sequence: Option<u64>,
@@ -282,11 +335,18 @@ pub struct Record {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub startup_failure: Option<StartupFailureCode>,
     pub resources: Option<Resources>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_source: Option<ExitSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_event: Option<BrowserEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view_id: Option<u64>,
 }
 
 impl Record {
     pub fn new(phase: Phase) -> Self {
         Self {
+            failure: None,
             version: None,
             activity: None,
             sequence: None,
@@ -299,6 +359,9 @@ impl Record {
             byte_count: None,
             startup_failure: None,
             resources: None,
+            exit_source: None,
+            browser_event: None,
+            view_id: None,
         }
     }
 }
@@ -498,6 +561,35 @@ impl DeepLease {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lifecycle_metadata_is_closed_and_older_records_still_decode() {
+        let mut record = Record::new(Phase::DesktopExitRequested);
+        record.exit_source = Some(ExitSource::Menu);
+        record.pid = Some(123);
+        record.exit_code = Some(0);
+        let value = serde_json::to_value(&record).unwrap();
+        assert_eq!(value["exitSource"], "menu");
+        let mut bad = value.clone();
+        bad["exitSource"] = "arbitrary website or key text".into();
+        assert!(serde_json::from_value::<Record>(bad).is_err());
+        let mut old = value;
+        old.as_object_mut().unwrap().remove("exitSource");
+        assert!(serde_json::from_value::<Record>(old)
+            .unwrap()
+            .exit_source
+            .is_none());
+        record.phase = Phase::BrowserLifecycle;
+        record.browser_event = Some(BrowserEvent::CloseAccepted);
+        record.view_id = Some(2);
+        let bytes = serde_json::to_vec(&record).unwrap();
+        assert!(bytes.len() < 1024);
+        let text = String::from_utf8(bytes).unwrap();
+        assert!(text.contains("close_accepted"));
+        for field in ["url", "path", "token", "title", "key", "arguments"] {
+            assert!(!text.contains(&format!("\"{field}\"")));
+        }
+    }
 
     #[test]
     fn startup_failure_receipt_is_bounded_closed_and_exportable_without_raw_error() {

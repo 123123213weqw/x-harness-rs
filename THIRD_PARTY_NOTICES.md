@@ -1,5 +1,18 @@
 # Third-party notices
 
+## Wry macOS nullable-URL compatibility patch
+
+`apps/desktop/src-tauri/vendor/wry` vendors Wry 0.55.1 under its original
+Apache-2.0 OR MIT license. The only upstream source change makes a nullable
+`WKWebView.URL` / `NSURL.absoluteString` return an error instead of panicking
+on the desktop main thread. This is not a Tauri API or dependency-version upgrade.
+
+- Source: https://github.com/tauri-apps/wry/tree/wry-v0.55.1
+- Original archive and per-file hashes:
+  `apps/desktop/src-tauri/vendor/wry/XHARNESS-PROVENANCE.json`
+- License texts: `apps/desktop/src-tauri/vendor/wry/LICENSE-APACHE`,
+  `apps/desktop/src-tauri/vendor/wry/LICENSE-MIT`
+
 ## DeepSeek Harness web UI
 
 The initial web UI in `ui/` is derived from DeepSeek Harness:
@@ -69,3 +82,14 @@ stylesheet) is the unmodified @xterm/xterm 5.5.0 UMD build.
 Copyright (c) 2017-2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)
 Copyright (c) 2014-2016, SourceLair Private Company (https://www.sourcelair.com)
 Copyright (c) 2012-2013, Christopher Jeffrey (https://github.com/chjj/)
+
+## ZCode loading motion and Lucide Loader glyph
+
+`ui/src/modules/conversation/chat/LoadingIndicator.tsx` and its stylesheet adapt
+ZCode's ChatLoading visual behavior (HTML wrapper rotation, static SVG and fade-in)
+to XHarness's own theme and authoritative turn state. No ZCode runtime is bundled.
+
+- Source: https://github.com/zai-org/ZCode (Apache License 2.0)
+- Loader glyph: Lucide, including Feather-derived icons (ISC / MIT)
+- Full icon notices: `docs/licenses/lucide-loader.txt`; also preserved inline in
+  the component and generated conversation bundle.

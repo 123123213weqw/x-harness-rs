@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 const ts=createRequire(new URL('../../ui/package.json',import.meta.url))('typescript')
-export function exposeModuleUnit(source,module,unit,name){
+export function exposeModuleUnit(source,module,unit,name,entry='index'){
  if(!source.startsWith(`// Generated from src/modules/${module}/`)){
   assert.ok(source.includes('return module.exports;'),'frozen ModuleLoader return')
   return source.replace('return module.exports;',`Object.assign(exports,{${name}});return module.exports;`)
@@ -12,6 +12,6 @@ export function exposeModuleUnit(source,module,unit,name){
  function visit(node){if(ts.isPropertyAssignment(node)&&ts.isStringLiteral(node.name)&&node.name.text===path&&ts.isFunctionExpression(node.initializer))scope=node.initializer.body;ts.forEachChild(node,visit)}
  visit(ast);assert.ok(scope,`actual shipped scope ${path}`)
  if(!scope.getText(ast).includes(`exports.${name}`))source=source.slice(0,scope.end-1)+`\nObject.assign(exports,{${name}});\n`+source.slice(scope.end-1)
- const marker=`return __load("src/modules/${module}/index.js");`;assert.ok(source.includes(marker),'actual entry return')
- return source.replace(marker,`return Object.assign({},__load("src/modules/${module}/index.js"),{${name}:__load(${JSON.stringify(path)})[${JSON.stringify(name)}]});`)
+ const marker=`return __load("src/modules/${module}/${entry}.js");`;assert.ok(source.includes(marker),'actual entry return')
+ return source.replace(marker,`return Object.assign({},__load("src/modules/${module}/${entry}.js"),{${name}:__load(${JSON.stringify(path)})[${JSON.stringify(name)}]});`)
 }

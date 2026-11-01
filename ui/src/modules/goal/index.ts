@@ -15,11 +15,13 @@ import type { SessionId } from '../views-types'
 // Type-only: the `goal` SessionProjectionMap key merge (single source, the domain's pure outlet).
 import type { GoalContext, GoalRef, GoalActionResult, GoalBarActions } from './contracts'
 import { GoalDock } from './GoalBar'
+import { ProgressDock } from './ProgressDock'
 import { GoalCommandInputView } from './GoalCommandInputView'
 import { goalCommandInputDefinition } from './goal-command-input'
 import { en, zh, type GoalKey } from './locales'
 
 export { GoalBar, GoalDock } from './GoalBar'
+export { ProgressDock } from './ProgressDock'
 export type { GoalActionResult, GoalBarActions } from './contracts'
 export type { GoalKey } from './locales'
 
@@ -66,10 +68,15 @@ export function apply(ctx: GoalContext): void {
     order: 10,
     locale: NS,
     inject: (sessionId: SessionId): GoalBarActions => ({
-      onEdit: async (objective) => {
-        const ref = refOf(sessionId)
-        if (ref === undefined) return noCurrentGoal
-        return await ctx.remote.goals.edit(sessionId, ref, { objective })
+      onEdit: async (objective, expected) => {
+        // Bind the draft to the viewed text/identity, not a stale round-stat revision.
+        const projection = sessions.binding(sessionId)?.session.projections.faceOf('goal')?.getSnapshot()
+        if (projection == null) return noCurrentGoal
+        const current = projection.goal
+        if (expected !== undefined && (expected.id !== current.id || expected.objective !== current.objective)) {
+          return {ok: false, error: {code: 'goal-changed', message: 'Goal changed while editing; draft retained. Reload the latest Goal before saving.', details: {}}}
+        }
+        return await ctx.remote.goals.edit(sessionId, {id: current.id, revision: current.revision}, { objective })
       },
       onPause: async () => {
         const ref = refOf(sessionId)
@@ -80,11 +87,6 @@ export function apply(ctx: GoalContext): void {
         const ref = refOf(sessionId)
         if (ref === undefined) return noCurrentGoal
         return await ctx.remote.goals.resume(sessionId, ref)
-      },
-      onBudget: async (maxGoalRounds) => {
-        const ref = refOf(sessionId)
-        if (ref === undefined) return noCurrentGoal
-        return await ctx.remote.goals.edit(sessionId, ref, { maxGoalRounds })
       },
       onComplete: async () => {
         const ref = refOf(sessionId)
@@ -98,4 +100,7 @@ export function apply(ctx: GoalContext): void {
       },
     }),
   }, GoalDock))
+  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+    name: 'conversation.input.dock', id: 'task-progress', order: 9, locale: NS,
+  }, ProgressDock))
 }

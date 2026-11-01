@@ -120,3 +120,48 @@ directory intact. If a legacy executable was retired, use its new XHarness short
 to open the retained installation. Recovery files can be restored deliberately
 only after ensuring the newer installation is stopped; never run both copies
 against the same state or delete `.agent.lock` files to force concurrent access.
+
+## Permission decision before shutdown
+
+The desktop updater queries installation placement before asking to stop any
+running work. Writable, non-elevated installations retain the usual restart
+confirmation. Protected directories (or an already-elevated desktop) present
+**Migrate & update**, **Keep current location**, and **Later**.
+
+Migration uses the Windows current-user LocalAppData known folder, appending
+`Programs/XHarness`. The WebView cannot supply an arbitrary destination. An
+occupied destination, redirected ancestor, unknown permission, elevated app, or
+matching machine-wide MSI blocks automatic migration. No ACLs are changed and
+no account is switched. Restart the app without elevation or resolve the
+conflict manually; cancelling the choice leaves Host and tasks running.
+
+After explicit migration selection, the updater rebuilds its NSIS destination
+arguments and checks the manifest again. Version, URL, target, signing key and
+signature must still match the cached candidate before installation. `/D=` is
+last and unquoted, preserving spaces and Unicode. The signed package is checked
+again before Host stops. NSIS `/R` starts the executable in the **new** directory,
+not the old desktop path. NSIS preflight checks the destination once more after
+shutdown; another install racing into that directory causes a safe refusal.
+
+The application identifier and per-user data locations do not change; there is
+no copy/delete of conversations, settings, API keys or installation consent.
+Current-user, non-custom shortcuts are backed up and repointed. A missing
+current-user Start Menu entry is created. All-users/custom/pinned shortcuts are
+not blindly rewritten; the user may need to re-pin the new entry. Explicit
+migration skips *all* old binary/uninstaller retirement, including previously
+recognized legacy locations. Do not run the retained old uninstaller: it may
+share the new install's registry identity.
+
+Keeping a protected location is an explicit administrator-install choice. Only
+a split-token administrator may elevate as the same Windows user. A standard
+account requiring another person's administrator credentials is stopped *before*
+Host shutdown, avoiding a different user's HKCU/data. A verified, direct NSIS
+package is prepared before stopping Host; after stop consent, UAC may appear.
+Cancelling UAC recovers Host with the previous app and preserves the update
+cache. ZIP/MSI administrator packages and custom desktop launch arguments require a reviewed manual path rather
+than guessing installer arguments. No migration ever requests elevation.
+
+Older releases cannot display this new preflight until they receive the release
+containing it. The last bootstrap update from an older protected-directory build
+may still need the previous manual/admin process. This change is not a retroactive
+fix to updater code already installed on customers' machines.

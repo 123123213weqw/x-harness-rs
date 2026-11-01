@@ -1,7 +1,8 @@
 import css from './StatsLine.css'
 export default {
 			"root": "PvwIvW_root",
-			"sep": "PvwIvW_sep"
+			"summary": "PvwIvW_summary",
+      "details": "PvwIvW_details"
 		}
 const tagId = '@xharness/dsh-client-ui-conversation/StatsLine.module.css'
 if (typeof document !== 'undefined' && document.querySelector('style[data-plugin-css=' + JSON.stringify(tagId) + ']') === null) {

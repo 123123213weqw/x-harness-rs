@@ -34,10 +34,14 @@ use xharness_session::{
 
 mod audit;
 mod blobs;
+mod catalog_scan;
 mod harness_snapshot;
 mod history_index;
 mod recovery_checkpoint;
+mod replay_scope;
 mod results;
+mod seeded;
+mod stream_append;
 
 const FILE_FORMAT: &str = "xharness.session.jsonl";
 const FILE_FORMAT_VERSION: u32 = 1;
@@ -95,6 +99,8 @@ pub struct JsonlSessionStore {
     /// only removes the previous O(file-size) replay from every in-process
     /// append/load/checkpoint.
     cache: Arc<StdMutex<SnapshotCache>>,
+    history_cache: Arc<StdMutex<history_index::Cache>>,
+    maintenance: Arc<tokio::sync::Semaphore>,
 }
 
 /// Request diagnostics are independent of the authoritative conversation
@@ -193,6 +199,8 @@ struct ValidatedStamp {
     valid_len: u64,
     needs_separator: bool,
     sha256: String,
+    journal_hash: Sha256,
+    stream: xharness_session::StreamAppendCursor,
 }
 impl ValidatedStamp {
     fn new(fingerprint: FileFingerprint, loaded: &LoadedFile) -> Self {
@@ -203,6 +211,8 @@ impl ValidatedStamp {
             valid_len: loaded.valid_len,
             needs_separator: loaded.needs_separator,
             sha256: format!("{:x}", loaded.journal_hash.clone().finalize()),
+            journal_hash: loaded.journal_hash.clone(),
+            stream: loaded.session.stream_append_cursor(),
         }
     }
 }
@@ -211,6 +221,7 @@ impl ValidatedStamp {
 #[derive(Debug)]
 struct SnapshotCache {
     entries: HashMap<PathBuf, CachedFile>,
+    scopes: replay_scope::Cache,
     /// A bounded-size logical cursor independent of the heavyweight Session
     /// cache. Large journals can be evicted while catalogue publication still
     /// verifies it describes the exact file version the Host loaded.
@@ -219,16 +230,19 @@ struct SnapshotCache {
     max_entries: usize,
     clock: u64,
     runtime_audit_view: bool,
+    authoritative_replays: usize,
 }
 impl Default for SnapshotCache {
     fn default() -> Self {
         Self {
             entries: HashMap::new(),
+            scopes: replay_scope::Cache::default(),
             catalog_stamps: HashMap::new(),
             max_bytes: 128 * 1024 * 1024,
             max_entries: 16,
             clock: 0,
             runtime_audit_view: false,
+            authoritative_replays: 0,
         }
     }
 }
@@ -255,6 +269,12 @@ fn event_weight(event: &LoggedEvent) -> usize {
     }
     n.0.saturating_mul(3)
         .saturating_add(std::mem::size_of::<LoggedEvent>())
+        // EventData moved out of the vector into a shared allocation. Keep
+        // charging its fixed storage and ownership counters, not just the
+        // smaller pointer-bearing LoggedEvent. Shared cuts are conservatively
+        // over-accounted rather than making the LRU appear artificially cheap.
+        .saturating_add(std::mem::size_of_val(event.data()))
+        .saturating_add(2 * std::mem::size_of::<usize>())
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct FileFingerprint {
@@ -275,11 +295,219 @@ struct CatalogRecord {
     entry: SessionCatalogEntry,
 }
 
+/// Optional display cache, separate from the lightweight startup catalogue.
+/// A catalogue scan never reads/deserializes this potentially larger snapshot.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PresentationRecord {
+    version: u32,
+    fingerprint: FileFingerprint,
+    next_seq: u64,
+    presentation: xharness_session::HistoryPresentation,
+    sha256: String,
+}
+
+fn presentation_path(path: &Path) -> PathBuf {
+    path.with_extension("history-presentation")
+}
+
+fn read_presentation(
+    path: &Path,
+    catalog: &CatalogRecord,
+    schema: &str,
+) -> Option<xharness_session::HistoryPresentation> {
+    let sidecar = presentation_path(path);
+    let metadata = fs::symlink_metadata(&sidecar).ok()?;
+    if !metadata.is_file()
+        || metadata.file_type().is_symlink()
+        || metadata.len() > MAX_CATALOG_BYTES
+    {
+        return None;
+    }
+    let file = secure_open_options().read(true).open(&sidecar).ok()?;
+    ensure_regular_file(&file, &sidecar, "history presentation").ok()?;
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take(MAX_CATALOG_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() as u64 > MAX_CATALOG_BYTES {
+        return None;
+    }
+    let record: PresentationRecord = serde_json::from_slice(&bytes).ok()?;
+    if record.version != 1
+        || record.fingerprint != catalog.fingerprint
+        || record.next_seq != catalog.entry.next_seq
+        || record.presentation.schema != schema
+        || !record.presentation.values.is_object()
+    {
+        return None;
+    }
+    let digest = format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&record.presentation).ok()?)
+    );
+    (digest == record.sha256).then_some(record.presentation)
+}
+
+fn write_projection_file(path: &Path, bytes: &[u8], label: &str) -> Result<(), StoreError> {
+    static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let tmp = path.with_file_name(format!(
+        ".{label}-{}-{}",
+        std::process::id(),
+        NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let result = (|| {
+        let mut file = secure_open_options()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+            .map_err(|e| backend_error("stage projection", &tmp, e))?;
+        file.write_all(bytes)
+            .and_then(|_| file.sync_all())
+            .map_err(|e| backend_error("write projection", &tmp, e))?;
+        // Close our staging handle before ReplaceFileW, not just before return.
+        drop(file);
+        if path.exists() {
+            replace_compacted_file(path, &tmp)?;
+        } else {
+            fs::rename(&tmp, path).map_err(|e| backend_error("publish projection", path, e))?;
+        }
+        sync_parent_directory(path)
+    })();
+    let _ = fs::remove_file(tmp);
+    result
+}
+
+fn read_catalog_record(
+    path: &Path,
+    requested_id: &str,
+) -> Result<Option<CatalogRecord>, StoreError> {
+    let sidecar = catalog_path(path);
+    // No index is a common first-run case. Avoid three random reads of
+    // a large cold journal merely to discover the sidecar is absent.
+    let metadata = match fs::symlink_metadata(&sidecar) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(backend_error("inspect session catalogue", &sidecar, error)),
+    };
+    let Some(fingerprint) = file_fingerprint(path)? else {
+        return Ok(None);
+    };
+    if !metadata.is_file()
+        || metadata.file_type().is_symlink()
+        || metadata.len() > MAX_CATALOG_BYTES
+    {
+        return Ok(None);
+    }
+    let file = secure_open_options()
+        .read(true)
+        .open(&sidecar)
+        .map_err(|error| backend_error("open session catalogue", &sidecar, error))?;
+    ensure_regular_file(&file, &sidecar, "session catalogue")?;
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take(MAX_CATALOG_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| backend_error("read session catalogue", &sidecar, error))?;
+    let Ok(record) = serde_json::from_slice::<CatalogRecord>(&bytes) else {
+        return Ok(None);
+    };
+    if record.version != CATALOG_FORMAT_VERSION
+        || record.fingerprint != fingerprint
+        || record.entry.header.id != requested_id
+        || record.entry.header.version != SessionHeader::FORMAT_VERSION
+    {
+        return Ok(None);
+    }
+    Ok(Some(record))
+}
+
 fn catalog_path(session_path: &Path) -> PathBuf {
     session_path.with_extension("catalog")
 }
 
 impl JsonlSessionStore {
+    async fn publish_catalog_record(
+        &self,
+        entry: SessionCatalogEntry,
+        presentation: Option<xharness_session::HistoryPresentation>,
+    ) -> Result<(), StoreError> {
+        let (path, guard) = self.locked_path(&entry.header.id).await?;
+        let cache = Arc::clone(&self.cache);
+        run_blocking(move || {
+            let _guard = guard;
+            let _file_lock = acquire_file_lock(&path)?;
+            // The Host may have projected an older snapshot while another
+            // producer appended. Never stamp that older state with the new
+            // file fingerprint: a false `needs_recovery=false` would hide
+            // durable pending work after restart.
+            let fingerprint = file_fingerprint(&path)?.ok_or_else(|| StoreError::NotFound {
+                session_id: entry.header.id.clone(),
+            })?;
+            let matching_source = cache
+                .lock()
+                .map_err(|_| backend_message("session snapshot cache is poisoned"))?
+                .catalog_stamps
+                .get(&path)
+                .is_some_and(|stamp| {
+                    stamp.fingerprint == fingerprint && stamp.next_seq == entry.next_seq
+                });
+            // A verified idle recovery checkpoint can seed a display snapshot
+            // without a heavyweight load. This exception only adds disposable
+            // values to the IDENTICAL validated catalogue; no recovery bit or
+            // other metadata can be changed without a normal load/append stamp.
+            let same_catalog = !matching_source
+                && presentation.is_some()
+                && !entry.needs_recovery
+                && read_catalog_record(&path, &entry.header.id)?
+                    .is_some_and(|record| record.entry == entry);
+            if !matching_source && !same_catalog {
+                return Err(backend_message(format!(
+                    "session catalogue source changed while publishing {}",
+                    entry.header.id
+                )));
+            }
+            let presentation_path = presentation_path(&path);
+            let snapshot = presentation
+                .filter(|p| !entry.needs_recovery && p.values.is_object())
+                .and_then(|presentation| {
+                    let sha256 = format!(
+                        "{:x}",
+                        Sha256::digest(serde_json::to_vec(&presentation).ok()?)
+                    );
+                    let record = PresentationRecord {
+                        version: 1,
+                        fingerprint,
+                        next_seq: entry.next_seq,
+                        presentation,
+                        sha256,
+                    };
+                    let bytes = serde_json::to_vec(&record).ok()?;
+                    (bytes.len() as u64 <= MAX_CATALOG_BYTES).then_some(bytes)
+                });
+            // The optional snapshot never enlarges the startup catalogue. Any
+            // failure/oversize retains the original recovery path, not a lossy
+            // projection or a failed catalogue publication.
+            let published = snapshot.as_ref().is_some_and(|bytes| {
+                write_projection_file(&presentation_path, bytes, "presentation").is_ok()
+            });
+            if !published {
+                let _ = fs::remove_file(&presentation_path);
+            }
+            let record = CatalogRecord {
+                version: CATALOG_FORMAT_VERSION,
+                fingerprint,
+                entry,
+            };
+            let bytes = serde_json::to_vec(&record)
+                .map_err(|e| backend_message(format!("encode session catalogue: {e}")))?;
+            if bytes.len() as u64 > MAX_CATALOG_BYTES {
+                return Err(backend_message("session catalogue exceeds 1 MiB"));
+            }
+            write_projection_file(&catalog_path(&path), &bytes, "catalog")
+        })
+        .await
+    }
+
     async fn read_request_header(
         &self,
         id: &str,
@@ -325,7 +553,9 @@ impl JsonlSessionStore {
                 .map_err(|e| backend_message(e.to_string()))?;
             for event in record.events {
                 if event.seq == seq {
-                    if let xharness_session::EventData::RequestHeader { header } = event.event.0 {
+                    if let xharness_session::EventData::RequestHeader { header } =
+                        event.event.into_data()
+                    {
                         return if harness_only {
                             harness_snapshot::expand(&root, &owned, header)
                         } else {
@@ -364,6 +594,8 @@ impl JsonlSessionStore {
             request_audit_mode: RequestAuditMode::MetadataOnly,
             audit_reads: Arc::new(tokio::sync::Semaphore::new(2)),
             cache: Arc::new(StdMutex::new(SnapshotCache::default())),
+            history_cache: Arc::new(StdMutex::new(history_index::Cache::default())),
+            maintenance: Arc::new(tokio::sync::Semaphore::new(1)),
         })
     }
 
@@ -381,6 +613,7 @@ impl JsonlSessionStore {
             let mut cache = self.cache.lock().unwrap();
             cache.runtime_audit_view = true;
             cache.entries.clear();
+            cache.scopes.clear_snapshots();
         }
         self
     }
@@ -390,8 +623,22 @@ impl JsonlSessionStore {
             c.max_bytes = max_bytes;
             c.max_entries = max_entries;
             c.entries.clear();
+            c.scopes.clear_snapshots();
         }
         self
+    }
+    /// Parsed history indexes are independent of heavyweight runtime snapshots.
+    pub fn with_history_index_cache_limits(self, max_bytes: usize, max_entries: usize) -> Self {
+        {
+            let mut cache = self.history_cache.lock().unwrap();
+            cache.max_bytes = max_bytes;
+            cache.max_entries = max_entries;
+            cache.clear();
+        }
+        self
+    }
+    pub fn history_index_cache_stats(&self) -> CacheStats {
+        self.history_cache.lock().unwrap().stats()
     }
     pub fn cache_stats(&self) -> CacheStats {
         let c = self.cache.lock().unwrap();
@@ -400,6 +647,29 @@ impl JsonlSessionStore {
             accounted_bytes: c.entries.values().map(|e| e.loaded.estimated_bytes).sum(),
             max_bytes: c.max_bytes,
         }
+    }
+
+    /// Full authoritative cache-miss replays, for bounded performance diagnostics.
+    /// The counter never records message bodies or changes replay behavior.
+    pub fn authoritative_replay_count(&self) -> usize {
+        self.cache.lock().unwrap().authoritative_replays
+    }
+
+    /// Bound temporary operation reuse independently of the resident LRU. Zero
+    /// disables this optional acceleration; authoritative behavior is unchanged.
+    pub fn with_replay_scope_cache_limit(self, max_bytes: usize) -> Self {
+        {
+            let mut cache = self.cache.lock().unwrap();
+            cache.scopes.clear_snapshots();
+            cache.scopes.max_bytes = max_bytes.min(replay_scope::MAX_BYTES);
+        }
+        self
+    }
+
+    /// Temporary operation snapshots are separately bounded and released with
+    /// their guards, never promoted into the resident LRU on scope completion.
+    pub fn replay_scope_cache_stats(&self) -> CacheStats {
+        self.cache.lock().unwrap().scopes.stats()
     }
 
     pub fn root(&self) -> &Path {
@@ -460,6 +730,59 @@ impl JsonlSessionStore {
 
 #[async_trait]
 impl Store for JsonlSessionStore {
+    fn read_scope(
+        &self,
+        session_id: &str,
+    ) -> Result<Box<dyn xharness_session::SessionReadScope>, StoreError> {
+        replay_scope::begin(self.session_path(session_id)?, Arc::clone(&self.cache))
+    }
+
+    async fn repair_catalog_metrics(
+        &self,
+        expected: SessionCatalogEntry,
+        mut fold: Box<dyn xharness_session::CatalogMetricsFold>,
+    ) -> Result<Option<serde_json::Value>, StoreError> {
+        let permit = self
+            .maintenance
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| backend_message("session maintenance limiter closed"))?;
+        let (path, guard) = self.locked_path(&expected.header.id).await?;
+        run_blocking(move || {
+            let (_permit, _guard) = (permit, guard);
+            let _lock = acquire_file_lock(&path)?;
+            let Some(mut catalog) = read_catalog_record(&path, &expected.header.id)? else {
+                return Ok(None);
+            };
+            if catalog.entry != expected {
+                return Ok(None);
+            }
+            if catalog_scan::scan(&path, &catalog, |_, _, batch| {
+                fold.apply(&batch.events);
+                Ok(true)
+            })?
+            .is_none()
+            {
+                return Ok(None);
+            }
+            let snapshot = fold.snapshot();
+            catalog.entry.metric_snapshot = Some(snapshot.clone());
+            let bytes = serde_json::to_vec(&catalog).map_err(|e| backend_message(e.to_string()))?;
+            if bytes.len() as u64 > MAX_CATALOG_BYTES {
+                return Err(backend_message("session metrics catalogue exceeds 1 MiB"));
+            }
+            // The scan rechecked both identities. Never mint a Session cache or
+            // a validated recovery/checkpoint stamp from this display-only fold.
+            if file_fingerprint(&path)? != Some(catalog.fingerprint) {
+                return Ok(None);
+            }
+            write_projection_file(&catalog_path(&path), &bytes, "catalog")?;
+            Ok(Some(snapshot))
+        })
+        .await
+    }
+
     async fn history_window(
         &self,
         session_id: &str,
@@ -476,6 +799,7 @@ impl Store for JsonlSessionStore {
         let (path, guard) = self.locked_path(session_id).await?;
         let id = session_id.to_owned();
         let cache = self.cache.clone();
+        let history_cache = self.history_cache.clone();
         run_blocking(move || {
             let _permit = permit;
             let _guard = guard;
@@ -496,10 +820,15 @@ impl Store for JsonlSessionStore {
             }
             // A damaged acceleration file must never replace normal errors or
             // make the browser think that authoritative history disappeared.
-            Ok(
-                history_index::read(&path, &id, expected_next_seq, before_seq, max_messages)
-                    .unwrap_or(None),
+            Ok(history_index::read(
+                &path,
+                &id,
+                expected_next_seq,
+                before_seq,
+                max_messages,
+                &history_cache,
             )
+            .unwrap_or(None))
         })
         .await
     }
@@ -547,6 +876,92 @@ impl Store for JsonlSessionStore {
         .await
     }
 
+    async fn cold_history_window(
+        &self,
+        session_id: &str,
+        schema: &str,
+        before_seq: Option<u64>,
+        max_messages: usize,
+    ) -> Result<Option<xharness_session::ColdHistoryWindow>, StoreError> {
+        // Ordinary indexed pages never queue behind unrelated maintenance.
+        // A miss releases both session locks before waiting for the single
+        // maintenance permit, then rechecks the complete source transaction.
+        for repair in [false, true] {
+            let maintenance = if repair {
+                Some(
+                    self.maintenance
+                        .clone()
+                        .acquire_owned()
+                        .await
+                        .map_err(|_| backend_message("session maintenance limiter closed"))?,
+                )
+            } else {
+                None
+            };
+            let permit = self
+                .audit_reads
+                .clone()
+                .acquire_owned()
+                .await
+                .map_err(|e| backend_message(e.to_string()))?;
+            let (path, guard) = self.locked_path(session_id).await?;
+            let id = session_id.to_owned();
+            let schema = schema.to_owned();
+            let history_cache = self.history_cache.clone();
+            let (cut, needs_repair) = run_blocking(move || {
+                let (_maintenance, _permit, _guard) = (maintenance, permit, guard);
+                let _file_lock = acquire_file_lock(&path)?;
+                let Some(record) = read_catalog_record(&path, &id)? else {
+                    return Ok((None, false));
+                };
+                if record.entry.needs_recovery {
+                    return Ok((None, false));
+                }
+                let Some(presentation) = read_presentation(&path, &record, &schema) else {
+                    return Ok((None, false));
+                };
+                let mut window = history_index::read(
+                    &path,
+                    &id,
+                    record.entry.next_seq,
+                    before_seq,
+                    max_messages,
+                    &history_cache,
+                )?;
+                if window.is_none()
+                    && !history_index::available(&path, &id, record.entry.next_seq, &history_cache)?
+                {
+                    if !repair {
+                        return Ok((None, true));
+                    }
+                    let Some(index) = history_index::repair(&path, &record)? else {
+                        return Ok((None, false));
+                    };
+                    window = history_index::read_prepared(&path, &index, before_seq, max_messages)?;
+                }
+                let Some(window) = window else {
+                    return Ok((None, false));
+                };
+                if file_fingerprint(&path)? != Some(record.fingerprint) {
+                    return Ok((None, false));
+                }
+                Ok((
+                    Some(xharness_session::ColdHistoryWindow {
+                        catalog: record.entry,
+                        presentation,
+                        window,
+                    }),
+                    false,
+                ))
+            })
+            .await?;
+            if !needs_repair {
+                return Ok(cut);
+            }
+        }
+        Ok(None)
+    }
+
     async fn catalog_entry(
         &self,
         session_id: &str,
@@ -556,119 +971,21 @@ impl Store for JsonlSessionStore {
         run_blocking(move || {
             let _guard = guard;
             let _file_lock = acquire_file_lock(&path)?;
-            let sidecar = catalog_path(&path);
-            // No index is a common first-run case. Avoid three random reads of
-            // a large cold journal merely to discover the sidecar is absent.
-            let metadata = match fs::symlink_metadata(&sidecar) {
-                Ok(metadata) => metadata,
-                Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
-                Err(error) => {
-                    return Err(backend_error("inspect session catalogue", &sidecar, error))
-                }
-            };
-            let Some(fingerprint) = file_fingerprint(&path)? else {
-                return Ok(None);
-            };
-            if !metadata.is_file()
-                || metadata.file_type().is_symlink()
-                || metadata.len() > MAX_CATALOG_BYTES
-            {
-                return Ok(None);
-            }
-            let file = secure_open_options()
-                .read(true)
-                .open(&sidecar)
-                .map_err(|error| backend_error("open session catalogue", &sidecar, error))?;
-            ensure_regular_file(&file, &sidecar, "session catalogue")?;
-            let mut bytes = Vec::with_capacity(metadata.len() as usize);
-            file.take(MAX_CATALOG_BYTES + 1)
-                .read_to_end(&mut bytes)
-                .map_err(|error| backend_error("read session catalogue", &sidecar, error))?;
-            let Ok(record) = serde_json::from_slice::<CatalogRecord>(&bytes) else {
-                return Ok(None);
-            };
-            if record.version != CATALOG_FORMAT_VERSION
-                || record.fingerprint != fingerprint
-                || record.entry.header.id != requested_id
-                || record.entry.header.version != SessionHeader::FORMAT_VERSION
-            {
-                return Ok(None);
-            }
-            Ok(Some(record.entry))
+            Ok(read_catalog_record(&path, &requested_id)?.map(|record| record.entry))
         })
         .await
     }
 
     async fn publish_catalog_entry(&self, entry: SessionCatalogEntry) -> Result<(), StoreError> {
-        let (path, guard) = self.locked_path(&entry.header.id).await?;
-        let cache = Arc::clone(&self.cache);
-        run_blocking(move || {
-            let _guard = guard;
-            let _file_lock = acquire_file_lock(&path)?;
-            // The Host may have projected an older snapshot while another
-            // producer appended. Never stamp that older state with the new
-            // file fingerprint: a false `needs_recovery=false` would hide
-            // durable pending work after restart.
-            let fingerprint = file_fingerprint(&path)?.ok_or_else(|| StoreError::NotFound {
-                session_id: entry.header.id.clone(),
-            })?;
-            let matching_source = cache
-                .lock()
-                .map_err(|_| backend_message("session snapshot cache is poisoned"))?
-                .catalog_stamps
-                .get(&path)
-                .is_some_and(|stamp| {
-                    stamp.fingerprint == fingerprint && stamp.next_seq == entry.next_seq
-                });
-            if !matching_source {
-                return Err(backend_message(format!(
-                    "session catalogue source changed while publishing {}",
-                    entry.header.id
-                )));
-            }
-            let sidecar = catalog_path(&path);
-            let record = CatalogRecord {
-                version: CATALOG_FORMAT_VERSION,
-                fingerprint,
-                entry,
-            };
-            let bytes = serde_json::to_vec(&record)
-                .map_err(|error| backend_message(format!("encode session catalogue: {error}")))?;
-            if bytes.len() as u64 > MAX_CATALOG_BYTES {
-                return Err(backend_message("session catalogue exceeds 1 MiB"));
-            }
-            static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let tmp = sidecar.with_file_name(format!(
-                ".catalog-{}-{}",
-                std::process::id(),
-                NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-            ));
-            let result = (|| -> Result<(), StoreError> {
-                let mut file = secure_open_options()
-                    .write(true)
-                    .create_new(true)
-                    .open(&tmp)
-                    .map_err(|error| backend_error("stage session catalogue", &tmp, error))?;
-                file.write_all(&bytes)
-                    .and_then(|_| file.sync_all())
-                    .map_err(|error| backend_error("write session catalogue", &tmp, error))?;
-                // ReplaceFileW cannot consume a staging path while our own
-                // write handle is still open. Unix rename allows this, which
-                // is why the cross-platform replay test caught it on Windows.
-                drop(file);
-                if sidecar.exists() {
-                    replace_compacted_file(&sidecar, &tmp)?;
-                } else {
-                    fs::rename(&tmp, &sidecar).map_err(|error| {
-                        backend_error("publish session catalogue", &sidecar, error)
-                    })?;
-                }
-                sync_parent_directory(&sidecar)
-            })();
-            let _ = fs::remove_file(&tmp);
-            result
-        })
-        .await
+        self.publish_catalog_record(entry, None).await
+    }
+
+    async fn publish_catalog_presentation(
+        &self,
+        entry: SessionCatalogEntry,
+        presentation: xharness_session::HistoryPresentation,
+    ) -> Result<(), StoreError> {
+        self.publish_catalog_record(entry, Some(presentation)).await
     }
 
     async fn archive_tool_result(
@@ -844,88 +1161,12 @@ impl Store for JsonlSessionStore {
     }
 
     async fn create(&self, header: SessionHeader) -> Result<Session, StoreError> {
-        let session_id = header.id.clone();
-        let (path, guard) = self.locked_path(&session_id).await?;
-        let cache = Arc::clone(&self.cache);
-        run_blocking(move || {
-            let _guard = guard;
-            let _file_lock = acquire_file_lock(&path)?;
-            let session = Session::new(header)?;
-            let record = HeaderRecord {
-                record: HEADER_RECORD.to_owned(),
-                format: FILE_FORMAT.to_owned(),
-                format_version: FILE_FORMAT_VERSION,
-                header: session.header().clone(),
-            };
-            let bytes = encode_line(&record, &path)?;
-            // Publish atomically. `create` used to open `<id>.jsonl` first and
-            // write the header second, so a crash in between left a zero-byte
-            // file under the very name startup discovery enumerates. Staging
-            // the bytes elsewhere and hard-linking them into place means the
-            // name only ever exists once it already has its header. The link is
-            // os-atomic and refuses to replace, which is the `create_new`
-            // contract `AlreadyExists` callers depend on.
-            static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let tmp = path.with_file_name(format!(
-                ".creating-{}-{}-{}",
-                std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos(),
-                NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            ));
-            let mut file = secure_open_options()
-                .write(true)
-                .create_new(true)
-                .open(&tmp)
-                .map_err(|error| backend_error("create session staging file", &tmp, error))?;
-            let published = (|| -> Result<(), StoreError> {
-                file.write_all(&bytes)
-                    .and_then(|_| file.sync_all())
-                    .map_err(|error| backend_error("durably write session header", &tmp, error))?;
-                match fs::hard_link(&tmp, &path) {
-                    Ok(()) => {}
-                    Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-                        return Err(StoreError::AlreadyExists {
-                            session_id: session_id.clone(),
-                        });
-                    }
-                    Err(error) => {
-                        return Err(backend_error("publish session header", &path, error));
-                    }
-                }
-                sync_parent_directory(&path)?;
-                Ok(())
-            })();
-            drop(file);
-            // Only ever our own exclusively created staging file. A published
-            // session is never removed here.
-            let _ = fs::remove_file(&tmp);
-            published?;
-            let fingerprint = file_fingerprint(&path)?.ok_or_else(|| {
-                backend_message(format!(
-                    "session {} disappeared after creation",
-                    path.display()
-                ))
-            })?;
-            cache_store(
-                &cache,
-                &path,
-                fingerprint,
-                LoadedFile {
-                    session: session.clone(),
-                    format_version: FILE_FORMAT_VERSION,
-                    valid_len: fingerprint.len,
-                    needs_separator: false,
-                    estimated_bytes: 1024,
-                    journal_hash: Sha256::new_with_prefix(&bytes),
-                    audit_offsets: Arc::new(HashMap::new()),
-                },
-            )?;
-            Ok(session)
-        })
-        .await
+        validate_session_id(&header.id)?;
+        self.create_seeded(Session::new(header)?).await
+    }
+
+    async fn create_seeded(&self, session: Session) -> Result<Session, StoreError> {
+        self.publish_new_session(session).await
     }
 
     async fn load(&self, session_id: &str) -> Result<Option<Session>, StoreError> {
@@ -961,6 +1202,9 @@ impl Store for JsonlSessionStore {
             if fs::remove_file(history_index::path(&path)).is_ok() {
                 let _ = sync_parent_directory(&path);
             }
+            if fs::remove_file(presentation_path(&path)).is_ok() {
+                let _ = sync_parent_directory(&path);
+            }
             if fs::remove_file(recovery_checkpoint::path(&path)).is_ok() {
                 let _ = sync_parent_directory(&path);
             }
@@ -988,6 +1232,11 @@ impl Store for JsonlSessionStore {
             // Session before every stream checkpoint. A failed append may
             // simply leave the cache cold; the next operation reparses the
             // authoritative file under the same advisory lock.
+            if let Some(receipt) =
+                stream_append::try_append(&path, &owned_id, &cache, expected_revision, &events)?
+            {
+                return Ok(receipt);
+            }
             let Some(mut loaded) = take_file_cached(&path, &owned_id, &cache)? else {
                 return Err(StoreError::NotFound {
                     session_id: owned_id,
@@ -1098,10 +1347,32 @@ impl Store for JsonlSessionStore {
         run_blocking(move || {
             let _guard = guard;
             let _file_lock = acquire_file_lock(&path)?;
-            let Some(loaded) = take_file_cached(&path, &owned_id, &cache)? else {
+            let Some(source_fingerprint) = file_fingerprint(&path)? else {
+                cache_remove(&cache, &path)?;
                 return Err(StoreError::NotFound {
                     session_id: owned_id,
                 });
+            };
+            // Append/load already validated this exact file. Keep the tiny
+            // stamp even when its Session exceeds the snapshot LRU budget:
+            // durability needs an fsync, not another O(history) replay.
+            let validated_revision = cache
+                .lock()
+                .map_err(|_| backend_message("session snapshot cache is poisoned"))?
+                .catalog_stamps
+                .get(&path)
+                .filter(|stamp| stamp.fingerprint == source_fingerprint)
+                .map(|stamp| stamp.revision);
+            let (loaded, revision) = if let Some(revision) = validated_revision {
+                (None, revision)
+            } else {
+                let loaded = take_file_cached(&path, &owned_id, &cache)?.ok_or_else(|| {
+                    StoreError::NotFound {
+                        session_id: owned_id.clone(),
+                    }
+                })?;
+                let revision = loaded.session.revision();
+                (Some(loaded), revision)
             };
             let file = secure_open_options()
                 .read(true)
@@ -1111,6 +1382,17 @@ impl Store for JsonlSessionStore {
                     backend_error("open session for durability flush", &path, error)
                 })?;
             ensure_regular_file(&file, &path, "session log")?;
+            let opened_fingerprint = fingerprint_from_metadata(
+                &path,
+                &file
+                    .metadata()
+                    .map_err(|error| backend_error("inspect session before flush", &path, error))?,
+            )?;
+            if opened_fingerprint != source_fingerprint {
+                cache_remove(&cache, &path)?;
+                return Err(backend_message("session changed before durability flush"));
+            }
+
             file.sync_all()
                 .map_err(|error| backend_error("sync session data", &path, error))?;
             sync_parent_directory(&path)?;
@@ -1120,8 +1402,13 @@ impl Store for JsonlSessionStore {
                     .metadata()
                     .map_err(|error| backend_error("inspect flushed session", &path, error))?,
             )?;
-            let revision = loaded.session.revision();
-            cache_store(&cache, &path, fingerprint, loaded)?;
+            if fingerprint != source_fingerprint {
+                cache_remove(&cache, &path)?;
+                return Err(backend_message("session changed during durability flush"));
+            }
+            if let Some(loaded) = loaded {
+                cache_store(&cache, &path, fingerprint, loaded)?;
+            }
             Ok(revision)
         })
         .await
@@ -1349,6 +1636,9 @@ fn load_file_cached(
         c.clock = c.clock.wrapping_add(1);
         let touched = c.clock;
         runtime_audit_view = c.runtime_audit_view;
+        if let Some(loaded) = c.scopes.load(path, fingerprint) {
+            return Ok(Some(loaded));
+        }
         if let Some(entry) = c
             .entries
             .get_mut(path)
@@ -1360,6 +1650,7 @@ fn load_file_cached(
                 .insert(path.to_owned(), ValidatedStamp::new(fingerprint, &loaded));
             return Ok(Some(loaded));
         }
+        c.authoritative_replays = c.authoritative_replays.saturating_add(1);
     }
     let loaded = load_file_mode(path, session_id, runtime_audit_view)?;
     let Some(loaded) = loaded else {
@@ -1396,6 +1687,9 @@ fn take_file_cached(
     let mut c = cache
         .lock()
         .map_err(|_| backend_message("session snapshot cache is poisoned"))?;
+    if let Some(loaded) = c.scopes.take(path, fingerprint) {
+        return Ok(Some(loaded));
+    }
     if let Some(entry) = c
         .entries
         .remove(path)
@@ -1404,6 +1698,7 @@ fn take_file_cached(
         return Ok(Some(entry.loaded));
     }
     let runtime_audit_view = c.runtime_audit_view;
+    c.authoritative_replays = c.authoritative_replays.saturating_add(1);
     drop(c);
     load_file_mode(path, session_id, runtime_audit_view)
 }
@@ -1418,6 +1713,7 @@ fn cache_store(
         .lock()
         .map_err(|_| backend_message("session snapshot cache is poisoned"))?;
     c.entries.remove(path);
+    c.scopes.remove_snapshot(path);
     // The stamp is tiny and retained even when a multi-gigabyte snapshot is
     // too large for the LRU. Failed/stale publishers simply leave the index
     // unknown; the journal remains authoritative.
@@ -1426,6 +1722,11 @@ fn cache_store(
     }
     c.catalog_stamps
         .insert(path.to_owned(), ValidatedStamp::new(fingerprint, &loaded));
+    // An active bounded scope must not thrash the ordinary LRU even when
+    // each individual snapshot fits but their concurrent sum does not.
+    if c.scopes.store(path, fingerprint, &loaded) {
+        return Ok(());
+    }
     if loaded.estimated_bytes > c.max_bytes || c.max_entries == 0 {
         return Ok(());
     }
@@ -1465,6 +1766,7 @@ fn cache_remove(cache: &StdMutex<SnapshotCache>, path: &Path) -> Result<(), Stor
         .lock()
         .map_err(|_| backend_message("session snapshot cache is poisoned"))?;
     cache.entries.remove(path);
+    cache.scopes.remove_snapshot(path);
     cache.catalog_stamps.remove(path);
     Ok(())
 }
@@ -2019,12 +2321,11 @@ fn validate_header_record(
     Ok(())
 }
 
-fn extend_batch_record(
+fn validate_batch_record(
     path: &Path,
     line_number: usize,
-    revision: &mut Revision,
-    events: &mut Vec<LoggedEvent>,
-    record: BatchRecord,
+    revision: Revision,
+    record: &BatchRecord,
 ) -> Result<(), StoreError> {
     if record.record != BATCH_RECORD {
         return Err(corrupt(
@@ -2036,7 +2337,7 @@ fn extend_batch_record(
     if record.events.is_empty() {
         return Err(corrupt(path, line_number, "persisted batch is empty"));
     }
-    if record.previous_revision != *revision {
+    if record.previous_revision != revision {
         return Err(corrupt(
             path,
             line_number,
@@ -2063,6 +2364,17 @@ fn extend_batch_record(
         ));
     }
 
+    Ok(())
+}
+
+fn extend_batch_record(
+    path: &Path,
+    line_number: usize,
+    revision: &mut Revision,
+    events: &mut Vec<LoggedEvent>,
+    record: BatchRecord,
+) -> Result<(), StoreError> {
+    validate_batch_record(path, line_number, *revision, &record)?;
     events.extend(record.events);
     *revision = record.revision;
     Ok(())
@@ -2134,3 +2446,30 @@ fn corrupt(path: &Path, line: usize, message: impl AsRef<str>) -> StoreError {
         message.as_ref()
     ))
 }
+
+#[cfg(test)]
+mod shared_payload_weight_tests {
+    #![forbid(unsafe_code)]
+    use super::*;
+
+    #[test]
+    fn snapshot_budget_charges_the_shared_payload_outside_the_event_vector() {
+        let event = LoggedEvent {
+            seq: 0,
+            revision: Revision(1),
+            timestamp_ms: 1,
+            event: xharness_session::EventData::StepStart { turn: 1, step: 1 }.into(),
+        };
+        let encoded = serde_json::to_vec(&event).unwrap();
+        assert_eq!(
+            event_weight(&event),
+            encoded.len() * 3
+                + std::mem::size_of::<LoggedEvent>()
+                + std::mem::size_of::<xharness_session::EventData>()
+                + 2 * std::mem::size_of::<usize>()
+        );
+    }
+}
+
+#[cfg(test)]
+mod admission_tests;

@@ -36,7 +36,8 @@ pub(super) async fn list(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
             "description": "Compact eligible conversation history now",
             "input": {"hint": ""},
         },
-        {"name":"goal","description":"Set a persistent Goal and continue automatically until review, pause or budget limit","input":{"hint":"<objective> | pause | resume | complete | clear | edit <objective> | budget <rounds>"}}
+        {"name":"goal","description":"Set a persistent Goal and continue automatically until review, pause or budget limit","input":{"hint":"<objective> | pause | resume | complete | clear | edit <objective> | budget <rounds>"}},
+        {"name":"reload","description":"Recover this idle session without resending input or restarting the Host","input":{"hint":""}}
     ]))
 }
 
@@ -46,6 +47,38 @@ pub(super) async fn execute(host: &BasicHost, payload: &Value) -> Result<Option<
         .ok_or_else(|| bad_request("commands/execute requires args"))?;
     let session_id = required_string(args, "agentId")?;
     let line = required_string(args, "line")?;
+    if line.trim() == "/reload" || line.trim_start().starts_with("/reload ") {
+        let images = required_array(args, "images")?;
+        if line.trim() != "/reload" || !images.is_empty() {
+            return Err(bad_request("/reload accepts no arguments or attachments"));
+        }
+        host.recover_idle_session(&session_id).await?;
+        let command_id = host.mint_id("recovery");
+        let text = "Session worker is ready. No input was replayed; other sessions are unchanged.";
+        host.commit_session_events(
+            &session_id,
+            vec![
+                SessionEventData::CommandRun {
+                    command_id: command_id.clone(),
+                    name: "reload".into(),
+                    args: None,
+                    source: CommandSource::User,
+                }
+                .into(),
+                SessionEventData::CommandDone {
+                    command_id: command_id.clone(),
+                    kind: CommandResultKind::Success,
+                    text: Some(text.into()),
+                    source_event_seq: None,
+                }
+                .into(),
+            ],
+        )
+        .await?;
+        return Ok(Some(
+            json!({"commandId":command_id,"result":{"kind":"success","text":text}}),
+        ));
+    }
     if line.trim() == "/goal" || line.trim_start().starts_with("/goal ") {
         let images = required_array(args, "images")?;
         return execute_goal(
@@ -237,6 +270,9 @@ async fn execute_compact(
             .ok_or_else(|| session_not_found(session_id))?;
         session.running = true;
         session.control = Some(control_tx);
+        session.driver_epoch = Some(std::sync::Arc::new(
+            crate::driver_lifecycle::DriverEpoch::default(),
+        ));
     }
     host.push_host(json!({
         "type":"host/session-status",
@@ -245,9 +281,17 @@ async fn execute_compact(
     }));
     let host = host.clone();
     let session_id = session_id.to_owned();
-    tokio::spawn(async move {
-        host.drive_recovered_turn(session_id, run, control_rx).await;
-    });
+    let runner = host.clone();
+    host.spawn_session_task(
+        session_id.clone(),
+        crate::error_boundary::TaskOperation::RecoveredTurn,
+        async move {
+            runner
+                .drive_recovered_turn(session_id, run, control_rx)
+                .await;
+        },
+    )
+    .await;
     Ok(json!({
         "commandId":command_id,
         "result":{"kind":"success","text":"Compaction started"},
@@ -402,8 +446,8 @@ async fn execute_goal(
             .as_ref()
             .map_or("Usage: /goal <objective>".into(), |g| {
                 format!(
-                    "Goal: {} ({:?}, {}/{})",
-                    g.objective, g.phase, g.rounds_started, g.max_goal_rounds
+                    "Goal: {} ({:?}, {} rounds)",
+                    g.objective, g.phase, g.rounds_started
                 )
             }))
     } else {
@@ -414,14 +458,9 @@ async fn execute_goal(
             "resume" => goal::transition(host, rpc, &payload, "active").await,
             "complete" => goal::transition(host, rpc, &payload, "complete").await,
             "clear" => goal::clear(host, rpc, &payload).await,
-            _ if input.starts_with("budget ") => match input[7..].trim().parse::<u64>() {
-                Ok(n) => {
-                    let mut p = payload;
-                    p["maxGoalRounds"] = json!(n);
-                    goal::edit(host, rpc, &p).await
-                }
-                Err(_) => Err(bad_request("budget must be a positive integer")),
-            },
+            _ if input == "budget" || input.starts_with("budget ") => Err(bad_request(
+                "Goal round limits have been removed; rounds are statistics only",
+            )),
             _ if input.starts_with("edit ") => {
                 let mut p = payload;
                 p["objective"] = json!(input[5..].trim());

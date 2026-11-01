@@ -1,0 +1,74 @@
+{
+  "schema": 1,
+  "status": "source_validated_not_released",
+  "validated_at_utc": "2026-10-24T16:54:48.008214+00:00",
+  "base": "4c6c9b12df00090a08bf5fa91c1d1470bfef686e",
+  "ui_commit": "07760dec77c513e959bc967a01bcaaeeb8c96160",
+  "authorization": {
+    "visibility": "Only after the user creates an existing Goal with /goal; no Goal means no edit tool or Goal bar.",
+    "ai_capability": "edit_goal_objective replaces only existing objective text; no lifecycle, session, Goal identity, budget or verification arguments.",
+    "existing_completion_policy": "Persisted AgentReport/UserConfirm policy unchanged; no new lifecycle management action exposed."
+  },
+  "changes": [
+    "Full selectable Goal details and 840px multiline editor; two-line compact preview.",
+    "User draft conflicts preserve text when AI or another source changes the objective.",
+    "Session-bound definition/activation/control fence; round accounting revisions tolerated.",
+    "Atomic objective/definition update and obsolete Goal-input removal; ordinary user work retained.",
+    "Old definition reports cannot accept revised objectives; cancellation/failure protections and current lifecycle remain intact."
+  ],
+  "validation": {
+    "rust_remote_host": "WZU_Server (same V100 host; existing rescue/raw Tailscale routes recovered without disabling host-key verification)",
+    "source_verification": "587 Rust sources/manifests including uncommitted edits matched SHA-256 before final compilation.",
+    "rust_tests": {
+      "crates": [
+        "xharness-session",
+        "xharness-session-jsonl",
+        "xharness-goal",
+        "xharness-agent",
+        "xharness-host"
+      ],
+      "passed": 738,
+      "failed": 0,
+      "existing_ignored": 11,
+      "nested_subprocess_worker_runs_excluded_from_unique_count": 2
+    },
+    "clippy": "xharness-session, xharness-agent, xharness-host --all-targets -- -D warnings: passed",
+    "ui_source_tests": "26/26",
+    "browsers": "Chromium and WebKit source fixtures; 320/375/960px, light/dark, locales, multiline editing, conflict and lifecycle regressions passed",
+    "strict_ui_build_freshness": "61 modules, 190 assets; passed",
+    "goal_remote_contract": "regression/negative schema checks passed",
+    "architecture": "dependency/freeze checks, 10 managed-boundary mutation tests and 20 freeze regression tests passed"
+  },
+  "limitations": [
+    "No hosted CI or Windows/native desktop acceptance claimed.",
+    "No live user Goal/session mutation, local Rust compilation, release, installation, restart, worktree deletion or agent interruption.",
+    "Initial test fixture used a current ref instead of next tombstone revision for clear; corrected the fixture, not the durable validator. Initial failures and transient-network/source-mismatch logs retained outside the repository.",
+    "New v2 edit_objective operation is additive for the current reader; downgrade to an older binary is not guaranteed."
+  ],
+  "source_sha256": {
+    "config/architecture-changes/goal-existing-objective-edit-20261025.json": "7f6fcf948759ece64a35844d74728f116f3d067b6cea0955202d9d4e1c81256a",
+    "crates/xharness-agent/src/goal.rs": "8eede751ac414988ed10d9d00c206f86c0efaafe76c0deb6d290eb7aa453b963",
+    "crates/xharness-host/src/goal_edit_tool.rs": "9e4cc509dba4713a35ed50e2e02f281b26884da707e6fd1622bd57b4132cbb4c",
+    "crates/xharness-host/src/goal_edit_tool_tests.rs": "32b8a7e466af623a57c4f4f9f66618ad4be069441b6ac4c7b611db521ec460fe",
+    "crates/xharness-host/src/goal_report_tool.rs": "22114a72ad7151aa66b0e2e4d4a7f6459bb3bf1df034257c372ec6e76267d1b0",
+    "crates/xharness-host/src/goals.rs": "dd9683420308ca6658bddb93fa8c018970dd495100181e2532dec5e438d57ba3",
+    "crates/xharness-host/src/lib.rs": "47850a55d8bf8321c3ee0f4b0a1970299dfbe41f7f7004688e1e07c231d0b43a",
+    "crates/xharness-host/src/runtime.rs": "6b994348d37222bd979bbde55911800d8e4ccfdb4c3e857b120fa9cb8db9fe96",
+    "crates/xharness-host/src/runtime/tests/observer_tests.rs": "377cedb6a2e33a738d35fc7671c60b1791251690e0c908a292fdcf61f6576ffe",
+    "crates/xharness-session/src/goal.rs": "92b3740d164f22102f41872ea332aa94cb3baa01036902823711a4a54e94a4c5",
+    "crates/xharness-session/src/goal_validation.rs": "547357f818ef40c540c194ee205a9a95ceb66dd996828a972f0399e8a7ae69ca",
+    "docs/specs/goal-runtime.md": "066c02ffca637c34165174d888f7b93589c2e35a98ac6996f49e4a5ab521aaa7",
+    "scripts/fixtures/goal-compact-browser.mjs": "3d3c5f2cf80ae1c9dc405255a2bd07a8fa637c6a28bc7f55290325d8f4060280",
+    "scripts/test-goal-source.mjs": "92403ce538468772630d05cf39451ff59b455b5283b787f0d0c98f749cfb0e06",
+    "ui/dist/asset-manifest.json": "16335743d8811920ed74d691f891328e7ed027accd5f67d02c0827a6059dc818",
+    "ui/dist/client-graph.json": "82d5c8f8798987d193258da942aede4df5a47d43a0c5de3da90e2dbf75bd30f9",
+    "ui/dist/index.html": "aee7389e77aaf78e2db45fb3e2b1ba6bb5a946caca5d7ccb491949bb7743e473",
+    "ui/dist/plugins/@xharness/dsh-client-ui-goal/client.js": "e799aeddaf91761965f5b7c40a69c54e8165c1dcd55449b2a6b7968c17887535",
+    "ui/src/modules/goal/GoalBar.css": "3c973502aa5ccd4d29bb43c80c201eecd9fadd0fcbb2a6f09e541dfdf433e47e",
+    "ui/src/modules/goal/GoalBar.styles.ts": "e2896a215444870193a91ecf11266a3d2e1f9cc59d8e87a993248816a4e0ceea",
+    "ui/src/modules/goal/GoalBar.tsx": "ea8b1a30fa8d30c3818d643000683eebf5ca289ed535769981546ba90f5ccc52",
+    "ui/src/modules/goal/contracts.ts": "d2c934be93b8bff2bd03e82c9aecdc38a78f9b86215b8fa8441eb1f02c5aa93c",
+    "ui/src/modules/goal/index.ts": "b06fca3599383fa28f117d14015fe1a0dcb069804a65f718e13a7713bc2233e4",
+    "ui/src/modules/goal/locales.ts": "e778fe2c54d50297548e632dbaa07d73770231b1e26a3220e540042f3c78d927"
+  }
+}

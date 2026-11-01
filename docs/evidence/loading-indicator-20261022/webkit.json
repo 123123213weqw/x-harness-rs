@@ -1,0 +1,14 @@
+{
+  "engine": "webkit",
+  "checks": [
+    "16px, 1s linear outer rotation, 900ms entrance, no visible status text",
+    "theme rerender preserves rotor DOM and animation identity",
+    "explicit replay restarts the entrance",
+    "waiting/tool spin; approval/completed do not; local controls work",
+    "360px layout has no horizontal overflow",
+    "reduced motion disables entrance and rotor"
+  ],
+  "consoleErrors": [],
+  "unexpectedRequests": [],
+  "passed": true
+}

@@ -24,6 +24,16 @@ pub trait ModelSettingsBackend: Send + Sync + 'static {
         self.prepare(section).await
     }
     async fn credential_info(&self, reference: &str) -> Result<Value, String>;
+    /// Optional credential-only path. The Host calls this only after proving
+    /// no configured model references the key; true means the write completed.
+    /// Existing backends retain their registry-aware behavior by default.
+    async fn write_auxiliary_credential(
+        &self,
+        _reference: &str,
+        _value: Option<&str>,
+    ) -> Result<bool, String> {
+        Ok(false)
+    }
     async fn set_credential(
         &self,
         reference: &str,
@@ -92,7 +102,7 @@ pub struct ConfiguredModel {
     pub reasoning: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_window_capability: Option<Value>,
-    /// None: unknown; false: reject images before network; true: explicitly supported.
+    /// None/null: use documented defaults; false: reject images; true: explicit support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_input: Option<bool>,
 }
@@ -666,6 +676,13 @@ mod capability_inheritance_tests {
         inherit_model_capabilities(&mut value, &base);
         let doc = parse_model_settings(&value).unwrap();
         assert_eq!(doc.providers["p"].models[0].reasoning, Some(Value::Null));
+        value["providers"]["p"]["models"][0]["imageInput"] = Value::Null;
+        inherit_model_capabilities(&mut value, &base);
+        assert!(value["providers"]["p"]["models"][0]["imageInput"].is_null());
+        assert_eq!(
+            parse_model_settings(&value).unwrap().providers["p"].models[0].image_input,
+            None
+        );
     }
     #[test]
     fn never_inherits_across_endpoint_protocol_or_model_changes() {

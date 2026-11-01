@@ -1,3 +1,4 @@
+import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
 // Keep patch positive/negative/idempotence golden on immutable master only.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -78,7 +79,7 @@ function actualUnit(module, unit, name) {
  assert.ok(exposed.includes(returned),'actual unit seam return');
  exposed=exposed.replace(returned,`return __load(${JSON.stringify(path)});`);
  runInContext(exposed,context);
- const api=context.registration.factory(id=>{if(id==='react')return React;if(id==='react/jsx-runtime')return require('react/jsx-runtime');throw Error('Unexpected native row dependency '+id)});
+ const api=context.registration.factory(id=>{if(id==='zod')return sharedVendors.zod;if(id==='react')return React;if(id==='react/jsx-runtime')return require('react/jsx-runtime');throw Error('Unexpected native row dependency '+id)});
  assert.equal(typeof api[name],'function','actual member '+name);return api;
 }
 const stateApi=actualUnit('conversation','chat/transcript-state','transcriptStateFor');

@@ -1,3 +1,4 @@
+import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
 /** Typed no-op/interrupted compaction: actual source reducers, codecs and renderer. */
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
@@ -94,7 +95,7 @@ for (const data of [{outcome:'no_benefit',error:'failure'}, {outcome:'no_eligibl
 let registration
 const jsx = (type, props) => ({ type, props })
 vm.runInNewContext(built.get(trajectoryId + '/test').bytes.toString(), { console, Map, Set, WeakMap, WeakSet, TextEncoder, setTimeout, clearTimeout, requestAnimationFrame: fn => setTimeout(fn, 0), document: { querySelector: () => null, createElement: () => ({ dataset: {} }), head: { appendChild() {} } }, window: { __ModuleLoader__: { load: row => { registration = row } } } })
-const trajectory = registration.factory(name => {
+const trajectory = registration.factory(name => {if(name==='zod')return sharedVendors.zod;
   if (name === '@xharness/dsh-client-runtime/client') return runtime
   if (name === '@xharness/dsh-client-ui-primitives') return new Proxy({}, { get: (_t, key) => String(key) })
   if (name === 'react') return { memo: fn => fn, useEffect() {}, useLayoutEffect() {}, useMemo: fn => fn(), useRef: value => ({ current: value }), useState: value => [value, () => {}], useCallback: fn => fn }

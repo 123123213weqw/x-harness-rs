@@ -1,4 +1,20 @@
 //! Native terminal command results, not Agent execution or raw RPC forwarding.
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::let_underscore_must_use,
+    unused_must_use
+)]
+#![cfg_attr(
+    not(test),
+    forbid(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        unused_must_use
+    )
+)]
+
 use crate::replies::split_text;
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -347,6 +363,19 @@ fn automation_control(delivery: &Delivery, value: &Value) -> Result<String, Erro
         .to_owned();
     Ok(format!("Saved automation control recorded: {state}.\nAutomation ID: {}\nThis is the original operation receipt, not a current-state snapshot. Pause/delete affect future triggers; admitted runs were not cancelled.\nInspect: /automation {}",r.applied.control.id(),serde_json::to_string(&serde_json::json!({"action":"view","id":r.applied.control.id()}))?))
 }
+fn created_session_reply(delivery: &Delivery, value: &Value) -> Result<String, Error> {
+    let receipt: xharness_remote::ControllerCreated = serde_json::from_value(value.clone())
+        .map_err(|_| Error::Invalid("session creation receipt"))?;
+    if !receipt.is_for_delivery(delivery) {
+        return Err(Error::Invalid("session creation scope"));
+    }
+    let selection = serde_json::to_string(&xharness_remote::SessionSelection {
+        workspace: receipt.created.workspace.clone(),
+        session: receipt.created.session.clone(),
+    })?;
+    Ok(format!("Session created and granted. The current session was not changed.\nWorkspace ID: {}\nSession ID: {}\nSelect: /select {}", receipt.created.workspace, receipt.created.session, selection))
+}
+
 pub fn format_command_reply(delivery: &Delivery) -> Result<Vec<ReplyPlan>, Error> {
     let tag = state_tag(&delivery.state)?;
     let mut media = Vec::new();
@@ -357,7 +386,7 @@ pub fn format_command_reply(delivery: &Delivery) -> Result<Vec<ReplyPlan>, Error
         DeliveryState::Completed if delivery.reason.as_deref()==Some("manually-observed-accepted")=>"Request was reconciled by the desktop owner; no replay was performed.".into(),
         DeliveryState::Completed=>match &delivery.result {
             Some(NativeCommandResult::Success{value:Some(value)})=>match &delivery.inbound.command {
-                Command::CreateSession{..}=>serde_json::from_value::<xharness_remote::ControllerCreated>(value.clone()).ok().filter(|r|r.is_for_delivery(delivery)).map(|r|format!("Session created and granted. The current session was not changed.\nWorkspace ID: {}\nSession ID: {}\nSelect: /select {}",r.created.workspace,r.created.session,serde_json::to_string(&xharness_remote::SessionSelection{workspace:r.created.workspace.clone(),session:r.created.session.clone()}).expect("closed selection JSON"))).unwrap_or_else(||"Session creation receipt is unavailable or invalid. Inspect the desktop; do not resend.".into()),
+                Command::CreateSession{..}=>created_session_reply(delivery,value).unwrap_or_else(|_|"Session creation receipt is unavailable or invalid. Inspect the desktop; do not resend.".into()),
                 Command::Select{..}=>serde_json::from_value::<xharness_remote::ControllerSelection>(value.clone()).ok().filter(|s|s.is_for_delivery(delivery)).map(|s|format!("Session selected.\nWorkspace ID: {}\nSession ID: {}\nBinding generation: {}\nExisting tasks were not cancelled or replayed; history is available with /history.",s.binding.workspace,s.binding.session,s.binding.generation)).unwrap_or_else(||"Session selection receipt is unavailable or invalid. Reload the route in the desktop; do not resend.".into()),
                 Command::AutomationRead{..}=>automation_read(delivery,value).unwrap_or_else(|_|"Saved automation view is unavailable, invalid or exceeds the reply budget. Inspect the native desktop; no partial view was returned.".into()),
                 Command::AutomationControl{..}=>automation_control(delivery,value).unwrap_or_else(|_|"Saved automation control receipt is unavailable or invalid. Inspect the native desktop; do not resend the control.".into()),

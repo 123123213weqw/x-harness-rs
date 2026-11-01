@@ -25,7 +25,8 @@ Host 默认把 Agent Session JSONL、Host Control JSONL 和跨进程 Lease 保�
 
 ## 当前 Web Host 能力
 
-- 52 个上游兼容 RPC 有基础状态行为。
+- 56 个 RPC 有基础状态行为：上游兼容 52 个，加 4 个自有扩展（`session.import`、
+  `session.delete`、`workspace.unarchiveSession`、`goal.updatePlan`）。
 - `session.prompt` 可驱动真实 Rust Loop。
 - Coding Bundle 注册 11 个稳定工具名，交互层另注册持久 `ask_user_question`；每个模型 Step 只注入
   当前 Platform/Search/Interaction Readiness 可用的子集。后台任务统一走 Bash Job 三工具，默认

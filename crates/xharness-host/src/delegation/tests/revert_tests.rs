@@ -369,3 +369,78 @@ async fn queued_input_and_abandoned_turn_cannot_be_hidden_by_revert() {
         .contains("unsettled"));
     host.agent_runtime.shutdown(Duration::from_secs(2)).await;
 }
+
+#[tokio::test]
+async fn reverted_child_restores_the_working_plan_at_its_checkpoint() {
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let host = setup(store.clone(), Arc::new(Probe::default())).await;
+    parent(&host, "main").await;
+    let original = host
+        .execute_agent("main", "start", start("original task"))
+        .await
+        .unwrap();
+    let source = original["agent_id"].as_str().unwrap();
+    settled(&host, source).await;
+    let plan = xharness_session::SessionPlan {
+        revision: 1,
+        items: vec![xharness_session::PlanItem {
+            id: "verify".into(),
+            title: "Verify checkpoint context".into(),
+            status: xharness_session::PlanItemStatus::InProgress,
+        }],
+    };
+    let current = store.load(source).await.unwrap().unwrap();
+    store
+        .append(
+            source,
+            current.revision(),
+            vec![EventData::SessionPlanUpdated { plan: plan.clone() }.into()],
+        )
+        .await
+        .unwrap();
+    host.execute_agent(
+        "main",
+        "followup-with-plan",
+        AgentOperation::Send {
+            agent_id: source.into(),
+            message: "continue with the working plan".into(),
+        },
+    )
+    .await
+    .unwrap();
+    settled(&host, source).await;
+    let frozen = store.load(source).await.unwrap().unwrap();
+    let point = frozen
+        .events()
+        .iter()
+        .rev()
+        .find(|e| matches!(e.data(), EventData::StepEnd { .. }))
+        .unwrap()
+        .seq;
+    let result = host
+        .execute_agent(
+            "main",
+            "revert-with-plan",
+            AgentOperation::Revert {
+                agent_id: source.into(),
+                checkpoint_seq: point,
+                message: "correct direction".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let branch = result["agent_id"].as_str().unwrap();
+    settled(&host, branch).await;
+    assert_eq!(
+        host.state.read().await.sessions[branch].task_plan,
+        Some(plan.clone())
+    );
+    assert_eq!(
+        xharness_session::session_plan(&store.load(branch).await.unwrap().unwrap()),
+        Some(plan)
+    );
+    assert_eq!(
+        store.load(source).await.unwrap().unwrap().events(),
+        frozen.events()
+    );
+}

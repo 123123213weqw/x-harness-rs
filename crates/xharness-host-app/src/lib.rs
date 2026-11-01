@@ -23,11 +23,17 @@ mod read_media;
 pub mod remote_admin;
 pub mod remote_control;
 pub mod tool_allowlist;
+pub mod web_search;
 pub use plugin_service::{open_product_plugin_manager, NativePluginBackend};
+mod input_compat;
 pub mod reasoning_compat;
 pub mod reasoning_discovery;
 
-use std::{collections::BTreeMap, path::Path, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashSet},
+    path::Path,
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use tokio::sync::RwLock;
@@ -43,17 +49,17 @@ use xharness_jobs::JobRegistry;
 use xharness_platform::{CapabilityReport, NativePlatform, PlatformConfig};
 use xharness_schedule::ScheduleManager;
 use xharness_tools::{ToolExecutor, ToolRegistry, ToolSpec};
-use xharness_web::{ExaSearchProvider, WebError, WebRuntime};
+use xharness_web::{DeepSeekSearchProvider, WebError, WebRuntime};
 
-/// Search remains opt-in: only a non-empty Exa key installs the provider and
+/// Search remains opt-in: only a non-empty DeepSeek key installs the provider and
 /// projects `web_search` to the model. The key is never put in tool metadata.
 pub fn configured_web_runtime(
-    exa_api_key: Option<String>,
+    deepseek_api_key: Option<String>,
     debug: DebugRecorder,
 ) -> Result<WebRuntime, WebError> {
     let mut web = WebRuntime::default().with_debug(debug);
-    if let Some(key) = exa_api_key.filter(|key| !key.trim().is_empty()) {
-        web = web.with_search_provider(Arc::new(ExaSearchProvider::new(key)?));
+    if let Some(key) = deepseek_api_key.filter(|key| !key.trim().is_empty()) {
+        web = web.with_search_provider(Arc::new(DeepSeekSearchProvider::new(key)?));
     }
     Ok(web)
 }
@@ -67,6 +73,7 @@ pub struct NativeToolFactory {
     display_slots: Arc<tokio::sync::Semaphore>,
     web: Arc<WebRuntime>,
     platforms: RwLock<BTreeMap<(String, String, PermissionPreset), Arc<NativePlatform>>>,
+    retired_sessions: RwLock<HashSet<String>>,
     debug: DebugRecorder,
     questions: Option<Arc<DurableQuestionHub>>,
     schedules: Option<Arc<ScheduleManager>>,
@@ -96,6 +103,7 @@ impl NativeToolFactory {
             display_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             web: Arc::new(web),
             platforms: RwLock::new(BTreeMap::new()),
+            retired_sessions: RwLock::new(HashSet::new()),
             debug,
             questions: None,
             schedules: None,
@@ -118,6 +126,7 @@ impl NativeToolFactory {
             display_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             web: Arc::new(web),
             platforms: RwLock::new(BTreeMap::new()),
+            retired_sessions: RwLock::new(HashSet::new()),
             debug,
             questions: Some(questions),
             schedules: None,
@@ -141,6 +150,7 @@ impl NativeToolFactory {
             display_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             web: Arc::new(web),
             platforms: RwLock::new(BTreeMap::new()),
+            retired_sessions: RwLock::new(HashSet::new()),
             debug,
             questions: Some(questions),
             schedules: Some(schedules),
@@ -214,6 +224,10 @@ impl NativeToolFactory {
         cwd: &str,
         permission: PermissionPreset,
     ) -> Result<Arc<NativePlatform>, String> {
+        let admission = self.retired_sessions.read().await;
+        if admission.contains(session_id) {
+            return Err("session tool resources have been retired".into());
+        }
         let key = (session_id.to_owned(), cwd.to_owned(), permission);
         if let Some(platform) = self.platforms.read().await.get(&key).cloned() {
             return Ok(platform);
@@ -253,7 +267,7 @@ impl NativeToolFactory {
         let platform = self.platform(session_id, cwd, permission).await?;
         Ok(NativeToolReadiness {
             platform: platform.capability_report().await,
-            search_available: self.web.has_search_provider(),
+            search_available: self.web.search_available().await,
         })
     }
 }
@@ -269,6 +283,21 @@ fn project_tools(specs: &mut Vec<ToolSpec>, readiness: &NativeToolReadiness) {
 
 #[async_trait]
 impl SessionToolFactory for NativeToolFactory {
+    async fn release_session(&self, session_id: &str) -> Result<(), String> {
+        {
+            let mut admission = self.retired_sessions.write().await;
+            admission.insert(session_id.to_owned());
+            self.platforms
+                .write()
+                .await
+                .retain(|(owner, _, _), _| owner != session_id);
+        }
+        if let Some(mcp) = self.mcp.get() {
+            mcp.disconnect_owner(session_id).await;
+        }
+        Ok(())
+    }
+
     fn allows_host_tool(&self, name: &str) -> bool {
         self.tool_allowlist
             .get()
@@ -396,6 +425,24 @@ impl SessionToolFactory for NativeToolFactory {
         git_display::read(&platform, &layout, path, scope, cancellation, permit).await
     }
 
+    async fn inspect_display_file(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        permission: PermissionPreset,
+        path: &Path,
+        thumbnail: bool,
+    ) -> Result<xharness_api::display::DisplayInspection, String> {
+        let platform = self.platform(session_id, cwd, permission).await?;
+        let permit = self
+            .display_slots
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|e| e.to_string())?;
+        file_display::inspect(&platform, path, thumbnail, permit).await
+    }
+
     async fn read_display_file(
         &self,
         session_id: &str,
@@ -452,7 +499,7 @@ impl SessionToolFactory for NativeToolFactory {
         }
         project_tools(&mut specs, &readiness);
         if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
-            specs.push(xharness_host::AgentTool::for_host(&host, session_id));
+            specs.push(xharness_host::AgentTool::for_session(&host, session_id).await);
             builtin_ui = Some(Arc::new(builtin_ui::BuiltinUi::new(&host, session_id)));
         }
         // Native desktop control deliberately remains outside the workspace
@@ -634,6 +681,68 @@ mod tests {
     use std::io::Write;
     use xharness_interaction::QuestionInvocation;
     #[tokio::test]
+    async fn platform_creation_cannot_publish_a_cache_entry_after_retirement() {
+        let workspace = TempWorkspace::new();
+        let factory = NativeToolFactory::new(WebRuntime::default());
+        let cache = factory.platforms.write().await;
+        let creating = factory.clone();
+        let cwd = workspace.0.to_string_lossy().into_owned();
+        let creation = tokio::spawn(async move {
+            creating
+                .platform("deleted", &cwd, PermissionPreset::WorkspaceWrite)
+                .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if factory.retired_sessions.try_write().is_err() {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let retiring = factory.clone();
+        let retirement = tokio::spawn(async move { retiring.release_session("deleted").await });
+        drop(cache);
+        let platform = creation.await.unwrap().unwrap();
+        let weak = Arc::downgrade(&platform);
+        drop(platform);
+        retirement.await.unwrap().unwrap();
+        assert!(weak.upgrade().is_none());
+        assert!(factory.platforms.read().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn retired_platforms_release_owned_handles_and_reject_recreation() {
+        let workspace = TempWorkspace::new();
+        let factory = NativeToolFactory::new(WebRuntime::default());
+        let cwd = workspace.0.to_string_lossy();
+        let deleted = factory
+            .platform("deleted", &cwd, PermissionPreset::WorkspaceWrite)
+            .await
+            .unwrap();
+        let other = factory
+            .platform("other", &cwd, PermissionPreset::WorkspaceWrite)
+            .await
+            .unwrap();
+        let weak = Arc::downgrade(&deleted);
+        drop(deleted);
+        factory.release_session("deleted").await.unwrap();
+        assert!(weak.upgrade().is_none());
+        assert!(factory
+            .platform("deleted", &cwd, PermissionPreset::WorkspaceWrite)
+            .await
+            .is_err());
+        let retained = factory
+            .platform("other", &cwd, PermissionPreset::WorkspaceWrite)
+            .await
+            .unwrap();
+        assert!(Arc::ptr_eq(&other, &retained));
+        factory.release_session("deleted").await.unwrap();
+    }
+
+    #[tokio::test]
     async fn deployment_allowlist_removes_execution_not_just_definitions() {
         let workspace = TempWorkspace::new();
         let factory = NativeToolFactory::new(WebRuntime::default());
@@ -770,7 +879,7 @@ mod tests {
     pub(crate) struct TempWorkspace(pub(crate) std::path::PathBuf);
 
     #[tokio::test]
-    async fn exa_search_is_projected_only_with_an_explicit_key() {
+    async fn deepseek_search_is_projected_only_with_an_explicit_key() {
         let workspace = TempWorkspace::new();
         let cwd = workspace.0.to_string_lossy();
         for (key, expected) in [

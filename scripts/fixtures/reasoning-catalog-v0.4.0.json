@@ -1,0 +1,1473 @@
+{
+  "packageVersion": "0.4.0",
+  "gitRevision": "44159024c3c7a16d175d2cb3a5d665c39fe47d63",
+  "catalogVersion": "2026-10-18.2",
+  "profiles": {
+    "deepseek-chat": {
+      "default_effort": "high",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "thinking": {
+              "type": "disabled"
+            }
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "thinking": {
+              "type": "enabled"
+            },
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "thinking": {
+              "type": "enabled"
+            },
+            "reasoning_effort": "high"
+          }
+        },
+        {
+          "id": "max",
+          "name": "最高",
+          "request_patch": {
+            "thinking": {
+              "type": "enabled"
+            },
+            "reasoning_effort": "max"
+          }
+        }
+      ]
+    },
+    "deepseek-responses": {
+      "default_effort": "high",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "reasoning": {
+              "effort": "none"
+            }
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning": {
+              "effort": "low"
+            }
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "high"
+            }
+          }
+        },
+        {
+          "id": "max",
+          "name": "最高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "max"
+            }
+          }
+        }
+      ]
+    },
+    "glm-toggle": {
+      "default_effort": "on",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "thinking": {
+              "type": "disabled"
+            }
+          }
+        },
+        {
+          "id": "on",
+          "name": "开启",
+          "request_patch": {
+            "thinking": {
+              "type": "enabled"
+            }
+          }
+        }
+      ]
+    },
+    "glm-5.2": {
+      "default_effort": "max",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "thinking": {
+              "type": "disabled"
+            }
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "thinking": {
+              "type": "enabled"
+            },
+            "reasoning_effort": "high"
+          }
+        },
+        {
+          "id": "max",
+          "name": "最高",
+          "request_patch": {
+            "thinking": {
+              "type": "enabled"
+            },
+            "reasoning_effort": "max"
+          }
+        }
+      ]
+    },
+    "glm-5.3": {
+      "default_effort": "max",
+      "efforts": [
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "thinking": {
+              "type": "enabled"
+            },
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "thinking": {
+              "type": "enabled"
+            },
+            "reasoning_effort": "high"
+          }
+        },
+        {
+          "id": "max",
+          "name": "最高",
+          "request_patch": {
+            "thinking": {
+              "type": "enabled"
+            },
+            "reasoning_effort": "max"
+          }
+        }
+      ]
+    },
+    "openai-chat-none-max": {
+      "default_effort": "medium",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "reasoning_effort": "none"
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning_effort": "medium"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning_effort": "high"
+          }
+        },
+        {
+          "id": "xhigh",
+          "name": "超高",
+          "request_patch": {
+            "reasoning_effort": "xhigh"
+          }
+        },
+        {
+          "id": "max",
+          "name": "最高",
+          "request_patch": {
+            "reasoning_effort": "max"
+          }
+        }
+      ]
+    },
+    "openai-responses-none-max": {
+      "default_effort": "medium",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "reasoning": {
+              "effort": "none"
+            }
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning": {
+              "effort": "low"
+            }
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning": {
+              "effort": "medium"
+            }
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "high"
+            }
+          }
+        },
+        {
+          "id": "xhigh",
+          "name": "超高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "xhigh"
+            }
+          }
+        },
+        {
+          "id": "max",
+          "name": "最高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "max"
+            }
+          }
+        }
+      ]
+    },
+    "openai-chat-6-1-sol": {
+      "default_effort": "medium",
+      "efforts": [
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning_effort": "medium"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning_effort": "high"
+          }
+        },
+        {
+          "id": "xhigh",
+          "name": "超高",
+          "request_patch": {
+            "reasoning_effort": "xhigh"
+          }
+        },
+        {
+          "id": "max",
+          "name": "最高",
+          "request_patch": {
+            "reasoning_effort": "max"
+          }
+        }
+      ]
+    },
+    "openai-responses-6-1-sol": {
+      "default_effort": "medium",
+      "efforts": [
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning": {
+              "effort": "low"
+            }
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning": {
+              "effort": "medium"
+            }
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "high"
+            }
+          }
+        },
+        {
+          "id": "xhigh",
+          "name": "超高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "xhigh"
+            }
+          }
+        },
+        {
+          "id": "max",
+          "name": "最高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "max"
+            }
+          }
+        }
+      ]
+    },
+    "openai-chat-6-astra": {
+      "efforts": [
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning_effort": "medium"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning_effort": "high"
+          }
+        },
+        {
+          "id": "xhigh",
+          "name": "超高",
+          "request_patch": {
+            "reasoning_effort": "xhigh"
+          }
+        },
+        {
+          "id": "max",
+          "name": "最高",
+          "request_patch": {
+            "reasoning_effort": "max"
+          }
+        }
+      ]
+    },
+    "openai-responses-6-astra": {
+      "efforts": [
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning": {
+              "effort": "low"
+            }
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning": {
+              "effort": "medium"
+            }
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "high"
+            }
+          }
+        },
+        {
+          "id": "xhigh",
+          "name": "超高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "xhigh"
+            }
+          }
+        },
+        {
+          "id": "max",
+          "name": "最高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "max"
+            }
+          }
+        }
+      ]
+    },
+    "openai-chat-5-5": {
+      "default_effort": "medium",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "reasoning_effort": "none"
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning_effort": "medium"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning_effort": "high"
+          }
+        },
+        {
+          "id": "xhigh",
+          "name": "超高",
+          "request_patch": {
+            "reasoning_effort": "xhigh"
+          }
+        }
+      ]
+    },
+    "openai-responses-5-5": {
+      "default_effort": "medium",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "reasoning": {
+              "effort": "none"
+            }
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning": {
+              "effort": "low"
+            }
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning": {
+              "effort": "medium"
+            }
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "high"
+            }
+          }
+        },
+        {
+          "id": "xhigh",
+          "name": "超高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "xhigh"
+            }
+          }
+        }
+      ]
+    },
+    "openai-chat-5-4": {
+      "default_effort": "off",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "reasoning_effort": "none"
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning_effort": "medium"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning_effort": "high"
+          }
+        },
+        {
+          "id": "xhigh",
+          "name": "超高",
+          "request_patch": {
+            "reasoning_effort": "xhigh"
+          }
+        }
+      ]
+    },
+    "openai-responses-5-4": {
+      "default_effort": "off",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "reasoning": {
+              "effort": "none"
+            }
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning": {
+              "effort": "low"
+            }
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning": {
+              "effort": "medium"
+            }
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "high"
+            }
+          }
+        },
+        {
+          "id": "xhigh",
+          "name": "超高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "xhigh"
+            }
+          }
+        }
+      ]
+    },
+    "openai-chat-5-1": {
+      "default_effort": "off",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "reasoning_effort": "none"
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning_effort": "medium"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning_effort": "high"
+          }
+        }
+      ]
+    },
+    "openai-responses-5-1": {
+      "default_effort": "off",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "reasoning": {
+              "effort": "none"
+            }
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning": {
+              "effort": "low"
+            }
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning": {
+              "effort": "medium"
+            }
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "high"
+            }
+          }
+        }
+      ]
+    },
+    "openai-chat-5": {
+      "efforts": [
+        {
+          "id": "minimal",
+          "name": "极低",
+          "request_patch": {
+            "reasoning_effort": "minimal"
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning_effort": "medium"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning_effort": "high"
+          }
+        }
+      ]
+    },
+    "openai-responses-5": {
+      "efforts": [
+        {
+          "id": "minimal",
+          "name": "极低",
+          "request_patch": {
+            "reasoning": {
+              "effort": "minimal"
+            }
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning": {
+              "effort": "low"
+            }
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning": {
+              "effort": "medium"
+            }
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "high"
+            }
+          }
+        }
+      ]
+    },
+    "openai-responses-5-5-pro": {
+      "default_effort": "high",
+      "efforts": [
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning": {
+              "effort": "medium"
+            }
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "high"
+            }
+          }
+        },
+        {
+          "id": "xhigh",
+          "name": "超高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "xhigh"
+            }
+          }
+        }
+      ]
+    },
+    "gemini-3-8-flash": {
+      "default_effort": "medium",
+      "efforts": [
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning_effort": "medium"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning_effort": "high"
+          }
+        }
+      ]
+    },
+    "gemini-3-6-flash": {
+      "default_effort": "medium",
+      "efforts": [
+        {
+          "id": "minimal",
+          "name": "极低",
+          "request_patch": {
+            "reasoning_effort": "minimal"
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning_effort": "medium"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning_effort": "high"
+          }
+        }
+      ]
+    },
+    "gemini-3-5-flash-lite": {
+      "default_effort": "minimal",
+      "efforts": [
+        {
+          "id": "minimal",
+          "name": "极低",
+          "request_patch": {
+            "reasoning_effort": "minimal"
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning_effort": "medium"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning_effort": "high"
+          }
+        }
+      ]
+    },
+    "gemini-3-1-pro": {
+      "default_effort": "high",
+      "efforts": [
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning_effort": "medium"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning_effort": "high"
+          }
+        }
+      ]
+    },
+    "gemini-3-flash-preview": {
+      "default_effort": "high",
+      "efforts": [
+        {
+          "id": "minimal",
+          "name": "极低",
+          "request_patch": {
+            "reasoning_effort": "minimal"
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning_effort": "medium"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning_effort": "high"
+          }
+        }
+      ]
+    },
+    "gemini-2-5-flash": {
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "reasoning_effort": "none"
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning_effort": "medium"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning_effort": "high"
+          }
+        }
+      ]
+    },
+    "gemini-2-5-pro": {
+      "efforts": [
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning_effort": "medium"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning_effort": "high"
+          }
+        }
+      ]
+    },
+    "gemini-2-5-flash-lite": {
+      "default_effort": "off",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "reasoning_effort": "none"
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning_effort": "medium"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning_effort": "high"
+          }
+        }
+      ]
+    },
+    "grok-chat-xhigh": {
+      "default_effort": "high",
+      "efforts": [
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning_effort": "medium"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning_effort": "high"
+          }
+        },
+        {
+          "id": "xhigh",
+          "name": "超高",
+          "request_patch": {
+            "reasoning_effort": "xhigh"
+          }
+        }
+      ]
+    },
+    "grok-chat-4-5": {
+      "default_effort": "high",
+      "efforts": [
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning_effort": "medium"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning_effort": "high"
+          }
+        }
+      ]
+    },
+    "qwen3-8-chat": {
+      "default_effort": "xhigh",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "enable_thinking": false
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "reasoning_effort": "medium"
+          }
+        },
+        {
+          "id": "xhigh",
+          "name": "超高",
+          "request_patch": {
+            "reasoning_effort": "xhigh"
+          }
+        }
+      ]
+    },
+    "qwen-toggle-on": {
+      "default_effort": "on",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "enable_thinking": false
+          }
+        },
+        {
+          "id": "on",
+          "name": "开启",
+          "request_patch": {
+            "enable_thinking": true
+          }
+        }
+      ]
+    },
+    "qwen-toggle-off": {
+      "default_effort": "off",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "enable_thinking": false
+          }
+        },
+        {
+          "id": "on",
+          "name": "开启",
+          "request_patch": {
+            "enable_thinking": true
+          }
+        }
+      ]
+    },
+    "kimi-toggle": {
+      "default_effort": "on",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "thinking": {
+              "type": "disabled"
+            }
+          }
+        },
+        {
+          "id": "on",
+          "name": "开启",
+          "request_patch": {
+            "thinking": {
+              "type": "enabled"
+            }
+          }
+        }
+      ]
+    },
+    "kimi-k3-chat": {
+      "default_effort": "max",
+      "efforts": [
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning_effort": "high"
+          }
+        },
+        {
+          "id": "max",
+          "name": "最高",
+          "request_patch": {
+            "reasoning_effort": "max"
+          }
+        }
+      ]
+    },
+    "kimi-k3-responses": {
+      "default_effort": "max",
+      "efforts": [
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning": {
+              "effort": "low"
+            }
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "high"
+            }
+          }
+        },
+        {
+          "id": "max",
+          "name": "最高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "max"
+            }
+          }
+        }
+      ]
+    },
+    "claude-5-5-high": {
+      "default_effort": "high",
+      "efforts": [
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "thinking": {
+              "type": "adaptive"
+            },
+            "output_config": {
+              "effort": "low"
+            }
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "thinking": {
+              "type": "adaptive"
+            },
+            "output_config": {
+              "effort": "medium"
+            }
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "thinking": {
+              "type": "adaptive"
+            },
+            "output_config": {
+              "effort": "high"
+            }
+          }
+        },
+        {
+          "id": "xhigh",
+          "name": "超高",
+          "request_patch": {
+            "thinking": {
+              "type": "adaptive"
+            },
+            "output_config": {
+              "effort": "xhigh"
+            }
+          }
+        },
+        {
+          "id": "max",
+          "name": "最高",
+          "request_patch": {
+            "thinking": {
+              "type": "adaptive"
+            },
+            "output_config": {
+              "effort": "max"
+            }
+          }
+        }
+      ]
+    },
+    "claude-5-5-medium": {
+      "default_effort": "medium",
+      "efforts": [
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "thinking": {
+              "type": "adaptive"
+            },
+            "output_config": {
+              "effort": "low"
+            }
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "thinking": {
+              "type": "adaptive"
+            },
+            "output_config": {
+              "effort": "medium"
+            }
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "thinking": {
+              "type": "adaptive"
+            },
+            "output_config": {
+              "effort": "high"
+            }
+          }
+        },
+        {
+          "id": "xhigh",
+          "name": "超高",
+          "request_patch": {
+            "thinking": {
+              "type": "adaptive"
+            },
+            "output_config": {
+              "effort": "xhigh"
+            }
+          }
+        },
+        {
+          "id": "max",
+          "name": "最高",
+          "request_patch": {
+            "thinking": {
+              "type": "adaptive"
+            },
+            "output_config": {
+              "effort": "max"
+            }
+          }
+        }
+      ]
+    },
+    "claude-fable-5-1": {
+      "default_effort": "high",
+      "efforts": [
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "thinking": {
+              "type": "adaptive"
+            },
+            "output_config": {
+              "effort": "low"
+            }
+          }
+        },
+        {
+          "id": "medium",
+          "name": "中",
+          "request_patch": {
+            "thinking": {
+              "type": "adaptive"
+            },
+            "output_config": {
+              "effort": "medium"
+            }
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "thinking": {
+              "type": "adaptive"
+            },
+            "output_config": {
+              "effort": "high"
+            }
+          }
+        },
+        {
+          "id": "xhigh",
+          "name": "超高",
+          "request_patch": {
+            "thinking": {
+              "type": "adaptive"
+            },
+            "output_config": {
+              "effort": "xhigh"
+            }
+          }
+        },
+        {
+          "id": "max",
+          "name": "最高",
+          "request_patch": {
+            "thinking": {
+              "type": "adaptive"
+            },
+            "output_config": {
+              "effort": "max"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

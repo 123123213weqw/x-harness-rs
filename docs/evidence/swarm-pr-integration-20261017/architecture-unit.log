@@ -1,0 +1,9 @@
+..............................
+----------------------------------------------------------------------
+Ran 30 tests in 4.986s
+
+OK
+architecture freeze failed: --base must be an explicit full Git commit SHA
+architecture freeze failed: --base must be an explicit full Git commit SHA
+architecture freeze failed: Command '['git', '-C', '/var/folders/jb/vq4jn1w94dsc2tt35tfkrvkr0000gn/T/tmplglyi2e_', 'rev-parse', '--verify', '0000000000000000000000000000000000000000^{commit}']' returned non-zero exit status 128.
+architecture freeze failed: the JSON object must be str, bytes or bytearray, not NoneType

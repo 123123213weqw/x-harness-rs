@@ -1,4 +1,3 @@
-import { transcriptHasPendingTool } from './pending-tool'
 import { useAdaptiveToolFold } from './use-adaptive-tool-fold'
 import { useProcessMode } from './process-mode'
 // ChatView: the default conversation view — one stable keyed parent list over
@@ -19,17 +18,18 @@ import { useProcessMode } from './process-mode'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ConversationTimelineSnapshot } from "../types/runtime"
-import { Button, IconChevronDownOutline14, Modal, Tooltip } from '../primitives'
+import { Button, IconChevronDownOutline14, Modal } from '../primitives'
 import type { ChatViewSlotProps, RenderMessageImages } from '../contract/slots'
 import { PendingSteeringBubble } from './MessageItem'
-import { ChatNodeSeat, TurnProcessSummarySeat } from './ChatNodeSeat'
+import { ChatFlow } from './ChatFlow'
 import { bindTranscriptFollow } from './TranscriptWindowRow'
 import { formatRunDuration } from './message-chrome'
 import { isChatNode } from '../contract/chat-node-codec'
-import { messagePreview } from './message-preview'
+import { MessageMarkerCache } from './message-preview'
 import css from './ChatView.styles'
-import railCss from './MessageRail.styles'
+import { MessageRail } from './MessageRail'
 import { HistoryPageIntent } from './history-page-intent'
+import { LoadingIndicator } from './LoadingIndicator'
 
 const FOLLOW_THRESHOLD = 24
 
@@ -126,7 +126,7 @@ function runningTurnStartTime(timeline: ConversationTimelineSnapshot): number | 
   return latest
 }
 
-/** Turn-level model activity label retained across first-token, tool, and streaming phases. */
+/** Stable turn-level activity seat across first-token, tool, and streaming phases. */
 function TurnStatus({ startTime, t }: {
   /** The running turn's logged `turn/start` time; null falls back to mount
    *  time when that boundary is outside the window. */
@@ -147,12 +147,12 @@ function TurnStatus({ startTime, t }: {
     const id = setInterval(tick, 1000)
     return () => { clearInterval(id) }
   }, [anchor])
-  // Short turns keep the plain label; the clock only appears once the turn
+  // Short turns keep just the spinner; the clock only appears once the turn
   // has clearly been running for a while.
   const showClock = elapsedMs >= 15_000
   return (
-    <div className={css.turnStatus} role="status" aria-live="polite">
-      {t('xh.turn.working')}
+    <div className={css.turnStatus}>
+      <LoadingIndicator active label={t('xh.turn.working')} />
       {showClock && (
         <span className={css.turnStatusClock} aria-hidden>
           {formatRunDuration(elapsedMs, t)}
@@ -179,6 +179,7 @@ export function ChatView({
   const running = useSession(s => s.running)
   const openState = useSession(s => s.openState)
   const openError = useSession(s => s.openError)
+  const lastAgentError = useSession(s => s.lastAgentError) ?? null
   const hasMore = useSession(s => s.hasMore)
   const loadingOlder = useSession(s => s.loadingOlder)
   const selectedCallId = useStore(s => s.selection?.callId)
@@ -193,12 +194,16 @@ export function ChatView({
   if (processState.sessionId !== sessionId || processState.mode !== processMode) {
     setProcessState({ sessionId, mode: processMode, choices: new Map() })
   }
+  const expandedTurnsCache = useRef<ReadonlySet<number> | null>(null)
   const expandedTurns = useMemo(() => {
     const result = new Set<number>()
     const choices = processState.sessionId === sessionId && processState.mode === processMode ? processState.choices : undefined
     for (const turn of timeline.turns.keys()) {
       if (choices?.get(turn) ?? processMode === 'expanded') result.add(turn)
     }
+    const previous = expandedTurnsCache.current
+    if (previous !== null && previous.size === result.size && [...result].every(turn => previous.has(turn))) return previous
+    expandedTurnsCache.current = result
     return result
   }, [timeline, processState, sessionId, processMode])
   // Close/retry must ignore a settlement that started before the latest
@@ -238,11 +243,14 @@ export function ChatView({
     () => inbox.filter(item => item.placement === 'steering'),
     [inbox],
   )
-  const messageMarkers = useMemo(() => order.flatMap(key => {
+  const [markerCache] = useState(() => new MessageMarkerCache())
+  const messageMarkers = useMemo(() => markerCache.read(order, key => {
     const node = nodeStore.get(key)
-    if (!isChatNode(node) || (node.kind !== 'user' && node.kind !== 'steering')) return []
-    return [{ key, preview: messagePreview(node.data.content) }]
-  }), [order, nodeStore])
+    // Do not recursively validate every assistant/tool payload merely to find
+    // user markers. Candidate user payloads still cross the same codec.
+    if (node?.kind !== 'user' && node?.kind !== 'steering') return undefined
+    return isChatNode(node) && (node.kind === 'user' || node.kind === 'steering') ? node.data.content : undefined
+  }), [order, nodeStore, markerCache])
   const renderMessageImages = useCallback<RenderMessageImages>(
     owner => renderSlot('conversation.message.images', { ...owner, loadImage }),
     [loadImage, renderSlot],
@@ -313,7 +321,7 @@ export function ChatView({
   }
   const { foldedTools, invalidateFoldedTool } = useAdaptiveToolFold(sessionId, listRef, expandedTurns, captureAutoFoldAnchor, nodeStore)
 
-  const toggleTurnProcess = (turn: number): void => {
+  const toggleTurnProcess = useCallback((turn: number): void => {
     pageIntent.cancel()
     const local = listRef.current
     if (local !== null) {
@@ -333,7 +341,7 @@ export function ChatView({
       choices.set(turn, !(choices.get(turn) ?? processMode === 'expanded'))
       return { sessionId, mode: processMode, choices }
     })
-  }
+  }, [pageIntent, sessionId, processMode])
 
   useLayoutEffect(() => {
     const local = listRef.current
@@ -351,6 +359,9 @@ export function ChatView({
   // One independently subscribed resident entry per loaded turn, including
   // partial history pages without the original user/start event. No full-turn
   // pinning: only the live tip and pending tools bypass row windowing.
+  // Structural publication is separate from timeline/content updates. Older
+  // registrants without the optional version keep the conservative fallback.
+  const structureVersion = nodeStore.structureVersion
   const processHeads = useMemo(() => {
     const heads = new Set<string>()
     const turns = new Set<number>()
@@ -364,7 +375,7 @@ export function ChatView({
       heads.add(key)
     }
     return heads
-  }, [order, nodeStore, timeline])
+  }, [order, nodeStore, structureVersion, structureVersion === undefined ? timeline : undefined])
 
   const firstKey = order[0]
   const firstSeq = firstKey === undefined ? null : nodeStore.get(firstKey)?.anchorSeq ?? null
@@ -657,7 +668,7 @@ export function ChatView({
     }
   }
 
-  const scrollToMessage = (key: string): void => {
+  const scrollToMessage = useCallback((key: string): void => {
     pageIntent.cancel()
     const local = listRef.current
     if (local === null) return
@@ -673,28 +684,17 @@ export function ChatView({
     setActiveMarker(key)
     const position = scrollPosition(local, scrollport)
     if (position !== null) chatScroll.save(position)
-  }
+  }, [pageIntent, chatScroll])
 
   return (
     <div className={css.root} data-chat-view-root="">
+      {lastAgentError !== null && (
+        <div className={css.openError} role="alert" data-agent-error="">
+          {t('chat.agentError', { message: lastAgentError })}
+        </div>
+      )}
       {railHost !== null && messageMarkers.length > 1 && createPortal(
-        <nav className={railCss.root} aria-label={t('chat.messageRail')}>
-          {messageMarkers.map((marker, index) => {
-            const label = marker.preview === ''
-              ? t('chat.messageRail.message', { n: index + 1 })
-              : `${t('chat.messageRail.message', { n: index + 1 })}: ${marker.preview}`
-            return <Tooltip key={marker.key} label={label} side="right" delayMs={300}>
-              <button
-                type="button"
-                className={railCss.item}
-                data-message-key={marker.key}
-                aria-label={label}
-                aria-current={activeMarker === marker.key ? 'location' : undefined}
-                onClick={() => { scrollToMessage(marker.key) }}
-              ><span className={railCss.mark} aria-hidden="true" /></button>
-            </Tooltip>
-          })}
-        </nav>,
+        <MessageRail markers={messageMarkers} active={activeMarker} select={scrollToMessage} t={t} />,
         railHost,
       )}
       <div ref={listRef} className={css.scroll}>
@@ -713,38 +713,12 @@ export function ChatView({
               </button>
             </div>
           )}
-          {order.flatMap((nodeKey) => [
-            ...(processHeads.has(nodeKey) ? [<TurnProcessSummarySeat
-              key={`${sessionId}:process:${nodeKey}`}
-              nodeKey={nodeKey}
-              useSession={useSession}
-              expandedTurns={expandedTurns}
-              foldedTools={foldedTools}
-              toggleTurnProcess={toggleTurnProcess}
-              t={t}
-            />] : []),
-            <ChatNodeSeat
-              key={`${sessionId}:node:${nodeKey}`}
-              nodeKey={nodeKey}
-              expandedTurns={expandedTurns}
-              foldedTools={foldedTools}
-              invalidateFoldedTool={invalidateFoldedTool}
-              keepMounted={running && (nodeKey === lastKey || transcriptHasPendingTool(nodeStore.get(nodeKey)))}
-              editMessage={editMessage}
-              forkMessage={forkMessage}
-              editAvailable={!running}
-              useSession={useSession}
-              selectedCallId={selectedCallId}
-              cwd={cwd}
-              openFile={requestOpenFile}
-              inspectCall={inspectCall}
-              forkAt={forkAt}
-              renderMessageImages={renderMessageImages}
-              fileMentions={fileMentions}
-              renderSlot={renderSlot}
-              t={t}
-            />,
-          ])}
+          <ChatFlow order={order} processHeads={processHeads} sessionId={sessionId} lastKey={lastKey}
+            expandedTurns={expandedTurns} foldedTools={foldedTools} invalidateFoldedTool={invalidateFoldedTool}
+            editMessage={editMessage} forkMessage={forkMessage} editAvailable={!running}
+            useSession={useSession} selectedCallId={selectedCallId} cwd={cwd} openFile={requestOpenFile}
+            inspectCall={inspectCall} forkAt={forkAt} renderMessageImages={renderMessageImages}
+            fileMentions={fileMentions} renderSlot={renderSlot} t={t} toggleTurnProcess={toggleTurnProcess} />
           {/* No pending placeholders: questions (ui-user-questions) and approvals
               (ApprovalPanel) both take over the composer, so a flow card would
               double-render the same wait. */}

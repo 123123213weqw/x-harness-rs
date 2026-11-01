@@ -27,6 +27,11 @@
 5. 兼容边界允许服务端增加未知字段；内部代码不得继续传播无类型 `Value`；
 6. 每一阶段可以独立回滚，并通过远程 quick/full 回归后才进入下一阶段。
 
+> **注（2026-10-23）：** 第 1 条按“本计划成文时存在的 52 个方法不得删除、改名或改变形状”
+> 理解。此后新增了 4 个自有扩展（`session.import`、`session.delete`、
+> `workspace.unarchiveSession`、`goal.updatePlan`），`RpcMethod::ALL` 现为 56 个；这属于新增
+> 而非破坏原不变量。当前计数与扩展清单以 [`api.md`](api.md) 为准。
+
 ## 3. 目标结构
 
 ```text

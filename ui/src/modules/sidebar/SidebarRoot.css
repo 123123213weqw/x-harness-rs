@@ -19,3 +19,54 @@
 .xh-shell-navigation-rail .xh-shell-navigation{gap:0}
 .xh-shell-navigation-rail button{width:24px;height:28px}
 .xh-shell-navigation-desktop{margin-right:4px}
+
+/* Touch rail: one 44px target for every control, one vertical rhythm, and three
+   visible groups. Glyph sizes are untouched, so the rail reads the same at a
+   glance; only hit areas, spacing and the hairlines change. Scoped to coarse
+   pointers so the desktop rail keeps its 28/36px geometry and its pixel goldens.
+   56px track - 2*6px padding = 44px of content, which is exactly one target. */
+@media (pointer:coarse){
+  .U910La_root.U910La_collapsed{padding:18px 6px 8px}
+  .U910La_collapsed .U910La_logoRow{height:44px;margin-bottom:8px}
+  .U910La_collapsed .U910La_iconButton{width:44px;height:44px;border-radius:12px}
+  .U910La_collapsed .U910La_newSession{width:44px;height:44px;border-radius:12px;margin:0 0 8px}
+  .xhsidebar-primary-actions[data-wide=false]{width:44px;gap:8px;margin:0 0 8px}
+  /* New Session is the shell's; the assistant entry beside it comes from the
+     assistant module, so match any rail control rather than that one class. */
+  .xhsidebar-primary-actions[data-wide=false] button,
+  .xhsidebar-primary-actions[data-wide=false] .U910La_newSession{width:44px;height:44px;border-radius:12px}
+  /* Back/forward stay one track-centred pair. 48px of pair with -2px on each
+     side keeps it on the track axis instead of pinching it to 22px, and 24x44
+     each is the 24px floor of WCAG 2.5.8 with a full-height thumb target. */
+  .xh-shell-navigation-rail{width:48px;margin:0 -2px 8px}
+  .xh-shell-navigation-rail .xh-shell-navigation{width:48px;gap:0;justify-content:center}
+  .xh-shell-navigation-rail button{width:24px;height:44px}
+  .xh-shell-navigation button:disabled{opacity:.45}
+  /* Browsing and foot actions come from other modules: the shell owns rail
+     geometry, so it owns their target size too, without editing their styles. */
+  .U910La_collapsed .U910La_regionArea button,
+  .U910La_collapsed .U910La_footArea button{min-width:44px;min-height:44px;border-radius:12px}
+  /* The browsing module wraps its rail controls in 36px boxes. Sizing whatever
+     wrapper holds a control keeps the 44px target inside its own box instead of
+     overflowing it into the neighbour's hit area. Class names there are content
+     hashes, so this matches by structure, not by name. */
+  .U910La_collapsed .U910La_regionArea div:has(> button),
+  .U910La_collapsed .U910La_regionArea div:has(> div > button){width:44px;min-height:44px;margin:0 0 8px}
+  .U910La_collapsed .U910La_regionArea{border-top:1px solid var(--dsw-alias-border-l1);padding-top:12px;margin-top:0}
+  .U910La_collapsed .U910La_footArea{border-top:1px solid var(--dsw-alias-border-l1);padding-top:12px;margin-top:8px;gap:8px}
+  /* Expanded drawer: the same rule, one 44px row per target. Rows keep their
+     width (a row is already 250px+); only height and the header controls grow,
+     and the header icons stop at 36px wide so four of them still fit beside the
+     section label without pushing it out of the drawer. */
+  .U910La_root:not(.U910La_collapsed) .U910La_logoRow{height:auto;min-height:44px;padding-block:4px}
+  .U910La_root:not(.U910La_collapsed) .U910La_iconButton{width:44px;height:44px;border-radius:12px}
+  .U910La_root:not(.U910La_collapsed) .U910La_brand{min-height:44px}
+  .U910La_root:not(.U910La_collapsed) .U910La_newSession,
+  .U910La_root:not(.U910La_collapsed) .xhsidebar-primary-actions[data-wide=true] button{height:44px;min-height:44px}
+  .U910La_root:not(.U910La_collapsed) .xh-shell-navigation button{min-width:32px;height:44px}
+  .U910La_root:not(.U910La_collapsed) .U910La_regionArea button,
+  .U910La_root:not(.U910La_collapsed) .U910La_footArea button{min-width:36px;min-height:44px}
+  .U910La_root:not(.U910La_collapsed) .U910La_regionArea [role=treeitem],
+  .U910La_root:not(.U910La_collapsed) .U910La_regionArea [role=option]{min-height:44px}
+  .U910La_root:not(.U910La_collapsed) .U910La_regionArea a{min-height:44px;display:flex;align-items:center}
+}

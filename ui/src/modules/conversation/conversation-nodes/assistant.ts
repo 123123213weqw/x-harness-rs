@@ -257,7 +257,7 @@ function projectAssistant(context: ConversationNodeContext<AssistantState>): Ass
 
 /** Per-step Assistant streaming/final/interruption Definition. */
 export const assistantDefinition: ConversationNodeDefinition<AssistantState> = {
-  historyReuse: 'local',
+  historyReuse: 'local', locationReuse: 'events',
   kind: 'assistant-step',
   target: 'chat',
   match: (event) => {

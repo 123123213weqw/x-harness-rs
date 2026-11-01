@@ -78,6 +78,8 @@ export interface LlmApi {
 
 /** Wire view of one model an interrogated endpoint advertises. */
 export interface DiscoveredModelView {
+  imageInput?: boolean | undefined
+  imageInputCapability?: unknown | undefined
   /** Model id the endpoint accepts. */
   id: string
   /** Human-readable name when the endpoint supplies one. */

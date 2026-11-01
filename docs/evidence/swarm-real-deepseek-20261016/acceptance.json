@@ -1,0 +1,182 @@
+{
+  "passed": true,
+  "kind": "bounded real DeepSeek orchestration smoke test",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "owner": "swarm-deepseek-live-20261016",
+  "team": "swarm-1792160898191-44",
+  "workers": {
+    "Sum specialist": "agent-363e266d6bacbbc0f15ba11b982564f4366c4242d051ad8e5b7e2bcc89dc1f46",
+    "Product specialist": "agent-b3aab43d9c3cb0f186d697ba4b67bf4c503a55d4bed58b3ac4577e7526312559"
+  },
+  "threeTaskStageElapsedSeconds": 35.2,
+  "actualWorkerAnswers": {
+    "Independent sum": "SUM=42\n\n17 + 25 = 42.",
+    "Independent product": "PRODUCT=42\n\n6 \u00d7 7 is the product of six groups of seven (or seven groups of six), which sums to 42.",
+    "Check agreement": "MATCH=42\n\nBoth accepted dependencies yielded the same value 42: the \"Independent sum\" result (17 + 25 = 42) and the \"Independent product\" result (6 \u00d7 7 = 42). Sources: task swarm-task-1792160978064-475 (sum) and task swarm-task-1792160979741-511 (product)."
+  },
+  "matchingAssignmentTurns": {
+    "swarm-task-1792160978064-475": 2,
+    "swarm-task-1792160979741-511": 2,
+    "swarm-task-1792160981349-549": 3
+  },
+  "consumedDeliveryCounts": {
+    "swarm-task-1792160978064-475": 1,
+    "swarm-task-1792160979741-511": 1,
+    "swarm-task-1792160981349-549": 1
+  },
+  "claimControlSequences": {
+    "swarm-task-1792160978064-475": 20,
+    "swarm-task-1792160979741-511": 22,
+    "swarm-task-1792160981349-549": 32
+  },
+  "acceptedControlSequences": {
+    "swarm-task-1792160978064-475": 28,
+    "swarm-task-1792160979741-511": 30,
+    "swarm-task-1792160981349-549": 36
+  },
+  "coordinatorToolCalls": [
+    {
+      "name": "agent",
+      "action": "start",
+      "command": null
+    },
+    {
+      "name": "agent",
+      "action": "start",
+      "command": null
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "list"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "add"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "add"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "add"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "list"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "list"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "list"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "review"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "review"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "list"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "review"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "list"
+    },
+    {
+      "name": "agent",
+      "action": "tasks",
+      "command": "list"
+    }
+  ],
+  "finalPassMarkerObserved": true,
+  "humanDriver": "created root/team, linked the two model-created workers, enabled dispatch; did not add/assign/review tasks",
+  "qualityNotes": [
+    "Coordinator review summary has a SIM/SUM typo; actual worker answer was independently verified as SUM=42.",
+    "Late native settlements triggered two additional coordinator confirmation turns; no duplicate task review or work was created.",
+    "A completed board is not a closed team; the model used closed colloquially."
+  ],
+  "notClaimed": [
+    "coding-task quality",
+    "broad autonomous reliability",
+    "restart coverage by this live test (covered separately by deterministic recovery tests)"
+  ],
+  "journalSha256": {
+    "state-ui/control/host-control.jsonl": "007dd1fc6da02d173af9ee474bc2869a85f1bc96686c9814b2aef3819b79cf47",
+    "state-ui/sessions/swarm-deepseek-live-20261016.jsonl": "45cf5c2a9d02a35d311ddba41a56d8b4e8d41675d38c2e4150fc0ca3ee5fcb34",
+    "state-ui/sessions/agent-363e266d6bacbbc0f15ba11b982564f4366c4242d051ad8e5b7e2bcc89dc1f46.jsonl": "5a55945a98be90cf60b865b7035de3e5d3ea95f7052db545fb7f813a4a5baac4",
+    "state-ui/sessions/agent-b3aab43d9c3cb0f186d697ba4b67bf4c503a55d4bed58b3ac4577e7526312559.jsonl": "d47e9b93a91049f642b6282ff4f14f4bf1f7ed2d8698d91ee18331fbed38843c"
+  },
+  "completedAtUtc": "2026-10-16T14:33:56.767921+00:00",
+  "remoteHost": "WZU_Server",
+  "localUrl": "http://127.0.0.1:3293/",
+  "toolsAllowed": [
+    "agent"
+  ],
+  "reasoningEffort": "low",
+  "usageBySession": {
+    "swarm-deepseek-live-20261016": {
+      "cacheReadTokens": 143104,
+      "cacheWriteTokens": 0,
+      "outputTokens": 3176,
+      "uncachedInputTokens": 19616
+    },
+    "agent-363e266d6bacbbc0f15ba11b982564f4366c4242d051ad8e5b7e2bcc89dc1f46": {
+      "cacheReadTokens": 4992,
+      "cacheWriteTokens": 0,
+      "outputTokens": 94,
+      "uncachedInputTokens": 2738
+    },
+    "agent-b3aab43d9c3cb0f186d697ba4b67bf4c503a55d4bed58b3ac4577e7526312559": {
+      "cacheReadTokens": 2560,
+      "cacheWriteTokens": 0,
+      "outputTokens": 34,
+      "uncachedInputTokens": 2322
+    }
+  },
+  "totalReportedUsage": {
+    "uncachedInputTokens": 24676,
+    "cacheReadTokens": 150656,
+    "cacheWriteTokens": 0,
+    "outputTokens": 3304
+  },
+  "idleRestart": {
+    "passed": true,
+    "idleObservationSeconds": 5,
+    "completedBoardUnchanged": true,
+    "newModelSteps": 0,
+    "newModelTurns": 0,
+    "reportedUsageUnchanged": true
+  },
+  "credentials": "Existing server credential loaded into test process environment; not copied into repository, CLI arguments, browser, or evidence",
+  "testLimits": {
+    "newWorkers": 2,
+    "boardTasks": 3,
+    "maxOwnerTurns": 20,
+    "stageTimeoutSeconds": 480
+  },
+  "sourceAcceptanceRecord": "../swarm-automatic-dispatch-20261016/acceptance.json"
+}

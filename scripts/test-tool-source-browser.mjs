@@ -73,5 +73,29 @@ const browser=await require('playwright')[engine].launch({headless:true});try{
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=390),true,'agent preview cannot widen viewport')
   await page.evaluate(()=>{document.documentElement.lang='en'})
  }
+ if(implementation==='source'){
+  await page.evaluate(()=>{
+   const R=staticModules.react
+   window.renderShellFailure=(exitCode=101,output='Compiling fixture\nerror[E0599]: no method named fixture\n')=>{
+    const receipt={kind:'foreground',stdout:output,stderr:'',exit_code:exitCode,signal:null,success:false}
+    const block={kind:'tool-result',seq:900,time:100,callId:'shell-summary-fixture',call:{name:'bash',argsRaw:JSON.stringify({command:'build fixture'})},callTime:20,isError:true,meta:receipt,content:[{type:'text',text:JSON.stringify({ok:false,error:'shell command exited with code '+exitCode,truncated:false,content:JSON.stringify(receipt)})}],callView:{card:'terminal',title:'build fixture'},resultView:{card:'terminal',exitCode,output},subCalls:[]}
+    renderElement(R.createElement(plugin.GenericToolCard,{toolName:'bash',block,t:x=>x,openFile(){},inspect(){}}))
+   }
+   renderShellFailure()
+  })
+  const shell=page.locator('[data-tool="bash"]')
+  await shell.getByText('Exit 101 · error[E0599]: no method named fixture',{exact:true}).waitFor()
+  assert.equal(await shell.getAttribute('data-state'),'error')
+  const disclosure=shell.locator('[aria-expanded]').first()
+  if(await disclosure.getAttribute('aria-expanded')==='true') await disclosure.click()
+  assert.equal((await shell.textContent()).includes('"execution"'),false,'collapsed summary must not expose a JSON envelope')
+  await disclosure.click()
+  await shell.getByText('Compiling fixture',{exact:false}).waitFor()
+  assert.equal(await disclosure.getAttribute('aria-expanded'),'true','full terminal output remains available')
+  await page.evaluate(()=>renderShellFailure(1,'manual pem\n'))
+  await shell.getByText('Exit 1',{exact:true}).waitFor()
+  assert.equal(await shell.getAttribute('data-state'),'error','no-match exit one is not rewritten as success')
+  if(process.env.UI_TEST_SCREENSHOT) await page.screenshot({path:process.env.UI_TEST_SCREENSHOT})
+ }
  await page.setViewportSize({width:390,height:720});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=390),true,'tool rows respect narrow viewport');assert.deepEqual(errors.filter(x=>x!=='owned feature fixture: stop Host boot'),[]);console.log(`${engine}/${implementation}: live expansion, stream/result preservation, open-file propagation, inspect, failure summary, preparing, process-mode/manual-state retention, URL policy, split diff persistence/500–3000 cap, agent send/queued/error/unknown receipt and historical remount, bilingual/narrow layout passed`)
 }finally{await browser.close()}

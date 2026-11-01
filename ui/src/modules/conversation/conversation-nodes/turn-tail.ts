@@ -152,7 +152,7 @@ function tailData(context: ConversationNodeContext<TurnTailState>): TurnTailChat
 
 /** Completed-turn footer Definition independent of any Assistant row. */
 export const turnTailDefinition: ConversationNodeDefinition<TurnTailState> = {
-  kind: 'turn-tail',
+  kind: 'turn-tail', locationReuse: 'events',
   target: 'chat',
   match: (event) => {
     if (isSessionEvent(event, 'turn/start')) return { id: String(event.data.turn), role: 'start' }

@@ -341,7 +341,7 @@ impl CodingToolBundle {
             schema["properties"]["action"] =
                 json!({"type":"string","enum":["defer","cancel_defer"]});
             schema["properties"]["continuation"] = json!({"type":"string","maxLength":2048,"description":"Required with action=defer. State the dependent work to continue when this Job settles."});
-            description.push_str(" For a long immediate producer, action=defer with continuation registers automatic durable continuation WITHOUT waiting. Do independent work now; if none remains, end this turn with a brief pending update. On completion the Host queues one terminal receipt and resumes the dependent work. Do not call wait=true after defer unless the current turn genuinely needs the result now. action=cancel_defer cancels an undelivered subscription, NOT its producer; delivered input cannot be retracted. Duplicate identical registration is idempotent; cancelled registration is not rearmed. Restart with an unavailable producer yields interrupted with unknown side effects, never automatic script replay. Archived terminal output is a bounded snapshot with cursor_supported=false, not a live log. Failed/killed/interrupted never means success. Do not create nohup/script polling loops or schedules just to bypass managed lifecycle.");
+            description.push_str(" action=defer + continuation registers durable continuation WITHOUT waiting. Continue independent work or end the turn with a pending update; Host resumes via one terminal receipt. No wait=true after defer unless this turn needs the result now. cancel_defer cancels only undelivered subscriptions, not producers; delivered input cannot be retracted. Identical registration is idempotent; cancelled subscriptions stay cancelled. Unavailable producer after restart means interrupted/unknown side effects: never replay. Archived output is a bounded snapshot (cursor_supported=false). Failed/killed/interrupted is not success; no polling/nohup/schedule bypass.");
         }
         ToolSpec::new(
             definition(
@@ -789,7 +789,7 @@ impl CodingToolBundle {
         ToolSpec::new(
             definition(
                 "grep",
-                "Search text from the session workspace using ripgrep without shell interpretation.",
+                "Search text from the session workspace using ripgrep without shell interpretation. Matching lines are previewed at 500 columns and output is capped at 32 KiB; inspect the reported file/line with read for full content.",
                 json!({
                     "type": "object",
                     "properties": {
@@ -807,6 +807,8 @@ impl CodingToolBundle {
                     let pattern = required_string(&context, "pattern")?;
                     let mut args = vec![
                         OsString::from("--line-number"),
+                        OsString::from("--max-columns=500"),
+                        OsString::from("--max-columns-preview"),
                         OsString::from("--no-heading"),
                         OsString::from("--color=never"),
                     ];
@@ -822,6 +824,7 @@ impl CodingToolBundle {
                         .debug_parent(context.execution_id.as_str())
                         .args(args)
                         .timeout(Duration::from_secs(30))
+                        .output_limits(32 * 1024, 16 * 1024)
                         .envs(managed_environment());
                     search_process_output(
                         run_process(platform, spec, &context.cancellation).await?,
@@ -1111,7 +1114,7 @@ fn native_shell_description(shell: &Result<Shell, ShellError>) -> String {
             "Shell unavailable: {error}. Direct program + args execution remains available."
         ),
     };
-    format!("Run one managed process under the active session permission policy. Provide exactly one of command (shell script) or program (direct executable with literal args). {selection} For long-running non-interactive work that begins now prefer run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. Use automation for user-requested future reminders (mode=reminder) and delayed tasks (mode=task). Native session tools may suit interactive or existing external sessions; keep their status, logs, and stop method trackable, and do not assume detached processes survive Host shutdown or cancellation. No shell state persists between calls. A failed invocation is never replayed in another interpreter.")
+    format!("Run one managed process under the active session permission policy. Provide exactly one of command (shell script) or program (direct executable with literal args). {selection} Preserve build/test exit status before filtering logs: grep returns 1 for no matches, and head can cause SIGPIPE. Do not hide real failures with blanket || true. Inspect installed dependency APIs before guessing methods. For long-running non-interactive work that begins now prefer run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. Use automation for user-requested future reminders (mode=reminder) and delayed tasks (mode=task). Native interactive/existing sessions need status, logs, and stop method; detached processes may not survive Host shutdown/cancellation. No shell state persists between calls. A failed invocation is never replayed in another interpreter.")
 }
 
 struct ProcessInvocation {
@@ -1338,6 +1341,20 @@ mod tests {
         assert!(description.contains("status, logs, and stop method"));
         assert!(!description.contains("Never emulate"));
         assert!(!description.contains("Do not use shell"));
+    }
+
+    #[test]
+    fn shell_description_preserves_producer_status_and_discourages_api_guessing() {
+        let description = super::native_shell_description(&Err(ShellError::Unavailable));
+        for hint in [
+            "Preserve build/test exit status before filtering logs",
+            "grep returns 1 for no matches",
+            "head can cause SIGPIPE",
+            "Do not hide real failures with blanket || true",
+            "Inspect installed dependency APIs before guessing methods",
+        ] {
+            assert!(description.contains(hint), "missing shell guidance: {hint}");
+        }
     }
 
     #[test]

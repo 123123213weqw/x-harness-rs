@@ -1,0 +1,108 @@
+{
+  "schema": 1,
+  "feature": "swarm-coordinator-agent-tool",
+  "recordedAt": "2026-10-16T13:42:09.902196+00:00",
+  "branch": "feat/swarm-task-board-20261016",
+  "base": "8a1fe4b232c883d852f878192260e8c51a1c0d9a",
+  "execution": {
+    "rustHost": "WZU_Server",
+    "remotePath": "~/codex-build/x-harness-rs/swarm-task-board-20261016",
+    "localRustCompilation": false,
+    "remoteInputsMatchBeforeAndAfterValidation": true,
+    "provider": "deterministic scripted fake plus real ToolExecutor and durable Agent loop; no paid provider calls"
+  },
+  "validation": {
+    "newTests": 11,
+    "newAgentProtocolTests": 3,
+    "newCoordinatorHostTests": 7,
+    "newEvidenceUtf8Tests": 1,
+    "coordinatorRepeatRuns": 3,
+    "coordinatorCasesPerRepeat": 7,
+    "hostUnitPassed": 366,
+    "hostUnitExistingIgnored": 7,
+    "hostAppUnitPassed": 104,
+    "hostAppUnitExistingIgnored": 2,
+    "agentUnitPassed": 18,
+    "selectedCrates": [
+      "xharness-control",
+      "xharness-agent",
+      "xharness-session",
+      "xharness-session-jsonl",
+      "xharness-api",
+      "xharness-host",
+      "xharness-host-app"
+    ],
+    "clippy": "agent, control, host, host-app; all targets; warnings denied; passed",
+    "architecture": "passed; precise shared-service consumer boundaries; no foundation gate weakened",
+    "architectureUnitPassed": 27,
+    "uiContractsNavigationTypePolicyPassed": 46,
+    "uiBrowsers": [
+      "chromium passed",
+      "webkit passed"
+    ],
+    "uiBuild": "60 modules, 190 assets; check passed; prior UI acceptance inputs unchanged",
+    "formatting": "cargo fmt --all -- --check passed locally",
+    "whitespace": "git diff --check passed"
+  },
+  "verified": [
+    "Normal and worker Agent definitions remain identical to the previous base tool; only non-closed owned Swarm root sessions receive tasks commands.",
+    "Saved team IDs and bounded objective labels prevent board routing guesses; only owned teams are advertised.",
+    "Host rejects worker, foreign-owner, closed-team cached-schema and stopped-owner calls.",
+    "Strict typed nested commands reject caller identity, fabricated turn fields and cross-action arguments.",
+    "Tool add/assign/review shares the UI application service, immutable execution receipts, CAS policy and existing inbox delivery.",
+    "Evidence references match the exact assignment-consuming turn, not an unrelated latest turn.",
+    "Forged and crossed-task references and later unresolved tool outcomes cannot complete work.",
+    "A normal turn can be rejected without unlocking dependencies.",
+    "Cold restart receipt replay does not add work or readmit an assignment.",
+    "Read operations never pick work or call a model.",
+    "A scripted provider emitted list and add through the existing durable model loop; ordinary model requests contained no Swarm schema or instructions."
+  ],
+  "notClaimed": [
+    "Automatic task pickup",
+    "Idle worker creation or role-specific tool profiles",
+    "Task-aware multi-turn retries or reassignment",
+    "Real commercial-provider quality acceptance",
+    "Native macOS or Windows release acceptance",
+    "Software installation, restart, merge, PR publication or release"
+  ],
+  "sourceSha256": {
+    "config/architecture-host-modules.json": "c9b68a241fe6275735d33a1b7f291e6bf147a2127f236e10219770316e821a0e",
+    "config/architecture-changes/swarm-task-board-v1.json": "f627eec4557dc53fb5470ae0bb5446f394be4a23bf7c2c26ff51d080656ef976",
+    "crates/xharness-agent/src/lib.rs": "6c71ba639f4bb6415248dc98994561bab11fa101f29a51c4ad578c570d7c6654",
+    "crates/xharness-agent/src/delegation.rs": "740756c0294c6eadfb7d3d814f53e4c3f094ad5026eb1ea7c7f07113967e8199",
+    "crates/xharness-agent/src/delegation/tasks.rs": "c806b305419552917e69bc22f9950cbbd6b77ea0321eee2d4e80481d0c49cc77",
+    "crates/xharness-control/src/swarm.rs": "eb25122f4a2d1344d6e10aaaf3f5b9698a9a23a1e0b20b30ef4ddfc010bb1d13",
+    "crates/xharness-control/src/swarm/tasks.rs": "f0b17f32448a2232fdb659b73b27a62b37e6d7f49a18aaf67b6d31164485e0f0",
+    "crates/xharness-host/src/delegation.rs": "3b3d13b194c31a86acecddf94bb403a53791efb09d719b6eedb2f08aa0d4abba",
+    "crates/xharness-host/src/delegation/tasks.rs": "c415c71da4c60ee5cd613779da2f42ea8f037100f4ff5757f88feff0772533c3",
+    "crates/xharness-host/src/rpc/swarm.rs": "3ae55c99443409858a28244c8e04f88e19057641653efd737f893a34bbd0adee",
+    "crates/xharness-host/src/rpc/swarm_tasks.rs": "ba9b93a5a019fb298952365773d172966172c534b72b8f5036f7939ab584939f",
+    "crates/xharness-host/src/swarm_tasks.rs": "a0982af1125b91e2cbfa19c5387177376933a954cd364561688056e77d74e19e",
+    "crates/xharness-host/src/swarm_tasks/access.rs": "f11f0e3866acb210b7b90d7a2e6777b8f0a6e8192cad12a796b0028e5616b8c2",
+    "crates/xharness-host/src/swarm_tasks/evidence.rs": "0273384fd320331e7092d9f9f2f1219094266966c127634ad3bee272be676a3d",
+    "crates/xharness-host/src/swarm_tasks/service.rs": "50afa9d090ca1079a77d9eab73b7acf1bdce174666bba92b817a38bff33f226e",
+    "crates/xharness-host/src/swarm_tasks/coordinator_tests.rs": "3b16b617908060d27ed89d9cca591cb5bc098bdb7551d6d93b2d0cc84dbcb6ee",
+    "crates/xharness-host/src/swarm_tests.rs": "e4ce150de1332fb358635d9e9b239d3dac10140400f9b0dd730a9582321175ec",
+    "crates/xharness-host-app/src/lib.rs": "6eb445828f6ffb07f5c0dae39a8ea3dbfaaf666200f5904e6d2a3c4b7dfb354f",
+    "docs/specs/swarm-coordinator-agent-tool.md": "66e8b619d07a06c7952471d0cf0db09925e8c2007ee7fda4e4091b905de298df"
+  },
+  "logSha256": {
+    "rust-regression-repeats-clippy.log": "af72958fb73c03914c78649ac9e95612106d2f0c68edf473d4b53d8c8ed123fe",
+    "architecture.log": "2f1d0ba50d77f1bb6bbcfbc4c5ec7dc01ee4d61bb7ce40753f612dcb1808f9ab",
+    "architecture-unit.log": "1ab7a6059ab70d1fe9ec4c2a19b3f5715ebd0e123fbf2d792333734072196781",
+    "ui-build-check.log": "889bc1c84b57861e6fdf167d3ba53041f307dd0776603097704227edd127484d",
+    "ui-contracts.log": "328d8522d775101483ef4a9e1cdc9566fe4649ea18bd25e719289b94a02d1d95",
+    "ui-chromium.log": "03742405b2eb1740e302e08e4bd97d4db9430e389a8d919264f102c30a93fb20",
+    "ui-webkit.log": "2ca00c9814f706e34a3938a608149b0bae88ea590c29ca97d50baf7edf369e29"
+  },
+  "rawCaptureSha256": {
+    "rust-regression-repeats-clippy.log": "e865d5db12126186212545924293f2ffdd1f0488ed77743aef193d768d58d510",
+    "architecture.log": "2f1d0ba50d77f1bb6bbcfbc4c5ec7dc01ee4d61bb7ce40753f612dcb1808f9ab",
+    "architecture-unit.log": "1ab7a6059ab70d1fe9ec4c2a19b3f5715ebd0e123fbf2d792333734072196781",
+    "ui-build-check.log": "889bc1c84b57861e6fdf167d3ba53041f307dd0776603097704227edd127484d",
+    "ui-contracts.log": "328d8522d775101483ef4a9e1cdc9566fe4649ea18bd25e719289b94a02d1d95",
+    "ui-chromium.log": "03742405b2eb1740e302e08e4bd97d4db9430e389a8d919264f102c30a93fb20",
+    "ui-webkit.log": "2ca00c9814f706e34a3938a608149b0bae88ea590c29ca97d50baf7edf369e29"
+  },
+  "logNormalization": "Only trailing whitespace normalized; test messages and results unchanged. Architecture unit log contains expected negative-test diagnostics."
+}

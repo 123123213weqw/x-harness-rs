@@ -1,3 +1,4 @@
+import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
 /** Latest frozen/source service factories on the actual pinned Core kernel. */
 import assert from 'node:assert/strict'
 import {test} from 'node:test'
@@ -12,7 +13,7 @@ function load(implementation,name){
  const id=entries.find(row=>row[0]===name)[1],source=implementation==='source'?compiled.get(id).bytes.toString():readFileSync(`ui/reference/master-a613970/plugins/${id}/client.js`,'utf8');let registration
  const jsx=(type,props,key)=>({type,props,key}),react={useState:initial=>[typeof initial==='function'?initial():initial,()=>{}],useRef:value=>({current:value}),useEffect(){},useLayoutEffect(){},useMemo:fn=>fn(),useCallback:fn=>fn,memo:fn=>fn}
  vm.runInNewContext(source,{window:{__ModuleLoader__:{load:row=>registration=row}},document:{querySelector:()=>null,getElementById:()=>null,createElement:()=>({dataset:{}}),head:{appendChild(){}}},console,AbortController,AbortSignal,Date,queueMicrotask,setTimeout,clearTimeout,setInterval,clearInterval})
- return registration.factory(name=>name==='@xharness/cordis'?Core:name==='@xharness/dsh-client-runtime/client'?runtime:name==='react'?react:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:'fragment'}:name==='@xharness/dsh-client-ui-primitives'?new Proxy({},{get:(_o,k)=>String(k)}):name==='@xharness/dsh-client-ui-slots'?{resolveSlotLabel:value=>value}:(()=>{throw Error(name)})())
+ return registration.factory(name=>name==='zod'?sharedVendors.zod:name==='@xharness/cordis'?Core:name==='@xharness/dsh-client-runtime/client'?runtime:name==='react'?react:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:'fragment'}:name==='@xharness/dsh-client-ui-primitives'?new Proxy({},{get:(_o,k)=>String(k)}):name==='@xharness/dsh-client-ui-slots'?{resolveSlotLabel:value=>value}:(()=>{throw Error(name)})())
 }
 const normalize=value=>JSON.parse(JSON.stringify(value))
 const tick=()=>new Promise(resolve=>setImmediate(resolve))
@@ -82,3 +83,25 @@ for(const implementation of ['legacy','source']){
   await one.dispose();assert.equal(root.typert.lookups.get('item'),undefined);assert.equal(root.typert.contexts.getHost('session'),undefined);assert.equal(root.typert.lookups.definitions()[0].wire,'itemId');assert.ok(Core.Context.is(twoCtx));await root.fiber.dispose()
  })
 }
+
+test('source: slash reload acknowledges only its original session after successful history recovery',async()=>{
+ const root=new Core.Context(),d=domain(root),trace=[]
+ try{
+  let finish,fail=false,missing=false
+  d.sessions.binding=id=>missing?undefined:{session:{recoverHistory:async()=>{
+   trace.push(['history',id]);if(fail)throw Error('history unavailable');await new Promise(resolve=>finish=resolve)
+  }}}
+  const input=load('source','input-trigger'),command=load('source','commands')
+  await root.plugin(input.InputTriggerService);await root.plugin(command.CommandUiRuntime)
+  root.on('command/executed',(id,name)=>trace.push(['ack',id,name]))
+  // Execute is the real source service transaction also used by slash claims.
+  const work=root.commandUi.execute({sessionId:'one'},'/reload')
+  await tick();assert.deepEqual(trace,[['history','one']]);assert.equal(d.trace[0][1],'one')
+  finish();assert.deepEqual(normalize(await work),{kind:'success'})
+  assert.deepEqual(trace,[['history','one'],['ack','one','reload']])
+  fail=true;await assert.rejects(root.commandUi.execute({sessionId:'two'},'/reload'),/history unavailable/)
+  assert.deepEqual(trace.at(-1),['history','two']);assert.equal(trace.filter(row=>row[0]==='ack').length,1)
+  missing=true;await assert.rejects(root.commandUi.execute({sessionId:'two'},'/reload'),/history binding is unavailable/)
+  assert.equal(trace.filter(row=>row[0]==='ack').length,1)
+ }finally{await root.fiber.dispose()}
+})

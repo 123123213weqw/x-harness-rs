@@ -142,6 +142,8 @@ pub fn question_recovery_work_id(interaction_id: &str) -> String {
 }
 
 enum DriverCommand {
+    /// Actor-ordered, input-free worker replacement. Active work is rejected.
+    RestartIdle,
     /// Explicitly start processing already-durable pending input. Activation
     /// itself never does this because resume callers must first attach event
     /// subscribers and product projections.
@@ -162,6 +164,15 @@ enum DriverCommand {
     Steer(InboxMessage),
     Inject(InboxMessage),
     Control(LoopCommand),
+    ScopedControl {
+        turn: u32,
+        command: LoopCommand,
+    },
+}
+
+enum WorkerExit {
+    Stopped,
+    Restart(oneshot::Sender<Result<(), AgentCommandError>>),
 }
 
 struct CommandEnvelope {
@@ -213,6 +224,8 @@ impl WorkerSupervisor {
     async fn run(self) {
         let mut backoff = WORKER_RESPAWN_BACKOFF;
         let mut generation = 0u64;
+        let mut restart_reply: Option<oneshot::Sender<Result<(), AgentCommandError>>> = None;
+        let mut intentional_restart = false;
         loop {
             if self.shutdown.is_cancelled() || self.state.is_closed() {
                 break;
@@ -234,7 +247,7 @@ impl WorkerSupervisor {
                 wake_requested: false,
                 recovery_requested: false,
                 pending_compaction: None,
-                recover_pending_compaction: generation > 1,
+                recover_pending_compaction: generation > 1 && !intentional_restart,
                 shutdown: self.shutdown.clone(),
             };
             let started = Instant::now();
@@ -258,11 +271,17 @@ impl WorkerSupervisor {
                         // advertised as Idle/ready to process commands.
                         ready = true;
                         if outcome.is_ok() && !self.shutdown.is_cancelled() {
+                            // Keep the input-free fence across failed startup
+                            // attempts until a replacement really reaches Ready.
+                            intentional_restart = false;
                             self.state.send_replace(WorkerState::Ready {
                                 generation,
                                 commands: commands.clone(),
                                 status: status.clone(),
                             });
+                            if let Some(reply) = restart_reply.take() {
+                                let _ = reply.send(Ok(()));
+                            }
                         }
                     }
                 }
@@ -275,10 +294,18 @@ impl WorkerSupervisor {
             if self.shutdown.is_cancelled() || self.state.is_closed() {
                 break;
             }
-            if let Err(error) = result {
-                let _ = self.events.send(AgentEvent::Error {
-                    message: format!("agent worker stopped unexpectedly: {error}"),
-                });
+            match result {
+                Ok(WorkerExit::Restart(reply)) => {
+                    restart_reply = Some(reply);
+                    intentional_restart = true;
+                    continue;
+                }
+                Err(error) => {
+                    let _ = self.events.send(AgentEvent::Error {
+                        message: format!("agent worker stopped unexpectedly: {error}"),
+                    });
+                }
+                Ok(WorkerExit::Stopped) => {}
             }
             if started.elapsed() >= WORKER_MAX_BACKOFF {
                 backoff = WORKER_RESPAWN_BACKOFF;
@@ -294,7 +321,12 @@ impl WorkerSupervisor {
             // Wake, tool call or unknown-outcome operation on its behalf.
         }
         self.state.send_replace(WorkerState::Closed);
-        self.finished.cancel();
+        let finished = self.finished.clone();
+        // Close means the supervisor has released its activation and factory,
+        // not just that its worker has returned. Retirement waiters can now
+        // drop the final handle without racing this task's resource teardown.
+        drop(self);
+        finished.cancel();
     }
 }
 
@@ -376,6 +408,15 @@ impl DurableAgentHandle {
         }
     }
 
+    /// Observational generation for lifecycle receipts and regression checks.
+    /// It is not a session identity, journal revision or authorization token.
+    pub fn worker_generation(&self) -> Option<u64> {
+        match &*self.worker.borrow() {
+            WorkerState::Ready { generation, .. } => Some(*generation),
+            _ => None,
+        }
+    }
+
     pub fn is_same_worker(&self, other: &Self) -> bool {
         self.worker.same_channel(&other.worker)
     }
@@ -428,12 +469,23 @@ impl DurableAgentHandle {
         }
     }
 
+    /// Completes only after the replacement worker has initialized. Never
+    /// replays input or an unacknowledged operation; active work is Busy.
+    pub async fn restart_idle(&self) -> Result<(), AgentCommandError> {
+        self.send(DriverCommand::RestartIdle).await
+    }
+
     pub async fn when_ready(&self) -> Result<(), AgentCommandError> {
         self.worker_commands(true).await.map(|_| ())
     }
 
     pub fn request_shutdown(&self) {
         self.shutdown.cancel();
+    }
+
+    /// Settles only after the stable worker supervisor has reaped its worker.
+    pub async fn closed(&self) {
+        self.finished.cancelled().await;
     }
 
     pub async fn when_stopped(&self) {
@@ -518,6 +570,21 @@ impl DurableAgentHandle {
 
     pub async fn resume(&self) -> Result<(), AgentCommandError> {
         self.send(DriverCommand::Control(LoopCommand::Resume)).await
+    }
+
+    /// Commands delayed behind an old turn must not affect its successor.
+    pub async fn control_turn(
+        &self,
+        turn: Option<u32>,
+        command: LoopCommand,
+    ) -> Result<(), AgentCommandError> {
+        match turn {
+            Some(turn) => {
+                self.send(DriverCommand::ScopedControl { turn, command })
+                    .await
+            }
+            None => self.send(DriverCommand::Control(command)).await,
+        }
     }
 
     pub async fn interrupt_by_user(&self) -> Result<(), AgentCommandError> {
@@ -619,8 +686,15 @@ pub struct AgentSupervisor {
     registry: Arc<AgentRegistry>,
     factory: Arc<dyn TurnRequestFactory>,
     event_capacity: usize,
-    handles: tokio::sync::Mutex<std::collections::HashMap<String, DurableAgentHandle>>,
+    handles: tokio::sync::Mutex<SupervisorHandles>,
     closed: AtomicBool,
+}
+
+#[derive(Default)]
+struct SupervisorHandles {
+    active: std::collections::HashMap<String, DurableAgentHandle>,
+    // Terminal admission fences contain completion receipts, never handles.
+    retired: std::collections::HashMap<String, watch::Receiver<Option<AgentShutdownOutcome>>>,
 }
 
 impl AgentSupervisor {
@@ -633,7 +707,7 @@ impl AgentSupervisor {
             registry,
             factory,
             event_capacity,
-            handles: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+            handles: tokio::sync::Mutex::new(SupervisorHandles::default()),
             closed: AtomicBool::new(false),
         }
     }
@@ -647,21 +721,61 @@ impl AgentSupervisor {
         }
         let id = header.id.clone();
         let mut handles = self.handles.lock().await;
-        if self.closed.load(Ordering::Acquire) {
+        if self.closed.load(Ordering::Acquire) || handles.retired.contains_key(&id) {
             return Err(RegistryError::Unavailable);
         }
-        if let Some(handle) = handles.get(&id) {
+        if let Some(handle) = handles.active.get(&id) {
             return Ok(handle.clone());
         }
         let activation = self.registry.activate(header).await?;
         let handle =
             DurableAgentHandle::start(activation, Arc::clone(&self.factory), self.event_capacity);
-        handles.insert(id, handle.clone());
+        handles.active.insert(id, handle.clone());
         Ok(handle)
     }
 
     pub async fn get(&self, agent_id: &str) -> Option<DurableAgentHandle> {
-        self.handles.lock().await.get(agent_id).cloned()
+        self.handles.lock().await.active.get(agent_id).cloned()
+    }
+
+    /// Permanently fence admission and reap one deleted session. Cleanup is
+    /// owned independently of an RPC waiter, so cancellation and duplicate
+    /// requests cannot detach the worker or race a replacement activation.
+    pub async fn retire(
+        &self,
+        agent_id: &str,
+        grace: Duration,
+    ) -> Result<AgentShutdownOutcome, RegistryError> {
+        let mut receipt = {
+            let mut handles = self.handles.lock().await;
+            if let Some(receipt) = handles.retired.get(agent_id) {
+                receipt.clone()
+            } else {
+                let handle = handles.active.remove(agent_id);
+                let (completion, receipt) = watch::channel(None);
+                handles.retired.insert(agent_id.to_owned(), receipt.clone());
+                if let Some(handle) = handle {
+                    handle.request_shutdown();
+                    tokio::spawn(async move {
+                        let outcome = handle.shutdown(grace).await;
+                        drop(handle);
+                        completion.send_replace(Some(outcome));
+                    });
+                } else {
+                    completion.send_replace(Some(AgentShutdownOutcome::Graceful));
+                }
+                receipt
+            }
+        };
+        loop {
+            if let Some(outcome) = *receipt.borrow_and_update() {
+                return Ok(outcome);
+            }
+            receipt
+                .changed()
+                .await
+                .map_err(|_| RegistryError::Unavailable)?;
+        }
     }
 
     pub fn is_closed(&self) -> bool {
@@ -673,9 +787,20 @@ impl AgentSupervisor {
     /// forced cleanup instead of being silently detached from Host shutdown.
     pub async fn shutdown(&self, grace: Duration) -> AgentShutdownReport {
         self.closed.store(true, Ordering::Release);
-        let handles = {
+        let (handles, retirements) = {
             let mut active = self.handles.lock().await;
-            active.drain().map(|(_, handle)| handle).collect::<Vec<_>>()
+            let pending = active
+                .retired
+                .values()
+                .filter(|receipt| receipt.borrow().is_none())
+                .cloned()
+                .collect::<Vec<_>>();
+            let handles = active
+                .active
+                .drain()
+                .map(|(_, handle)| handle)
+                .collect::<Vec<_>>();
+            (handles, pending)
         };
         for handle in &handles {
             handle.request_shutdown();
@@ -690,6 +815,25 @@ impl AgentSupervisor {
             match handle.shutdown(remaining).await {
                 AgentShutdownOutcome::Graceful => report.graceful += 1,
                 AgentShutdownOutcome::ForcedCleanup => report.forced_cleanup += 1,
+            }
+        }
+        for mut receipt in retirements {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            let settled = tokio::time::timeout(remaining, async {
+                loop {
+                    if let Some(outcome) = *receipt.borrow_and_update() {
+                        return Some(outcome);
+                    }
+                    if receipt.changed().await.is_err() {
+                        return None;
+                    }
+                }
+            })
+            .await;
+            if !matches!(settled, Ok(Some(AgentShutdownOutcome::Graceful))) {
+                report
+                    .cleanup_errors
+                    .push("session retirement did not settle gracefully".into());
             }
         }
         report
@@ -714,10 +858,10 @@ impl DriverWorker {
         crate::GoalController::new(self.activation.inbox().store(), self.activation.id())
     }
 
-    async fn run(mut self, ready: oneshot::Sender<()>) {
+    async fn run(mut self, ready: oneshot::Sender<()>) -> WorkerExit {
         if let Err(error) = self.activation.inbox().reconcile_consumed().await {
             self.publish_error(error.to_string());
-            return;
+            return WorkerExit::Stopped;
         }
         if self.recover_pending_compaction {
             if let Ok(Some(session)) = self
@@ -734,13 +878,13 @@ impl DriverWorker {
         let _ = ready.send(());
         loop {
             if self.shutdown.is_cancelled() {
-                return;
+                return WorkerExit::Stopped;
             }
             if self.recovery_requested {
                 self.recovery_requested = false;
                 if let Err(error) = self.drive_recovery().await {
                     if self.shutdown.is_cancelled() {
-                        return;
+                        return WorkerExit::Stopped;
                     }
                     self.publish_error(error.to_string());
                 }
@@ -752,7 +896,7 @@ impl DriverWorker {
                     Ok(DispatchDecision::Ready) => {
                         if let Err(error) = self.drive_pending().await {
                             if self.shutdown.is_cancelled() {
-                                return;
+                                return WorkerExit::Stopped;
                             }
                             self.publish_error(error.to_string());
                         }
@@ -773,13 +917,47 @@ impl DriverWorker {
             }
             tokio::select! {
                 biased;
-                _ = self.shutdown.cancelled() => return,
+                _ = self.shutdown.cancelled() => return WorkerExit::Stopped,
                 envelope = self.commands.recv() => match envelope {
-                    Some(envelope) => self.handle_idle(envelope).await,
-                    None => return,
+                    Some(envelope) => {
+                        if matches!(&envelope.command, DriverCommand::RestartIdle) {
+                            match self.restart_boundary().await {
+                                Ok(()) => return WorkerExit::Restart(envelope.acknowledgement),
+                                Err(error) => { let _ = envelope.acknowledgement.send(Err(error)); }
+                            }
+                        } else {
+                            self.handle_idle(envelope).await;
+                        }
+                    },
+                    None => return WorkerExit::Stopped,
                 }
             }
         }
+    }
+
+    async fn restart_boundary(&self) -> Result<(), AgentCommandError> {
+        let session = self
+            .activation
+            .inbox()
+            .store()
+            .load(self.activation.id())
+            .await
+            .map_err(|error| AgentCommandError::Failed(error.to_string()))?
+            .ok_or_else(|| AgentCommandError::Failed("restart session disappeared".into()))?;
+        let open = session
+            .events()
+            .iter()
+            .rev()
+            .find_map(|event| match event.data() {
+                EventData::TurnStart { .. } => Some(true),
+                EventData::TurnEnd { .. } => Some(false),
+                _ => None,
+            })
+            .unwrap_or(false);
+        if open {
+            return Err(AgentCommandError::Busy);
+        }
+        Ok(())
     }
 
     async fn dispatch_decision(&self) -> Result<DispatchDecision, AgentCommandError> {
@@ -1170,7 +1348,7 @@ impl DriverWorker {
                     None => break,
                 },
                 command = self.commands.recv() => match command {
-                    Some(command) => self.handle_active(command, &run).await,
+                    Some(command) => self.handle_active(command, &run, turn).await,
                     None => {
                         let _ = run.send(LoopCommand::Cancel).await;
                         while let Some(event) = run.next().await {
@@ -1278,6 +1456,7 @@ impl DriverWorker {
 
     async fn handle_idle(&mut self, envelope: CommandEnvelope) {
         let result = match envelope.command {
+            DriverCommand::RestartIdle => Err(AgentCommandError::Busy),
             DriverCommand::Wake => {
                 self.wake_requested = true;
                 Ok(())
@@ -1342,13 +1521,33 @@ impl DriverWorker {
             DriverCommand::Control(LoopCommand::Cancel | LoopCommand::InterruptByUser) => {
                 self.park_pending().await
             }
-            DriverCommand::Control(_) => Err(AgentCommandError::NoActiveTurn),
+            DriverCommand::Control(_) | DriverCommand::ScopedControl { .. } => {
+                Err(AgentCommandError::NoActiveTurn)
+            }
         };
         let _ = envelope.acknowledgement.send(result);
     }
 
-    async fn handle_active(&mut self, envelope: CommandEnvelope, run: &xharness_core::LoopRun) {
-        let result = match envelope.command {
+    async fn handle_active(
+        &mut self,
+        envelope: CommandEnvelope,
+        run: &xharness_core::LoopRun,
+        active_turn: u32,
+    ) {
+        let command = match envelope.command {
+            DriverCommand::ScopedControl { turn, command } if turn == active_turn => {
+                DriverCommand::Control(command)
+            }
+            DriverCommand::ScopedControl { .. } => {
+                let _ = envelope
+                    .acknowledgement
+                    .send(Err(AgentCommandError::NoActiveTurn));
+                return;
+            }
+            command => command,
+        };
+        let result = match command {
+            DriverCommand::RestartIdle => Err(AgentCommandError::Busy),
             DriverCommand::Wake => {
                 self.wake_requested = true;
                 Ok(())
@@ -1389,6 +1588,7 @@ impl DriverWorker {
                     Err(error) => Err(error),
                 }
             }
+            DriverCommand::ScopedControl { .. } => Err(AgentCommandError::NoActiveTurn),
             DriverCommand::Control(command) => {
                 if matches!(command, LoopCommand::Cancel | LoopCommand::InterruptByUser) {
                     if let Err(e) = self.goal_controller().pause().await {

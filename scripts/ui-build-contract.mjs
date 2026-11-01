@@ -36,7 +36,7 @@ export function orderModules(modules) {
   }
   const result = [], placed = new Set(), open = []
   // These are platform seeds, not packages fetched from an external checkout.
-  const seeds = new Set(['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime',
+  const seeds = new Set(['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'zod',
     '@xharness/cordis', '@xharness/dsh-client-ui-slots', '@xharness/dsh-client-ui-primitives'])
   const visit = row => {
     if (placed.has(row.id)) return

@@ -1,0 +1,83 @@
+{
+  "date": "2026-10-14",
+  "branch": "feat/session-progress-plan-20261014",
+  "base": "a511c5a58e77e0cb4691e13878026627ead16b99",
+  "implementation": "Request-local missing-plan state reconstruction, not periodic/one-shot scheduling",
+  "conditions": "Current session plan exists, nonempty, goal tool registered, latest exact success receipt absent from prepared surface",
+  "content_limit_utf8_bytes": 4096,
+  "stateless_semantics": "At most one snapshot per request; same state can be replayed until a latest receipt is visible; never appended to runner or durable transcript",
+  "runtime_scope": [
+    "ordinary replay",
+    "Compact candidate admission and live reload",
+    "post-policy receipt retirement",
+    "JSONL cold Host/runtime restore"
+  ],
+  "source_sha256": {
+    "crates/xharness-core/src/plan_context.rs": "ef3beb9bcc7cbb2ce7a67ffe58c60ee544392c166864c84c2b68f4ff3ce42d12",
+    "crates/xharness-core/src/engine.rs": "f30ba41399da26f664730bd1565bfdbdb4dcd81eaaa746809394e21ef8f1fe5f",
+    "crates/xharness-core/src/lib.rs": "d4bcdd5830fa64833fcfdde914cc0eaab391ba3929e3aae2dc3da531b7fa4b41",
+    "crates/xharness-core/tests/loop.rs": "c2d07a1e86bc41500cc4932f6137626c2701001f21bdb56b085c7d99728c1e70",
+    "crates/xharness-core/tests/cases/working_plan_context.rs": "0b3e5b090952d5591030be6ac39d1631c2437d8f4f1349c4acec763e262d9870",
+    "crates/xharness-host/src/goals.rs": "7cc4f14df59d4229a217e40146ec711554d3483224b6d59f1695307815ac21f5",
+    "docs/specs/session-progress-context-hydration.md": "b37dd7e0d37d1e02948d3e7c81d9f46f41868111e819b74f87856417363d956a"
+  },
+  "verification": {
+    "server": "WZU_Server",
+    "source_directory": "~/codex-build/x-harness-rs/session-progress-20261014",
+    "source_sync": "rsync current source, excludes .git target node_modules .env .env.* private key files; no secrets needed",
+    "rust_compiled_locally": false,
+    "new_tests": {
+      "core_unit": 3,
+      "core_integration": 4,
+      "host_jsonl_cold_restore": 1
+    },
+    "full_core": {
+      "unit_passed": 47,
+      "loop_integration_passed": 148,
+      "failed": 0
+    },
+    "focused_host_working_plan": {
+      "passed": 7,
+      "failed": 0
+    },
+    "host_remainder": {
+      "passed": 308,
+      "failed": 0,
+      "preexisting_ignored": 6,
+      "explicitly_filtered": 1
+    },
+    "clippy": "cargo clippy --locked -p xharness-core -p xharness-host --all-targets -- -D warnings: exit 0",
+    "local_noncompiling_checks": [
+      "cargo fmt --all -- --check",
+      "git diff --check",
+      "architecture dependency boundary: 40 crates, 8 processors",
+      "Python experimental fixture/oracle tests: 9 passed"
+    ],
+    "excluded_baseline_failure": {
+      "test": "first_request_rejections_are_observable_and_parent_driven_retry_reuses_child",
+      "status": "Previously independently reproduced on base a511c5a58e77e0cb4691e13878026627ead16b99; not fixed or expectation-changed in this change"
+    },
+    "log_sha256": {
+      "/tmp/xharness-plan-context-check2-20261014.log": "c6ec3f8924dee248a18006f07a180b44c148e1608d8ac7a0a4fd540830e5b865",
+      "/tmp/xharness-plan-context-regression-20261014.log": "e0e8d62fb547086dc7e6c85aef7ece247c1d60efcd1592f964ff472ccb35cb8d",
+      "/tmp/xharness-plan-context-final-20261014.log": "8c3da5ca34737070a9799626fc8d516cfc998582bf27fcacf1dee1bc69c3c43b"
+    }
+  },
+  "limitations": [
+    "No live paid-provider E2E performed for this integration; earlier prompt A/B is separate evidence",
+    "Previous live pilot used System snapshot, integration uses user-role note to preserve immutable System contract",
+    "Not all-repository CI green: known baseline failure explicitly excluded from Host remainder",
+    "No model quality guarantee or comprehensive injection-resistance claim"
+  ],
+  "side_effects": {
+    "new_dependency": false,
+    "new_top_level_tool": false,
+    "new_timer": false,
+    "goal_auto_continuation_modified": false,
+    "history_format_changed_in_this_step": false,
+    "model_extra_probe": false,
+    "deployed_or_restarted": false,
+    "committed_or_pushed": false,
+    "pr_created": false
+  }
+}

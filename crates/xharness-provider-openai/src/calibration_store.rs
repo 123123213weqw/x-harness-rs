@@ -201,7 +201,7 @@ mod tests {
                 .estimate(&format!("{:064x}", 0), &features())
                 .unwrap()
                 .accuracy,
-            TokenCountAccuracy::Estimated
+            TokenCountAccuracy::ConservativeUpperBound
         );
         assert_eq!(
             restarted
@@ -229,7 +229,7 @@ mod tests {
                 .estimate(&"a".repeat(64), &features())
                 .unwrap()
                 .accuracy,
-            TokenCountAccuracy::Estimated
+            TokenCountAccuracy::ConservativeUpperBound
         );
         fs::remove_file(dir.cache()).unwrap();
         fs::create_dir(dir.cache()).unwrap();

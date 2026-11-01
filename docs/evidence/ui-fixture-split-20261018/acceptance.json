@@ -1,0 +1,231 @@
+{
+  "fixtureBoundary": {
+    "tests": 7,
+    "passed": 7,
+    "failed": 0
+  },
+  "connectionBoundary": {
+    "tests": 7,
+    "passed": 7,
+    "failed": 0
+  },
+  "foundation": {
+    "tests": 123,
+    "passed": 123,
+    "failed": 0
+  },
+  "cleanBuild": {
+    "tests": 15,
+    "passed": 15,
+    "failed": 0
+  },
+  "ciSuite": {
+    "tests": 14,
+    "passed": 14,
+    "failed": 0
+  },
+  "sourceBuilder": {
+    "tests": 28,
+    "passed": 28,
+    "failed": 0
+  },
+  "pluginApi": {
+    "tests": 46,
+    "passed": 46,
+    "failed": 0
+  },
+  "productModules": {
+    "tests": 23,
+    "passed": 23,
+    "failed": 0
+  },
+  "base": "404366c5c908b8909ddc0fdc4288e3a31992921a",
+  "rustSourceChanged": false,
+  "nativeInstallersBuilt": false,
+  "installedApplicationReplaced": false,
+  "merged": false,
+  "released": false,
+  "fullUiParity": [
+    {
+      "browser": "chromium",
+      "implementationRuns": 3,
+      "fullGraph": true,
+      "controls": "providers + model + effort + context",
+      "effortChange": true,
+      "regionalChrome": true,
+      "workNavigation": true,
+      "pixelSha256": "58c5b67026ee083e1b9c2924b3bace0e932b006c2f8683eb6bad0064052c71e9",
+      "actualPixelSha256": "a117580e496035b26039d9829964af20f8e4efdd3d8c44938bef6f0c73920d61"
+    },
+    {
+      "browser": "webkit",
+      "implementationRuns": 3,
+      "fullGraph": true,
+      "controls": "providers + model + effort + context",
+      "effortChange": true,
+      "regionalChrome": true,
+      "workNavigation": true,
+      "pixelSha256": "535993a16903625ecd318302064bb8697c952fb20f8b848588a05f014dd01d34",
+      "actualPixelSha256": "cec5869ec0af27d58eff8cf277281dbb26bf30d7509d44878aa994eda74f37c1"
+    }
+  ],
+  "realHostRuns": [
+    {
+      "realHost": true,
+      "fixtureQueryIgnored": true,
+      "localDeterministicProvider": true,
+      "sessionId": "session-1792290472679-1",
+      "connectedGenerations": 2,
+      "historyEvents": 30,
+      "queueCancelAndResume": true,
+      "historyStableAfterReconnect": true
+    },
+    {
+      "realHost": true,
+      "fixtureQueryIgnored": true,
+      "localDeterministicProvider": true,
+      "sessionId": "session-1792290546847-150",
+      "connectedGenerations": 2,
+      "historyEvents": 30,
+      "queueCancelAndResume": true,
+      "historyStableAfterReconnect": true
+    },
+    {
+      "realHost": true,
+      "fixtureQueryIgnored": true,
+      "localDeterministicProvider": true,
+      "sessionId": "session-1792290547841-297",
+      "connectedGenerations": 2,
+      "historyEvents": 30,
+      "queueCancelAndResume": true,
+      "historyStableAfterReconnect": true
+    },
+    {
+      "realHost": true,
+      "fixtureQueryIgnored": true,
+      "localDeterministicProvider": true,
+      "sessionId": "session-1792290548898-468",
+      "connectedGenerations": 2,
+      "historyEvents": 30,
+      "queueCancelAndResume": true,
+      "historyStableAfterReconnect": true
+    }
+  ],
+  "realHostBrowser": [
+    {
+      "engine": "chromium",
+      "realHost": true,
+      "fixtureQueryIgnored": true,
+      "actualHistoryRendered": true,
+      "apiRequests": 15,
+      "knownHmrWarnings": [],
+      "errors": []
+    },
+    {
+      "engine": "webkit",
+      "realHost": true,
+      "fixtureQueryIgnored": true,
+      "actualHistoryRendered": true,
+      "apiRequests": 18,
+      "knownHmrWarnings": [
+        "EventSource's response has a MIME type (\"text/html\") that is not \"text/event-stream\". Aborting the connection."
+      ],
+      "errors": []
+    }
+  ],
+  "realHostBinary": {
+    "sourceRevision": "7a50f60",
+    "sha256": "07f3dfdc014eb8b68c714ad0cef229b4e5145eed26a0d25139a480c8cb82f13d",
+    "compiledThisRound": false,
+    "paidProvider": false
+  },
+  "fullGraphBrowserRuns": [
+    {
+      "engine": "chromium",
+      "test": "account-entry",
+      "lastOutput": "chromium: account entry, bilingual themed menu, keyboard, focus restoration, Web limitation, feature routing and narrow rail passed"
+    },
+    {
+      "engine": "chromium",
+      "test": "performance",
+      "lastOutput": "{\"engine\":\"chromium\",\"fullGraph\":true,\"sharedRustFixture\":true,\"tabNextToHarness\":true,\"keyboard\":true,\"pointerLeaveReset\":true,\"lazyTableUnmount\":true,\"usageCalibrated\":false,\"themes\":2,\"widths\":2,\"chatUsable\":true,\"errors\":[]}"
+    },
+    {
+      "engine": "chromium",
+      "test": "sidebar-row-actions",
+      "lastOutput": "{\"engine\":\"chromium\",\"narrowRowActions\":true,\"keyboardMenu\":true,\"renameDialog\":true,\"navigationClosesDrawer\":true,\"wideRowActions\":true,\"errors\":[]}"
+    },
+    {
+      "engine": "chromium",
+      "test": "file-display",
+      "lastOutput": "{\"engine\":\"chromium\",\"fullOwnedGraph\":true,\"modelHostFrame\":true,\"markdown\":true,\"math\":true,\"relativeImages\":true,\"code\":true,\"refresh\":true,\"imageZoom\":true,\"reuse\":true,\"patchDiff\":true,\"gitScopes\":true,\"largeDiffWindow\":true,\"malformedSourceFallback\":true,\"blobCleanup\":true,\"backgroundIsolation\":true,\"errors\":[]}"
+    },
+    {
+      "engine": "chromium",
+      "test": "harness-snapshot",
+      "lastOutput": "{\"engine\":\"chromium\",\"fullGraph\":true,\"fixtureTransport\":true,\"independentHarnessCapture\":true,\"onDemandScope\":\"harness\",\"selectedRequestOnly\":true,\"identityFence\":true,\"retry\":true,\"capturedEmpty\":true,\"saveFailureNotEmpty\":true,\"keyboardDisclosure\":true,\"themes\":2,\"narrow\":true,\"chatUsable\":true,\"errors\":[]}"
+    },
+    {
+      "engine": "chromium",
+      "test": "settings-mask",
+      "lastOutput": "chromium: 60 settings mask/card cases passed; right-edge close and reopen passed"
+    },
+    {
+      "engine": "chromium",
+      "test": "conversation-message-rail",
+      "lastOutput": "chromium: PASS: bounded accessible previews, tooltip agreement, rapid navigation, refresh recovery, upward paging, left rail and workspace hide/restore"
+    },
+    {
+      "engine": "chromium",
+      "test": "runtime-environment",
+      "lastOutput": "{\"engine\":\"chromium\",\"fullGraph\":true,\"keyboard\":true,\"sharedWorkspaceStyles\":true,\"disabledCloud\":true,\"requests\":75,\"errors\":[]}"
+    },
+    {
+      "engine": "webkit",
+      "test": "account-entry",
+      "lastOutput": "webkit: account entry, bilingual themed menu, keyboard, focus restoration, Web limitation, feature routing and narrow rail passed"
+    },
+    {
+      "engine": "webkit",
+      "test": "performance",
+      "lastOutput": "{\"engine\":\"webkit\",\"fullGraph\":true,\"sharedRustFixture\":true,\"tabNextToHarness\":true,\"keyboard\":true,\"pointerLeaveReset\":true,\"lazyTableUnmount\":true,\"usageCalibrated\":false,\"themes\":2,\"widths\":2,\"chatUsable\":true,\"errors\":[]}"
+    },
+    {
+      "engine": "webkit",
+      "test": "sidebar-row-actions",
+      "lastOutput": "{\"engine\":\"webkit\",\"narrowRowActions\":true,\"keyboardMenu\":true,\"renameDialog\":true,\"navigationClosesDrawer\":true,\"wideRowActions\":true,\"errors\":[]}"
+    },
+    {
+      "engine": "webkit",
+      "test": "file-display",
+      "lastOutput": "{\"engine\":\"webkit\",\"fullOwnedGraph\":true,\"modelHostFrame\":true,\"markdown\":true,\"math\":true,\"relativeImages\":true,\"code\":true,\"refresh\":true,\"imageZoom\":true,\"reuse\":true,\"patchDiff\":true,\"gitScopes\":true,\"largeDiffWindow\":true,\"malformedSourceFallback\":true,\"blobCleanup\":true,\"backgroundIsolation\":true,\"errors\":[]}"
+    },
+    {
+      "engine": "webkit",
+      "test": "harness-snapshot",
+      "lastOutput": "{\"engine\":\"webkit\",\"fullGraph\":true,\"fixtureTransport\":true,\"independentHarnessCapture\":true,\"onDemandScope\":\"harness\",\"selectedRequestOnly\":true,\"identityFence\":true,\"retry\":true,\"capturedEmpty\":true,\"saveFailureNotEmpty\":true,\"keyboardDisclosure\":true,\"themes\":2,\"narrow\":true,\"chatUsable\":true,\"errors\":[]}"
+    },
+    {
+      "engine": "webkit",
+      "test": "settings-mask",
+      "lastOutput": "webkit: 60 settings mask/card cases passed; right-edge close and reopen passed"
+    },
+    {
+      "engine": "webkit",
+      "test": "conversation-message-rail",
+      "lastOutput": "webkit: PASS: bounded accessible previews, tooltip agreement, rapid navigation, refresh recovery, upward paging, left rail and workspace hide/restore"
+    },
+    {
+      "engine": "webkit",
+      "test": "runtime-environment",
+      "lastOutput": "{\"engine\":\"webkit\",\"fullGraph\":true,\"keyboard\":true,\"sharedWorkspaceStyles\":true,\"disabledCloud\":true,\"requests\":76,\"errors\":[]}"
+    }
+  ],
+  "knownBaselineFailure": {
+    "test": "scripts/test-page-priority-browser.mjs",
+    "platform": "macOS WebKit",
+    "assertion": "Tab never reaches background controls",
+    "alsoReproducedOnUnchangedMaster": true,
+    "testWeakened": false
+  }
+}

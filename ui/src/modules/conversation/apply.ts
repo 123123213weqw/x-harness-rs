@@ -1,5 +1,5 @@
 import { XHarnessEditableInputBar } from './edit/EditableInputBar'
-import { xhEditMessage, xhForkMessage } from './edit/actions'
+import { xhEditMessage, xhForkMessage, xhForkAt } from './edit/actions'
 /** Registers the conversation components, shared store, and service callbacks. */
 import type { Context } from "./types/runtime"
 import { resolveSlotLabel } from "@xharness/dsh-client-ui-slots"
@@ -26,6 +26,8 @@ import { InputBar } from './skeleton/InputBar'
 import { EnterBehaviorRow } from './settings/EnterBehaviorRow'
 import type { EnterBehaviorRowInjected } from './settings/EnterBehaviorRow'
 import { ChatView } from './chat/ChatView'
+import { SessionRecoveryButton } from './skeleton/SessionRecoveryButton'
+import type { SessionRecoveryInjected } from './skeleton/SessionRecoveryButton'
 import { ChatScrollMemory } from './chat/scroll-memory'
 import { StatsLine } from './chat/StatsLine'
 import { ApprovalPanel } from './skeleton/ApprovalPanel'
@@ -274,6 +276,19 @@ export function apply(ctx: Context): void {
     }),
   }, ConversationSessionHeader)
 
+  slots.inject('conversation.session.header.utilities', () => slots.register({
+    name: 'conversation.session.header.utilities', id: 'session-recovery', order: 90, locale: NS,
+    inject: (sessionId: SessionId): SessionRecoveryInjected => ({
+      recover: async () => {
+        const session = sessions.binding(sessionId)?.session
+        if (session === undefined) throw new Error(t('session.recoverUnavailable'))
+        const result = await session.command('/reload')
+        if (!result.ok) throw new Error(result.error.message)
+        if (!result.value.matched) throw new Error(t('session.recoverUnavailable'))
+      },
+    }),
+  }, SessionRecoveryButton))
+
   // The default composer body: its own single slot inside the composer
   // chain's fallback. Public machine surface arrives via the
   // provide channel above; the keyboard command face and the stop/retry
@@ -317,6 +332,7 @@ export function apply(ctx: Context): void {
             const images = conversation.createDraftImages(files)
             if (!shell.addImages(images.map(image => image.id))) {
               conversation.releaseDraftImages(images)
+              return '当前草稿正在提交，请稍后再添加附件'
             }
             return null
           } catch (error: unknown) {
@@ -419,13 +435,7 @@ export function apply(ctx: Context): void {
           actions.setView('trajectory')
         },
         chatScroll: chatScrollMemory.forSession(sessionId),
-        forkAt: (seq) => {
-          sessions.fork({ sessionId, atSeq: seq, increaseTitle: true })
-            .then((childId) => { sessions.open(childId) })
-            .catch(() => {
-              // Fork or child-rename failure keeps the source view untouched.
-            })
-        },
+        forkAt: (seq) => { void xhForkAt(inputHub, sessions, sessionId, seq) },
       }
     },
   }, ChatView)

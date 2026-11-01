@@ -1,0 +1,120 @@
+{
+  "phase": 1,
+  "recorded_at": "2026-10-14T08:08:26.844624+00:00",
+  "base_commit": "a511c5a58e77e0cb4691e13878026627ead16b99",
+  "branch": "feat/session-progress-plan-20261014",
+  "remote": "WZU_Server",
+  "rust_compiled_locally": false,
+  "new_top_level_model_tools": [],
+  "tool_action": "goal.update_plan",
+  "rpc": "goal.updatePlan",
+  "projection": "taskPlan",
+  "provider_test": {
+    "kind": "deterministic fake provider through actual Host/Core/Tool/Session path",
+    "requests": 3,
+    "paid_model_calls": 0,
+    "passed": true
+  },
+  "checks": {
+    "plan_host_tests_passed": 6,
+    "core_loop_tests_passed": 144,
+    "host_regression": {
+      "passed": 307,
+      "preexisting_ignored": 6,
+      "explicitly_excluded_baseline_failure": 1
+    },
+    "ui_source_tests_passed": 20,
+    "ci_plan_tests_passed": 14,
+    "browser_engines": [
+      "chromium",
+      "webkit"
+    ],
+    "strict_build": true,
+    "rust_clippy_all_affected_targets": true,
+    "fmt": true,
+    "architecture": true
+  },
+  "not_fully_green": {
+    "test": "delegation::tests::request_failure_tests::first_request_rejections_are_observable_and_parent_driven_retry_reuses_child",
+    "candidate_failure": "real child request did not start: Elapsed(())",
+    "untouched_master_same_failure_confirmed_in_separate_target": true,
+    "baseline_commit": "a511c5a58e77e0cb4691e13878026627ead16b99",
+    "fixed_or_silenced": false
+  },
+  "not_done": [
+    "automatic plan hydration/reminders after Compact",
+    "combined real Agents activity section",
+    "paid-model quality experiment",
+    "PR/CI submission",
+    "deployment/restart/release"
+  ],
+  "log_receipts": [
+    {
+      "file": "/tmp/xharness-session-progress-acceptance.log",
+      "sha256": "0acd61294af8ed7927e255f39a506e57371b99d10b34ac8e1470676847b8e68b"
+    },
+    {
+      "file": "/tmp/xharness-session-progress-host-final.log",
+      "sha256": "91be549f06c9a552b794efcd82258ac13056d2d24df559e450eb8ce9b62c4af3"
+    },
+    {
+      "file": "/tmp/xharness-plan-baseline-isolated.log",
+      "sha256": "43fb4688102ab14aef8b1a8fdbde5565ae0cd78a8b0ad323d23c044f3d191653"
+    },
+    {
+      "file": "/tmp/xharness-progress-ui-source-final.log",
+      "sha256": "17f9f95e5ae62d4f5ed02b535e022141e2788be2ebbb9ce09ea56e96a97770a4"
+    },
+    {
+      "file": "/tmp/xharness-progress-browser.log",
+      "sha256": "9c6ead5f6687db3a49d44839886075aeeb5a4d0411f0f617a1bc1030502abd0b"
+    },
+    {
+      "file": "/tmp/xharness-progress-webkit.log",
+      "sha256": "538ba80e5b68b7f82d0d90c2222bef87c8c57a3863c5bd669988955226e3a3b9"
+    },
+    {
+      "file": "/tmp/xharness-progress-ci-plan.log",
+      "sha256": "7b47b8d28bfecc3fe70cad84c922787be5e4df57163b870514419cadd9f754f9"
+    },
+    {
+      "file": "/tmp/xharness-progress-build-check.log",
+      "sha256": "1890f97eaa1b69795efb6d85864df1e8b3575e6c6c679051ff1512938ec6cc73"
+    }
+  ],
+  "source_sha256": {
+    "crates/xharness-api/src/lib.rs": "aa8047594f81bc663e57ed2cfc707ced4ffdf8ad994da1c21821eb34da27cef4",
+    "crates/xharness-api/src/protocol.rs": "fc5426f355c4a485abcb25424fbc23eda9821f7fc820dcd58d9534de85547882",
+    "crates/xharness-api/tests/contract.rs": "f12075a6d0131ae2ffb898952901c5d3e6c91475e49fc05a0045175235fc8191",
+    "crates/xharness-core/src/engine.rs": "493efd61b795f39f420e89acff572031fc5b66d75df8d595a2f5be903114fa9d",
+    "crates/xharness-host/src/driver.rs": "4a4422cb2ee40b992379e9a8035ae5e2586ec12a762ee22907af807907474dd1",
+    "crates/xharness-host/src/goal_tool.rs": "de70cf9141c869743759fc37c3e565c155a4c3298fe7b0891dd0ccf8651924d9",
+    "crates/xharness-host/src/goals.rs": "9629b618c9f31ec645b75d3aa0276b66a1ee636958931ad24978b0215e8223a9",
+    "crates/xharness-host/src/projection_publication_tests.rs": "168b64bed77e32d176123bb6b38413c4e9d23f38177210f3641d3bbb59fba431",
+    "crates/xharness-host/src/restore.rs": "8dd8d161dfb2490dbc69a75fe36f86f7e604750a37b6aa5f7e895d144c4332be",
+    "crates/xharness-host/src/restore_checkpoint.rs": "8feb8595765e9f015217fd4ef8da9539c6bace7ceb0f884358bced0d98ffd1ee",
+    "crates/xharness-host/src/rpc.rs": "43be02cf329572f8bccc024dc911304de5475547f2a2372f9f587cbb035a6ce1",
+    "crates/xharness-host/src/rpc/goal.rs": "10e5944998845dcd41de8c511fda3a3312305d0d0d196aeedd3d68e113578c71",
+    "crates/xharness-host/src/rpc/session_lifecycle.rs": "3ef06ffffe7a00a8bbd987ab452653539e2707a89921f4df67b7692faabb9c32",
+    "crates/xharness-host/src/rpc/session_plan.rs": "565ce79f2e862bd11ca01ba972ed83ae98b67e4d7511ea743dcd72e074974da4",
+    "crates/xharness-host/src/state.rs": "502cbdde1b6203529867007cc70d21b5423544ec6b1c00b030203ea9a0101001",
+    "crates/xharness-projection/src/lib.rs": "7f17d036e343eb6127c087fb5fe6e2a8bcf169c4ea3aba03fa3782cd92a77d94",
+    "crates/xharness-session/src/event.rs": "f2ba159a4e22cec01859da5d0b38fe246a6c8b091e703bf3cdd0d89e8bc7f909",
+    "crates/xharness-session/src/lib.rs": "76f9ea00492f1544058dea93fb6732e654b3c0cd1103d7c632c6e66c8726c792",
+    "crates/xharness-session/src/plan.rs": "60b15e7470480131cc08d435d3b924afdc172934792ae4deb1c4cf2cb9bf0355",
+    "crates/xharness-session/src/session.rs": "e4fee5f50a6f8f197e3937ddae9f29d21b36a3c3df1ad96eb88963190d30e10f",
+    "docs/specs/session-progress-plan.md": "15dde58928973c39b00b3ca4ef11a5fe9b74948f5b3f58c2669f1445475905ab",
+    "scripts/ci/ui-plan.json": "7a372e1a5c3f758aa1bd6e68f169add6ba86cd3bc6a62eb4422ce1b4e690137a",
+    "scripts/test-goal-source.mjs": "83c09c04ea75ce693f6d7250c2b9e6d92ebdd73506839d11d3c32e7899177981",
+    "scripts/test-progress-runtime-browser.mjs": "47bb4f2fa9efae5e3e29b3528353e159f882372e38415a231d3269dafe8e4634",
+    "ui/dist/asset-manifest.json": "1d485432c3eb7c18fc96a0c32fe8b7bc3e7e1a57e0cbae868903375301564842",
+    "ui/dist/client-graph.json": "708730f1ad8a19846294009fe98421cc0cc27c454445351b4910ff63040f1284",
+    "ui/dist/index.html": "a10d7aeb8d3fc02660e2da49048c4f39af991b0401145f352cb11c747c5ff84c",
+    "ui/dist/plugins/@xharness/dsh-client-ui-goal/client.js": "889591efe4cf8ad2118fecccfbc7cb2266666b6fb881a6e15e6bb5e1b086eaa0",
+    "ui/src/modules/goal/ProgressDock.css": "497942f3dd7c39fff4c2998797848e42709607a134836a95adff91c298c93939",
+    "ui/src/modules/goal/ProgressDock.styles.ts": "2711a82fc34b0626e5be282ceb67a104a2082454ce344c4f60cb42fbf122a5bc",
+    "ui/src/modules/goal/ProgressDock.tsx": "7126bd0da51e3cb8b5b035941e0248dc3ac248c3c91c86f5985906d35039fafb",
+    "ui/src/modules/goal/index.ts": "17d3bf993c5e11b9f420ca690aa6df4b86db13467b69457efc06052f10fa9a2d",
+    "ui/src/modules/goal/locales.ts": "38076973bb798b6f7e088c896d187b9ac7e378f401c2a2c001ed097ffebed1d8"
+  }
+}

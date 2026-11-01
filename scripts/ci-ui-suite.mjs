@@ -140,7 +140,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const name = [opts.suite, opts.browser, opts.phase, opts.shard].filter(v => v !== undefined).join('-')
   if (opts.list) console.log(JSON.stringify(entries, null, 2))
   else {
-    const receipt = await runEntries(entries, { ...opts, report: opts.report ?? resolve(root, `dist/ci-ui-timings/${name}.json`) })
+    // One explicit fixture build per shard, shared only by its child tests.
+    const usesFixture = opts.suite === 'browser' || opts.suite === 'parity'
+    const fixtureEnv = usesFixture ? {UI_FIXTURE_DIST: (await import('./fixtures/ui-fixture-build.mjs')).fixtureUiRoot()} : {}
+    const receipt = await runEntries(entries, { ...opts, env: {...process.env, ...fixtureEnv}, report: opts.report ?? resolve(root, `dist/ci-ui-timings/${name}.json`) })
     if (process.env.GITHUB_STEP_SUMMARY) {
       const lines = [`### UI ${name}: ${receipt.ok ? 'passed' : receipt.cancelled ? 'cancelled' : 'failed'}`, '', '| Test | Seconds | Exit | Status |', '| --- | ---: | ---: | --- |',
         ...receipt.results.map(result => `| ${result.id} | ${(result.durationMs / 1000).toFixed(1)} | ${result.exitCode ?? result.signal ?? 'spawn error'} | ${result.ok ? 'pass' : result.timedOut ? 'timeout' : 'fail'} |`), '']

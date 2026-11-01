@@ -183,6 +183,52 @@ async fn workspace_switch_and_refresh_do_not_append_rules_to_history() {
         .all(|s| s.messages.is_empty()));
 }
 
+#[tokio::test]
+async fn browser_routing_is_a_single_stable_audited_policy_not_a_capability_claim() {
+    let root = Root::new();
+    let host = crate::BasicHost::without_provider(crate::HostConfig::new(&root.0));
+    create(&host, "browser-policy", &root).await;
+    let first = host.prompt_assembly("browser-policy").await.unwrap();
+    assert_eq!(first, host.prompt_assembly("browser-policy").await.unwrap());
+    let audit = first
+        .audit()
+        .sections
+        .iter()
+        .filter(|s| s.id == "tool/browser")
+        .collect::<Vec<_>>();
+    assert_eq!(audit.len(), 1);
+    assert_eq!(audit[0].version, "2");
+    let sections = host
+        .state
+        .read()
+        .await
+        .prompt_sections("browser-policy")
+        .unwrap();
+    let policy = &sections
+        .iter()
+        .find(|s| s.id == "tool/browser")
+        .unwrap()
+        .content;
+    assert_eq!(first.system().matches(policy).count(), 1);
+    assert_eq!(policy, "For website browsing and interaction, prefer the embedded browser through plugin_mcp when available; respect explicit browser choices.");
+    for detail in [
+        "zero open tabs",
+        "web_fetch",
+        "computer",
+        "successful result",
+    ] {
+        assert!(
+            !policy.contains(detail),
+            "detailed guidance belongs to plugin_mcp: {detail}"
+        );
+    }
+    assert!(!policy.contains("@xharness/native-browser"));
+    assert!(!policy.contains("Tauri"));
+    assert!(host.state.read().await.sessions["browser-policy"]
+        .messages
+        .is_empty());
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn waiting_for_instruction_io_never_pins_the_global_state_lock() {
     let root = Root::new();
@@ -269,4 +315,104 @@ async fn readonly_project_rules_are_loaded_without_mutation() {
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "READONLY_RULE");
     assert!(std::fs::metadata(&path).unwrap().permissions().readonly());
     std::fs::set_permissions(path, original).unwrap();
+}
+
+#[tokio::test]
+async fn reusable_prefix_precedes_all_workspace_permission_and_mode_context() {
+    let root = Root::new();
+    let other = Root::new();
+    root.write("ONLY_ROOT_RULE");
+    other.write("ONLY_OTHER_RULE");
+    let mut config = crate::HostConfig::new(&root.0);
+    config.memory_dir = Some(root.0.join("memory"));
+    let host = crate::BasicHost::without_provider(config.clone());
+    create(&host, "one", &root).await;
+    create(&host, "two", &root).await;
+    create(&host, "other", &other).await;
+    host.state
+        .write()
+        .await
+        .sessions
+        .get_mut("two")
+        .unwrap()
+        .title = Some("Different title".into());
+    let a = host.prompt_assembly("one").await.unwrap();
+    assert_eq!(a, host.prompt_assembly("two").await.unwrap());
+    let permission = "The session uses workspace-write isolation.";
+    let prefix = a.system().split(permission).next().unwrap();
+    assert!(prefix.contains(POLICY));
+    assert!(prefix.contains("Memory is fallible reference data"));
+    assert!(!prefix.contains(&root.0.to_string_lossy().to_string()));
+    let b = host.prompt_assembly("other").await.unwrap();
+    assert!(b.system().starts_with(prefix));
+    assert_ne!(a.system(), b.system());
+    assert!(b.system().contains("ONLY_OTHER_RULE"));
+    assert!(!b.system().contains("ONLY_ROOT_RULE"));
+    {
+        let mut state = host.state.write().await;
+        let session = state.sessions.get_mut("two").unwrap();
+        session.permission_preset = crate::PermissionPreset::DangerFullAccess;
+        session.plan_active = true;
+        session.delegated = true;
+    }
+    let changed = host.prompt_assembly("two").await.unwrap();
+    assert!(changed.system().starts_with(prefix));
+    for rule in [
+        "danger-full-access",
+        "Plan mode is active.",
+        "ONLY_ROOT_RULE",
+        crate::questions::DELEGATED_QUESTION_POLICY,
+    ] {
+        assert!(
+            changed.system().contains(rule),
+            "lost contextual policy: {rule}"
+        );
+    }
+    let sections = &a.audit().sections;
+    let boundary = sections
+        .iter()
+        .position(|s| s.id == "permission/policy")
+        .unwrap();
+    assert!(
+        sections
+            .iter()
+            .position(|s| s.id == "workspace/instructions-policy")
+            .unwrap()
+            < boundary
+    );
+    assert!(
+        sections
+            .iter()
+            .position(|s| s.id == "memory/policy")
+            .unwrap()
+            < boundary
+    );
+    // Reconstruct another Host, not a cached assembly from the first instance.
+    let restarted = crate::BasicHost::without_provider(config);
+    create(&restarted, "different-id", &root).await;
+    assert_eq!(a, restarted.prompt_assembly("different-id").await.unwrap());
+}
+
+#[tokio::test]
+async fn shared_prefix_allowlist_keeps_unknown_context_after_policies_without_loss() {
+    let root = Root::new();
+    let assembly = InstructionLoader::default()
+        .assemble(
+            root.0.to_string_lossy().into(),
+            vec![
+                PromptSection::new("custom/context", "1", "CUSTOM_CONTEXT"),
+                PromptSection::new("permission/policy", "1", "PERMISSION_CONTEXT"),
+                PromptSection::new("coding/workflow", "1", "SHARED_POLICY"),
+            ],
+        )
+        .await
+        .unwrap();
+    let text = assembly.system();
+    assert!(text.starts_with("SHARED_POLICY"));
+    assert!(text.find(POLICY).unwrap() < text.find("CUSTOM_CONTEXT").unwrap());
+    assert!(text.find("CUSTOM_CONTEXT").unwrap() < text.find("PERMISSION_CONTEXT").unwrap());
+    assert_eq!(assembly.audit().sections.len(), 4);
+    for marker in ["SHARED_POLICY", "CUSTOM_CONTEXT", "PERMISSION_CONTEXT"] {
+        assert_eq!(text.matches(marker).count(), 1);
+    }
 }

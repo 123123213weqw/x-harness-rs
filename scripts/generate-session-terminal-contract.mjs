@@ -78,6 +78,10 @@ export function generateWireContract(contract, options) {
         only(schema, ['type', 'additionalProperties'])
         return emit({ anyOf: [{ type: 'object', additionalProperties: schema.additionalProperties ?? true }, { type: 'null' }] }, mode)
       }
+      if (concrete === 'integer' || concrete === 'number') {
+        only(schema, ['type', 'format', 'minimum', 'maximum'])
+        return emit({ anyOf: [{ ...schema, type: concrete }, { type: 'null' }] }, mode)
+      }
       if (concrete !== 'string') throw Error('unsupported nullable type array')
       only(schema, ['type'])
       return emit({ anyOf: [{ type: 'string' }, { type: 'null' }] }, mode)
@@ -92,11 +96,12 @@ export function generateWireContract(contract, options) {
       case 'integer':
       case 'number': {
         only(schema, ['type', 'format', 'minimum', 'maximum'])
-        if (schema.format && !['uint32', 'int32', 'double', 'float'].includes(schema.format)) throw Error('unsupported number format')
-        if (['uint32', 'int32'].includes(schema.format) && schema.type !== 'integer') throw Error('integer format requires integer type')
+        if (schema.format && !['uint32', 'int32', 'uint64', 'double', 'float'].includes(schema.format)) throw Error('unsupported number format')
+        if (['uint32', 'int32', 'uint64'].includes(schema.format) && schema.type !== 'integer') throw Error('integer format requires integer type')
         for (const bound of ['minimum', 'maximum']) if (schema[bound] !== undefined && !Number.isFinite(schema[bound])) throw Error('invalid numeric bound')
         if (mode === 'type') return 'number'
         let code = schema.type === 'integer' ? 'z.number().int()' : 'z.number()'
+        if (schema.format === 'uint64') code += '.min(0).max(Number.MAX_SAFE_INTEGER)'
         if (schema.format === 'uint32') code += '.min(0).max(4294967295)'
         if (schema.format === 'int32') code += '.min(-2147483648).max(2147483647)'
         if (schema.minimum !== undefined) code += '.min(' + literal(schema.minimum) + ')'

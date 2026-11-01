@@ -1,27 +1,35 @@
 name: Desktop Candidate Prepare
-run-name: Candidate for ${{ github.event.workflow_run.head_sha }}
+run-name: Idle candidate check for ${{ github.event.workflow_run.head_sha || github.sha }}
 
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
     branches: [master]
+  schedule:
+    - cron: '17,47 * * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write # Immutable version reservation only; never publish.
   actions: write # Dispatch protected existing signing/native workers.
 
-# Distinct source candidates may build concurrently without occupying the
-# stable promotion lock. Reruns of the same source serialize and reconcile.
+# One idle admission/allocation at a time, separate from stable publication.
+# Never cancel a controller that may have checkpointed a non-idempotent intent.
 concurrency:
-  group: desktop-candidate-prepare-${{ github.event.workflow_run.head_sha }}
+  group: desktop-candidate-prepare-idle
   cancel-in-progress: false
 
 jobs:
   prepare:
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'master' && github.event.workflow_run.head_repository.full_name == github.repository && vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository
+    if: vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository && github.ref == 'refs/heads/master' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'master' && github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-22.04
     timeout-minutes: 140
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      XHARNESS_FRIENDS_RELEASE_REPOSITORY: ${{ vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY }}
+      XHARNESS_MACOS_PREVIEW_CERT_SHA1: ${{ vars.XHARNESS_MACOS_PREVIEW_CERT_SHA1 }}
+      RELEASE_SCOPE: ${{ vars.XHARNESS_DESKTOP_TAG_RELEASE_SCOPE || 'all-macos-preview' }}
     steps:
       # Controls from trusted master, never a PR artifact or untrusted checkout.
       - uses: actions/checkout@v6
@@ -30,25 +38,40 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Read-only idle, latest CI, recovery and duplicate admission
+        id: idle
+        timeout-minutes: 5
+        run: python3 -B scripts/desktop-candidate-idle.py
+        env:
+          TRIGGER_CI_RUN_ID: ${{ github.event.workflow_run.id }}
+          TRIGGER_CI_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          TRIGGER_SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+      - name: Retain small idle admission evidence, including deferred decisions
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-candidate-idle
+          path: ${{ runner.temp }}/desktop-candidate-idle.json
+          if-no-files-found: warn
+          retention-days: 14
       - uses: actions/setup-node@v4
+        if: steps.idle.outputs.prepare == 'true'
         with:
           node-version: '24'
       - name: Install locked checkpoint SDK (no signing private keys)
+        if: steps.idle.outputs.prepare == 'true'
         run: npm ci --prefix .github/actions/desktop-release-service --ignore-scripts --no-audit --no-fund
       - name: Prepare and accept immutable four-platform candidate, NEVER promote
+        if: steps.idle.outputs.prepare == 'true'
         uses: ./.github/actions/desktop-release-service
         with:
           candidate: 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          XHARNESS_FRIENDS_RELEASE_REPOSITORY: ${{ vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY }}
-          XHARNESS_MACOS_PREVIEW_CERT_SHA1: ${{ vars.XHARNESS_MACOS_PREVIEW_CERT_SHA1 }}
-          RELEASE_SCOPE: ${{ vars.XHARNESS_DESKTOP_TAG_RELEASE_SCOPE || 'all-macos-preview' }}
-          TRIGGER_CI_RUN_ID: ${{ github.event.workflow_run.id }}
-          TRIGGER_CI_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
-          TRIGGER_SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          TRIGGER_CI_RUN_ID: ${{ steps.idle.outputs.ci_run_id }}
+          TRIGGER_CI_ATTEMPT: ${{ steps.idle.outputs.ci_attempt }}
+          TRIGGER_SOURCE_SHA: ${{ steps.idle.outputs.source_sha }}
       - name: Retain candidate pointer only (immutable packages remain in the build)
-        if: success()
+        if: success() && steps.idle.outputs.prepare == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: desktop-candidate-ready

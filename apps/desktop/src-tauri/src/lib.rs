@@ -1,14 +1,21 @@
 mod account_callback;
 mod browser;
+mod browser_activity;
 mod browser_bridge;
 mod browser_delegation;
 mod browser_inspect;
 mod browser_lifecycle;
+mod browser_login;
 mod browser_native;
 mod browser_perform;
+mod browser_picker;
+mod browser_request;
 mod computer_activity;
+mod desktop_exit;
+mod desktop_recovery;
 mod diagnostics;
 mod installations;
+mod lifecycle_trace;
 mod managed_account;
 mod native_startup;
 mod sidecar;
@@ -31,7 +38,25 @@ struct DesktopBootstrapEvent {
 
 pub fn run() {
     native_startup::prepare().expect("native runtime prerequisites failed");
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder.on_web_content_process_terminate(|view| {
+        if let Some(state) = view.app_handle().try_state::<DesktopState>() {
+            let mut record =
+                xharness_diagnostics::Record::new(xharness_diagnostics::Phase::RendererTerminated);
+            record.pid = Some(std::process::id());
+            record.view_id = if view.label() == "main" {
+                Some(0)
+            } else {
+                view.label()
+                    .strip_prefix("browser-")
+                    .and_then(|label| label.parse().ok())
+            };
+            state.diagnostics.record(record);
+            state.diagnostics.mark_incident();
+        }
+    });
+    let app = builder
         // Keep the identifier stable across release channels and install paths.
         // This must run before any plugin/setup that can start a second Host.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
@@ -50,12 +75,22 @@ pub fn run() {
             {
                 // A full UI reload cannot run React unmount cleanup. Drop guest
                 // views now; persisted tab URLs are restored by the new page.
+                lifecycle_trace::browser(
+                    webview.app_handle(),
+                    xharness_diagnostics::BrowserEvent::UiReload,
+                    None,
+                );
                 browser::close_all(webview.app_handle());
             }
         })
         .setup(|app| {
             let state = DesktopState::initialize(app.handle())?;
+            let diagnostics = state.diagnostics.clone();
             app.manage(state);
+            app.manage(lifecycle_trace::LifecycleTrace(std::sync::Arc::new(
+                move |record| diagnostics.record(record),
+            )));
+            desktop_exit::install_menu(app.handle())?;
             app.manage(managed_account::ManagedAccountState::default());
             managed_account::install_callbacks(app.handle());
             app.manage(installations::InstallationState::initialize(app.handle()));
@@ -112,6 +147,7 @@ pub fn run() {
             diagnostics::desktop_set_deep_diagnostics,
             updater::desktop_check_update,
             updater::desktop_update_status,
+            updater::desktop_update_preflight,
             updater::desktop_download_update,
             updater::desktop_install_update,
             computer_activity::desktop_set_computer_activity,
@@ -127,45 +163,73 @@ pub fn run() {
             browser_delegation::desktop_browser_delegate,
             browser_delegation::desktop_browser_access,
             browser_inspect::desktop_browser_inspect,
+            browser_picker::desktop_browser_pick,
             browser_perform::desktop_browser_perform,
         ])
         .on_window_event(|window, event| {
             if window.label() != "main" {
                 return;
             }
-            let WindowEvent::CloseRequested { api, .. } = event else {
-                return;
-            };
-            api.prevent_close();
-            let state = window.state::<DesktopState>();
-            if state.closing.swap(true, Ordering::SeqCst) {
-                return;
-            }
-            let handle = window.app_handle().clone();
-            tauri::async_runtime::spawn(async move {
-                // Check/Download observe closing and drop the HTTP future.
-                // An installation already in progress must finish, not be killed
-                // mid-replacement. Claim the gate before stopping the Host.
-                while handle
-                    .state::<DesktopState>()
-                    .update_busy
-                    .swap(true, Ordering::SeqCst)
-                {
-                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    desktop_exit::request(
+                        window.app_handle(),
+                        xharness_diagnostics::ExitSource::MainWindow,
+                        0,
+                    );
                 }
-                computer_activity::clear(&handle);
-                browser::close_all(&handle);
-                let _ = sidecar::graceful_stop(&handle).await;
-                handle.exit(0);
-            });
+                WindowEvent::Destroyed => desktop_exit::record(
+                    window.app_handle(),
+                    xharness_diagnostics::Phase::DesktopWindowDestroyed,
+                    xharness_diagnostics::ExitSource::MainWindow,
+                    None,
+                ),
+                _ => {}
+            }
         })
         .build(tauri::generate_context!())
         .expect("failed to build XHarness desktop application");
 
     app.run(|handle, event| {
-        if matches!(event, RunEvent::Exit) {
-            sidecar::force_stop(handle);
-            handle.state::<DesktopState>().diagnostics.finish();
+        let Some(state) = handle.try_state::<DesktopState>() else {
+            return;
+        };
+        match event {
+            RunEvent::ExitRequested { code, api, .. } => {
+                desktop_exit::record(
+                    handle,
+                    xharness_diagnostics::Phase::DesktopExitRequested,
+                    xharness_diagnostics::ExitSource::Runtime,
+                    code,
+                );
+                if !desktop_exit::may_exit(state.running.load(Ordering::SeqCst)) {
+                    api.prevent_exit();
+                    desktop_exit::request(
+                        handle,
+                        xharness_diagnostics::ExitSource::Runtime,
+                        code.unwrap_or(0),
+                    );
+                }
+            }
+            RunEvent::Exit => {
+                if desktop_exit::may_exit(state.running.load(Ordering::SeqCst)) {
+                    sidecar::force_stop(handle);
+                    state.diagnostics.finish();
+                } else {
+                    // An unsolicited native termination is not permission to
+                    // explicitly kill tasks. Keep the private handoff for a
+                    // Host that survives platform/framework exit cleanup.
+                    desktop_exit::record(
+                        handle,
+                        xharness_diagnostics::Phase::DesktopExitUnclean,
+                        xharness_diagnostics::ExitSource::Runtime,
+                        None,
+                    );
+                    state.diagnostics.mark_incident();
+                }
+            }
+            _ => {}
         }
     });
 }

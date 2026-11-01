@@ -6,7 +6,7 @@
 //! an HTTP request that the model server must reject.
 
 mod calibration;
-pub use calibration::{Calibration, WireFeatures, MAX_CALIBRATION_BYTES};
+pub use calibration::{Calibration, ImageFeatures, WireFeatures, MAX_CALIBRATION_BYTES};
 
 use std::{fmt, sync::Arc};
 
@@ -35,14 +35,36 @@ pub struct TokenBreakdown {
     pub total_input_tokens: u64,
 }
 
-/// Display-only composition of one prepared request. The category shares are
-/// local estimates even when `total_input_tokens` comes from an exact provider
-/// count: provider counters generally return one number, not role buckets.
+/// Display-only provenance supplied by the owning conversation journal.
+/// A provider role or model-authored text cannot establish human authorship.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ContextMessageOrigin {
+    Human,
+    AgentReport,
+    RuntimeContext,
+    Checkpoint,
+    #[default]
+    Unknown,
+}
+
+/// Display-only composition of one prepared request. Provider counters return
+/// one total; category shares remain local estimates, not tokenizer readings.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextComposition {
+    /// Version 2 separates human authorship from the provider's user role.
+    #[serde(default)]
+    pub attribution_version: u32,
     pub system_tokens: u64,
     pub user_tokens: u64,
+    #[serde(default)]
+    pub agent_report_tokens: u64,
+    #[serde(default)]
+    pub runtime_context_tokens: u64,
+    #[serde(default)]
+    pub checkpoint_tokens: u64,
+    #[serde(default)]
+    pub unattributed_tokens: u64,
     pub assistant_tokens: u64,
     pub tool_result_tokens: u64,
     pub tool_definition_tokens: u64,
@@ -52,26 +74,47 @@ pub struct ContextComposition {
 }
 
 impl ContextComposition {
-    /// Allocate an authoritative or estimated total across disjoint request
-    /// components. Integer remainders are assigned deterministically so the
-    /// displayed segments always sum to the reported request total.
+    /// Without journal provenance user-role inputs are explicitly unattributed.
     pub fn estimate(
         request: &TokenEstimateRequest,
         total_input_tokens: u64,
     ) -> Result<Self, TokenMeterError> {
-        let mut weights = [0_u64; 6];
+        Self::estimate_with_origins(request, total_input_tokens, &[])
+    }
+
+    /// Origins align with conversation_messages, excluding system messages.
+    /// Missing or misaligned provenance cannot classify an input as human.
+    /// Largest-remainder allocation preserves the original request total.
+    pub fn estimate_with_origins(
+        request: &TokenEstimateRequest,
+        total_input_tokens: u64,
+        origins: &[ContextMessageOrigin],
+    ) -> Result<Self, TokenMeterError> {
+        let mut weights = [0_u64; 10];
         for message in &request.system_messages {
             weights[0] = weights[0]
                 .saturating_add(encoded_len(message)?)
                 .saturating_add(image_estimate(std::slice::from_ref(message))?)
                 .saturating_add(8);
         }
-        for message in &request.conversation_messages {
+        for (index, message) in request.conversation_messages.iter().enumerate() {
+            let origin = if origins.len() == request.conversation_messages.len() {
+                origins[index]
+            } else {
+                ContextMessageOrigin::Unknown
+            };
             let bucket = match message.get("role").and_then(Value::as_str) {
-                Some("user") => 1,
+                Some("user") => match origin {
+                    ContextMessageOrigin::Human => 1,
+                    ContextMessageOrigin::AgentReport => 6,
+                    ContextMessageOrigin::RuntimeContext => 7,
+                    ContextMessageOrigin::Checkpoint => 8,
+                    ContextMessageOrigin::Unknown => 9,
+                },
                 Some("tool") => 3,
                 Some("system") => 0,
-                _ => 2,
+                Some("assistant") => 2,
+                _ => 9,
             };
             weights[bucket] = weights[bucket]
                 .saturating_add(encoded_len(message)?)
@@ -85,11 +128,11 @@ impl ContextComposition {
         }
         weights[5] = encoded_len(&(&request.provider, &request.model))?.saturating_add(32);
         let weight_total: u128 = weights.iter().map(|weight| u128::from(*weight)).sum();
-        let mut allocated = [0_u64; 6];
+        let mut allocated = [0_u64; 10];
         if weight_total == 0 {
             allocated[5] = total_input_tokens;
         } else {
-            let mut remainders = [(0_u128, 0_usize); 6];
+            let mut remainders = [(0_u128, 0_usize); 10];
             let mut allocated_total = 0_u64;
             for (index, weight) in weights.iter().enumerate() {
                 let numerator = u128::from(*weight) * u128::from(total_input_tokens);
@@ -106,8 +149,13 @@ impl ContextComposition {
             }
         }
         Ok(Self {
+            attribution_version: 2,
             system_tokens: allocated[0],
             user_tokens: allocated[1],
+            agent_report_tokens: allocated[6],
+            runtime_context_tokens: allocated[7],
+            checkpoint_tokens: allocated[8],
+            unattributed_tokens: allocated[9],
             assistant_tokens: allocated[2],
             tool_result_tokens: allocated[3],
             tool_definition_tokens: allocated[4],
@@ -130,6 +178,8 @@ pub enum TokenCountAccuracy {
     ExactRequest,
     ExactTokenizer,
     Calibrated,
+    /// Admission-only UTF-8 byte ceiling, not a tokenizer estimate.
+    ConservativeUpperBound,
     #[default]
     Estimated,
 }
@@ -188,6 +238,10 @@ pub trait TokenMeter: Send + Sync + 'static {
 pub struct ConservativeByteMeter;
 
 impl TokenMeter for ConservativeByteMeter {
+    fn accuracy(&self) -> TokenCountAccuracy {
+        TokenCountAccuracy::ConservativeUpperBound
+    }
+
     fn id(&self) -> &str {
         "conservative-utf8-json-bytes/v1"
     }
@@ -334,6 +388,14 @@ impl TokenBudget {
 #[serde(rename_all = "camelCase")]
 pub struct TokenBudgetReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "is_zero_rechecks")]
+    pub counter_rechecks: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub counter_http_status: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub counter_retry_after_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback_reason: Option<String>,
     pub meter: String,
     #[serde(default)]
@@ -345,6 +407,28 @@ pub struct TokenBudgetReport {
     pub safety_margin_tokens: u64,
     pub available_input_tokens: u64,
     pub estimate: TokenBreakdown,
+}
+
+const fn is_zero_rechecks(value: &u8) -> bool {
+    *value == 0
+}
+
+impl TokenBudgetReport {
+    pub fn is_exact(&self) -> bool {
+        matches!(
+            self.accuracy,
+            TokenCountAccuracy::ExactRequest | TokenCountAccuracy::ExactTokenizer
+        )
+    }
+
+    /// Learned prices may change between calls. Only the same exact counter
+    /// provides a comparable before/after measurement for compaction gain.
+    pub fn comparable_to(&self, other: &Self) -> bool {
+        self.is_exact()
+            && other.is_exact()
+            && self.meter == other.meter
+            && self.accuracy == other.accuracy
+    }
 }
 
 #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
@@ -363,7 +447,37 @@ pub enum TokenBudgetError {
         reserved_output_tokens: u64,
         minimum_output_tokens: u64,
         safety_margin_tokens: u64,
+        /// Preserve provenance on rejection too, not just successful requests.
+        report: Box<TokenBudgetReport>,
     },
+}
+
+impl TokenBudgetError {
+    pub fn report(&self) -> Option<&TokenBudgetReport> {
+        match self {
+            Self::Exceeded { report, .. } => Some(report),
+            _ => None,
+        }
+    }
+
+    pub fn with_fallback_reason(mut self, reason: Option<String>) -> Self {
+        if let Self::Exceeded { report, .. } = &mut self {
+            report.fallback_reason = reason;
+        }
+        self
+    }
+
+    pub fn with_counter_failure(
+        mut self,
+        status: Option<u16>,
+        retry_after_ms: Option<u64>,
+    ) -> Self {
+        if let Self::Exceeded { report, .. } = &mut self {
+            report.counter_http_status = status;
+            report.counter_retry_after_ms = retry_after_ms;
+        }
+        self
+    }
 }
 
 /// Cloneable meter + hard budget supplied to a prepared loop.
@@ -425,17 +539,11 @@ impl TokenGuard {
         let mut estimate = self.meter.estimate(request)?;
         estimate.recompute_total();
         let available_input_tokens = self.budget.available_input_tokens();
-        if estimate.total_input_tokens > available_input_tokens {
-            return Err(TokenBudgetError::Exceeded {
-                estimated_input_tokens: estimate.total_input_tokens,
-                available_input_tokens,
-                context_window_tokens: self.budget.context_window_tokens,
-                reserved_output_tokens: self.budget.reserved_output_tokens,
-                minimum_output_tokens: self.budget.minimum_output_tokens,
-                safety_margin_tokens: self.budget.safety_margin_tokens,
-            });
-        }
-        Ok(TokenBudgetReport {
+        self.admit(TokenBudgetReport {
+            request_sha256: None,
+            counter_rechecks: 0,
+            counter_http_status: None,
+            counter_retry_after_ms: None,
             fallback_reason: None,
             meter: self.meter.id().to_owned(),
             accuracy: self.meter.accuracy(),
@@ -465,17 +573,11 @@ impl TokenGuard {
             ..TokenBreakdown::default()
         };
         let available_input_tokens = self.budget.available_input_tokens();
-        if count.input_tokens > available_input_tokens {
-            return Err(TokenBudgetError::Exceeded {
-                estimated_input_tokens: count.input_tokens,
-                available_input_tokens,
-                context_window_tokens: self.budget.context_window_tokens,
-                reserved_output_tokens: self.budget.reserved_output_tokens,
-                minimum_output_tokens: self.budget.minimum_output_tokens,
-                safety_margin_tokens: self.budget.safety_margin_tokens,
-            });
-        }
-        Ok(TokenBudgetReport {
+        self.admit(TokenBudgetReport {
+            request_sha256: None,
+            counter_rechecks: 0,
+            counter_http_status: None,
+            counter_retry_after_ms: None,
             fallback_reason: None,
             meter: count.counter.clone(),
             accuracy: count.accuracy,
@@ -487,6 +589,21 @@ impl TokenGuard {
             available_input_tokens,
             estimate,
         })
+    }
+
+    fn admit(&self, report: TokenBudgetReport) -> Result<TokenBudgetReport, TokenBudgetError> {
+        if report.estimate.total_input_tokens > report.available_input_tokens {
+            return Err(TokenBudgetError::Exceeded {
+                estimated_input_tokens: report.estimate.total_input_tokens,
+                available_input_tokens: report.available_input_tokens,
+                context_window_tokens: report.context_window_tokens,
+                reserved_output_tokens: report.reserved_output_tokens,
+                minimum_output_tokens: report.minimum_output_tokens,
+                safety_margin_tokens: report.safety_margin_tokens,
+                report: Box::new(report),
+            });
+        }
+        Ok(report)
     }
 
     /// Rebind an auxiliary reserve while preserving meter and counter policy.
@@ -549,12 +666,14 @@ mod tests {
         assert_eq!(composition.total_input_tokens, 1_001);
         assert_eq!(composition.accuracy, TokenCountAccuracy::Estimated);
         assert!(composition.system_tokens > 0);
-        assert!(composition.user_tokens > 0);
+        assert_eq!(composition.user_tokens, 0);
+        assert!(composition.unattributed_tokens > 0);
         assert!(composition.assistant_tokens > 0);
         assert!(composition.tool_result_tokens > 0);
         assert!(composition.tool_definition_tokens > 0);
         assert_eq!(
             composition.system_tokens
+                + composition.unattributed_tokens
                 + composition.user_tokens
                 + composition.assistant_tokens
                 + composition.tool_result_tokens
@@ -569,6 +688,76 @@ mod tests {
             0
         );
     }
+    #[test]
+    fn composition_separates_human_reports_runtime_and_checkpoints() {
+        use ContextMessageOrigin::{AgentReport, Checkpoint, Human, RuntimeContext, Unknown};
+        let origins = [Human, AgentReport, RuntimeContext, Checkpoint, Unknown];
+        let request = TokenEstimateRequest {
+            conversation_messages: origins
+                .iter()
+                .map(|_| json!({"role":"user","content":"same protocol role and text"}))
+                .collect(),
+            ..TokenEstimateRequest::default()
+        };
+        for total in [0, 1, 9, 105_139, u64::MAX] {
+            let composition =
+                ContextComposition::estimate_with_origins(&request, total, &origins).unwrap();
+            let values = [
+                composition.system_tokens,
+                composition.user_tokens,
+                composition.agent_report_tokens,
+                composition.runtime_context_tokens,
+                composition.checkpoint_tokens,
+                composition.unattributed_tokens,
+                composition.assistant_tokens,
+                composition.tool_result_tokens,
+                composition.tool_definition_tokens,
+                composition.protocol_tokens,
+            ];
+            assert_eq!(
+                values.iter().map(|value| u128::from(*value)).sum::<u128>(),
+                u128::from(total)
+            );
+            assert_eq!(composition.attribution_version, 2);
+            assert_eq!(composition.accuracy, TokenCountAccuracy::Estimated);
+            if total > 100 {
+                assert!(composition.user_tokens > 0);
+                assert!(composition.agent_report_tokens > 0);
+                assert!(composition.runtime_context_tokens > 0);
+                assert!(composition.checkpoint_tokens > 0);
+                assert!(composition.unattributed_tokens > 0);
+            }
+        }
+        let unknown = ContextComposition::estimate(&request, 10_000).unwrap();
+        assert_eq!(unknown.user_tokens, 0);
+        assert!(unknown.unattributed_tokens > 0);
+        let misaligned =
+            ContextComposition::estimate_with_origins(&request, 10_000, &[Human]).unwrap();
+        assert_eq!(misaligned, unknown);
+    }
+
+    #[test]
+    fn provenance_cannot_reclassify_assistant_tools_or_unknown_roles_as_human() {
+        let request = TokenEstimateRequest {
+            conversation_messages: vec![
+                json!({"role":"assistant","content":"answer"}),
+                json!({"role":"tool","content":"result"}),
+                json!({"role":"unexpected","content":"unknown"}),
+            ],
+            ..TokenEstimateRequest::default()
+        };
+        let composition = ContextComposition::estimate_with_origins(
+            &request,
+            10_000,
+            &[ContextMessageOrigin::Human; 3],
+        )
+        .unwrap();
+        assert_eq!(composition.user_tokens, 0);
+        assert!(composition.assistant_tokens > 0);
+        assert!(composition.tool_result_tokens > 0);
+        assert!(composition.unattributed_tokens > 0);
+    }
+
     #[test]
     fn exceeded_reports_desired_and_minimum_output_without_changing_admission() {
         let guard = TokenGuard::conservative(TokenBudget {
@@ -590,7 +779,15 @@ mod tests {
         let provider = guard
             .check_provider_count(&ProviderInputTokenCount::exact_request("test", count))
             .unwrap_err();
-        assert_eq!(local, provider);
+        assert_eq!(local.to_string(), provider.to_string());
+        assert_eq!(
+            local.report().unwrap().accuracy,
+            TokenCountAccuracy::ConservativeUpperBound
+        );
+        assert_eq!(
+            provider.report().unwrap().accuracy,
+            TokenCountAccuracy::ExactRequest
+        );
         assert!(matches!(
             local,
             TokenBudgetError::Exceeded {

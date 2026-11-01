@@ -63,6 +63,12 @@ pub enum DisplayFile {
         text: String,
         source: DisplayDiffSource,
     },
+    /// A bounded, byte-sniffed PDF preview, never a model attachment.
+    Pdf {
+        path: String,
+        #[serde(rename = "dataBase64")]
+        data_base64: String,
+    },
     Image {
         path: String,
         #[serde(rename = "mediaType")]
@@ -79,9 +85,56 @@ impl DisplayFile {
             Self::Markdown { path, .. }
             | Self::Text { path, .. }
             | Self::Diff { path, .. }
-            | Self::Image { path, .. } => path,
+            | Self::Image { path, .. }
+            | Self::Pdf { path, .. } => path,
         }
     }
+}
+
+/// Cheap card inspection is separate from full document rendering.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DisplayInspect {
+    pub session_id: String,
+    pub path: String,
+    #[serde(default)]
+    pub thumbnail: bool,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum DisplayPreviewKind {
+    Text,
+    Markdown,
+    Image,
+    Pdf,
+    Unsupported,
+    TooLarge,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DisplayThumbnail {
+    pub data_base64: String,
+    pub width: u32,
+    pub height: u32,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DisplayInspection {
+    pub path: String,
+    pub bytes: u64,
+    pub preview: DisplayPreviewKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modified_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<DisplayThumbnail>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,6 +154,8 @@ mod tests {
     fn export_file_display_contract() {
         let contract = serde_json::json!({"contract":"xharness-file-display-v1","schemas":{
             "DisplayRead":schemars::schema_for!(DisplayRead),
+            "DisplayInspect":schemars::schema_for!(DisplayInspect),
+            "DisplayInspection":schemars::schema_for!(DisplayInspection),
             "DisplayFile":schemars::schema_for!(DisplayFile),
             "DisplayOpen":schemars::schema_for!(DisplayOpen),
             "GitDiffScope":schemars::schema_for!(GitDiffScope),
@@ -110,6 +165,7 @@ mod tests {
             DisplayFile::Text{path:"/workspace/main.rs".into(),text:"fn main() {}".into()},
             DisplayFile::Image{path:"/workspace/figure.png".into(),media_type:"image/png".into(),data_base64:"AA==".into(),width:1,height:1},
             DisplayFile::Diff{path:"/workspace/change.patch".into(),text:"--- a/main.rs\n+++ b/main.rs\n@@ -1 +1 @@\n-old\n+new\n".into(),source:DisplayDiffSource::Patch}
+            ,DisplayFile::Pdf{path:"/workspace/report.pdf".into(),data_base64:"JVBERi0xLjQKJSVFT0YK".into()}
         ]});
         for item in fixtures["files"].as_array().unwrap() {
             let _: DisplayFile = serde_json::from_value(item.clone()).unwrap();

@@ -118,13 +118,13 @@ test('actual resolver automatically checks stale metadata once and cancels check
  }
 });
 
-test('reasoning catalog is an exact external release dependency, not a duplicated workspace crate',()=>{
+test('reasoning catalog is an exact external dependency, not a duplicated workspace crate',()=>{
  const host=readFileSync('crates/xharness-host-app/Cargo.toml','utf8');
- assert.match(host,/xharness-model-catalog = \{ git = "https:\/\/github\.com\/123123213weqw\/xharness-model-catalog", rev = "b76585abb9102690d2dd85e385550e0d2f688601", version = "=0\.1\.1" \}/);
+ assert.match(host,/reasonmap = \{ git = "https:\/\/github\.com\/123123213weqw\/reasonmap", rev = "44159024c3c7a16d175d2cb3a5d665c39fe47d63", version = "=0\.4\.0" \}/);
  assert.ok(!readFileSync('Cargo.toml','utf8').includes('crates/xharness-model-catalog'));
- const fixture=JSON.parse(readFileSync('scripts/fixtures/reasoning-catalog-v0.1.1.json','utf8'));
- assert.equal(fixture.packageVersion,'0.1.1');
- assert.equal(fixture.gitRevision,'b76585abb9102690d2dd85e385550e0d2f688601');
+ const fixture=JSON.parse(readFileSync('scripts/fixtures/reasoning-catalog-v0.4.0.json','utf8'));
+ assert.equal(fixture.packageVersion,'0.4.0');
+ assert.equal(fixture.gitRevision,'44159024c3c7a16d175d2cb3a5d665c39fe47d63');
  const lock=readFileSync('Cargo.lock','utf8');
- assert.match(lock,/name = "xharness-model-catalog"\nversion = "0\.1\.1"\nsource = "git\+https:\/\/github\.com\/123123213weqw\/xharness-model-catalog\?rev=b76585abb9102690d2dd85e385550e0d2f688601#b76585abb9102690d2dd85e385550e0d2f688601"/);
+ assert.match(lock,/name = "reasonmap"\nversion = "0\.4\.0"\nsource = "git\+https:\/\/github\.com\/123123213weqw\/reasonmap\?rev=44159024c3c7a16d175d2cb3a5d665c39fe47d63#44159024c3c7a16d175d2cb3a5d665c39fe47d63"/);
 });

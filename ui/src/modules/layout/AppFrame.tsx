@@ -27,7 +27,7 @@ import type { ShellNavigation } from './shell-navigation'
 const xhWorkspaceWindow=xhCreateBrowserWindowController(typeof window==='undefined'?undefined:window.__TAURI__)
 
 /** Full composed props: runtime share + child-slot render share + store share. */
-export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay' | 'workspace.item' | 'work.center.tasks' | 'work.center.automations' | 'work.center.executions' | 'review.center' | 'assistant.center'> {
+export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay' | 'workspace.item' | 'work.center.tasks' | 'work.center.automations' | 'work.center.executions' | 'review.center' | 'assistant.center' | 'swarm.center'> {
   useSessions<T>(select: (state: import('../views-types').SessionSnapshot) => T): T
   useStore<T>(select: (state: import('./stores').LayoutState) => T): T
   actions: import('./service').PanelActions
@@ -35,8 +35,8 @@ export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversatio
 }
 
 /** Center column grid item (session-body building block). */
-function CenterColumn(props: { children?: ReactNode }) {
-  return <div className={css.centerCol}><div className={css.regionSurface}>{props.children}</div></div>
+function CenterColumn(props: { children?: ReactNode; swarm?: boolean }) {
+  return <div className={css.centerCol}><div className={css.regionSurface} data-swarm-container={props.swarm||undefined}>{props.children}</div></div>
 }
 
 /** Details column grid item; width 0 keeps the subtree mounted (never unmount on close). */
@@ -109,6 +109,7 @@ export function AppFrame({
   })
   const frameRef = useRef<HTMLDivElement | null>(null)
   const [assistantVisible,setAssistantVisible]=useState(false)
+  const [swarmVisible,setSwarmVisible]=useState(false)
   const { route: { page: centerPage } } = useSyncExternalStore(navigation.subscribe, navigation.getSnapshot)
   const closeCenterPage = navigation.close
   useEffect(() => navigation.mount(window), [navigation])
@@ -122,6 +123,7 @@ export function AppFrame({
   const [spaces,setSpaces]=useState<BrowserSpaces>(xhLoadBrowserSpaces)
   const [browserRestored,setBrowserRestored]=useState(!window.__TAURI__?.core?.invoke)
   const restoredRef=useRef(browserRestored);restoredRef.current=browserRestored
+  const spacesRef=useRef(spaces);spacesRef.current=spaces
   const space=spaces[spaceKey]??xhWorkspaceEmpty
   const nextWorkspaceId=useRef(xhNextWorkspaceId(spaces))
   useEffect(()=>{
@@ -148,7 +150,20 @@ export function AppFrame({
           modelRequestId:request.requestId,title:new URL(request.url).hostname,entries:[request.url],position:0}
         setSpaces(all=>({...all,[request.owner]:xhWorkspaceOpen(all[request.owner]??xhWorkspaceEmpty,item,false)}))
       },
+      close:async request=>{
+        const current=spacesRef.current[request.owner]
+        if(spaceKeyRef.current!==request.owner||current?.activeId!==request.tabId
+          ||!current.items.some(item=>item.id===request.tabId&&item.kind==='browser'))return false
+        // Remove presentation first so pending layout work observes unmount.
+        // Destruction must bypass the navigation queue, which may be awaiting
+        // a slow page callback. Exact owner+ID prevents closing its successor.
+        window.dispatchEvent(new CustomEvent('xharness:browser-closing',{detail:{id:request.tabId}}))
+        setSpaces(all=>({...all,[request.owner]:xhWorkspaceClose(all[request.owner]??xhWorkspaceEmpty,request.tabId)}))
+        await native.core.invoke('desktop_browser_close',{tabId:request.tabId})
+        return true
+      },
       cancel:requestId=>{
+        window.dispatchEvent(new CustomEvent('xharness:browser-closing',{detail:{id:`browser:${requestId}`}}))
         setSpaces(all=>Object.fromEntries(Object.entries(all).map(([owner,space])=>[owner,
           space.items.some(item=>item.modelRequestId===requestId)?xhWorkspaceClose(space,`browser:${requestId}`):space])))
         void native.core.invoke('desktop_browser_close',{tabId:`browser:${requestId}`}).catch(()=>{})
@@ -170,7 +185,10 @@ export function AppFrame({
   }
   const closeWorkspace=(id:string|null):void=>{
     if(id==='tool')actions.closeDetails()
-    if(space.items.some(item=>item.id===id&&item.kind==='browser'))window.dispatchEvent(new CustomEvent('xharness:browser-close',{detail:{id}}))
+    if(space.items.some(item=>item.id===id&&item.kind==='browser')){
+      window.dispatchEvent(new CustomEvent('xharness:browser-closing',{detail:{id}}))
+      window.dispatchEvent(new CustomEvent('xharness:browser-close',{detail:{id}}))
+    }
     updateSpace(value=>xhWorkspaceClose(value,id))
   }
   useEffect(()=>{
@@ -254,7 +272,10 @@ export function AppFrame({
   // Insets belong inside the existing tracks so drag handles and workspace
   // concessions keep their geometry. SidebarRoot freezes its content width
   // during collapse, so give it the surface's inner width, not the track width.
-  const regionInset = viewport <= 600 ? 4 : 8
+  // Narrow viewports drop the per-column card entirely (AppFrame.css), so the
+  // surface fills its track: the inset has to agree or the drawer would reserve
+  // a gutter it no longer renders.
+  const regionInset = viewport <= 600 ? 0 : 8
   const sidebarDrawerWidth = Math.min(viewport - 24, panels.sidebar === 0 ? SIDEBAR_DEFAULT : clampWidth(panels.sidebar,264,420))
   const sidebarContentWidth = (sidebarDrawer ? sidebarDrawerWidth : cols.sidebar) - (sidebarCollapsed ? 0 : regionInset * (sidebarDrawer ? 2 : 1) + 2)
   const colsRef = useRef(cols)
@@ -319,7 +340,7 @@ export function AppFrame({
             the shell's own pending rendering. The conversation
             is session-maybe; the strict details entry naturally renders
             empty while no session is current. */}
-        <CenterColumn><div className="xhfeature-shell"><div className="xhassistant-seat" hidden={centerPage !== 'assistant'}>{centerPage === 'assistant' && renderSlot('assistant.center', {showConversation:setAssistantVisible})}</div><div className="xhwork-conversation" hidden={centerPage !== 'chat' && !(centerPage==='assistant'&&assistantVisible)} aria-label={centerPage==='assistant'?'Little X chat':undefined}>{renderSlot('conversation', {})}</div>
+        <CenterColumn swarm={centerPage==='swarm'}><div className="xhfeature-shell" data-swarm-active={centerPage==='swarm'||undefined}><div className="xhswarm-seat" hidden={centerPage!=='swarm'}>{centerPage==='swarm'&&renderSlot('swarm.center',{showConversation:setSwarmVisible})}</div><div className="xhassistant-seat" hidden={centerPage !== 'assistant'}>{centerPage === 'assistant' && renderSlot('assistant.center', {showConversation:setAssistantVisible})}</div><div className="xhwork-conversation" hidden={centerPage !== 'chat' && !(centerPage==='assistant'&&assistantVisible) && !(centerPage==='swarm'&&swarmVisible)} aria-label={centerPage==='assistant'?'Little X chat':undefined}>{renderSlot('conversation', {})}</div>
         {centerPage === 'plugins' && <main style={{flex: 1, minHeight: 0, overflowY: 'auto', padding: '24px clamp(20px, 5vw, 56px)'}}>
           <button type="button" style={{cursor: 'pointer', background: 'none', border: 0, color: 'var(--dsw-alias-label-secondary)', padding: '0 0 24px', font: 'inherit'}}
             aria-label="Back to chat" onClick={closeCenterPage}>← {navigator.language.startsWith('zh') ? '返回对话' : 'Back to chat'}</button>
@@ -329,7 +350,11 @@ export function AppFrame({
         {centerPage === 'review' && renderSlot('review.center', {close: closeCenterPage})}
         </div></CenterColumn>
         {workspaceDrawer&&<button type="button" className={css.workspaceScrim} aria-label="关闭工作区" onClick={()=>updateSpace(value=>({...value,collapsed:true}))} />}
-        <DetailsColumn><XhWorkspacePane space={space} open={workspaceOpen} sessionId={spaceKey==='__global__'?null:spaceKey} renderSlot={renderSlot} onSelect={id=>updateSpace(value=>({...value,activeId:id}))} onClose={closeWorkspace} onUpdate={updateItem} onNewBrowser={()=>openWorkspace('browser',true)} /></DetailsColumn>
+        <DetailsColumn><XhWorkspacePane space={space} spaces={spaces} open={workspaceOpen} sessionId={spaceKey==='__global__'?null:spaceKey} renderSlot={renderSlot} onSelect={id=>updateSpace(value=>({...value,activeId:id}))} onClose={closeWorkspace} onUpdate={updateItem} onUpdateOwner={(owner,id,patch)=>setSpaces(all=>{
+          const prior=all[owner]
+          if(!prior?.items.some(item=>item.id===id))return all
+          return {...all,[owner]:{...prior,items:prior.items.map(item=>item.id===id?{...item,...patch}:item)}}
+        })} onNewBrowser={()=>openWorkspace('browser',true)} /></DetailsColumn>
       </>
       <div className={css.overlayLayer} data-shell-overlay>
         {renderSlot('shell.overlay', {})}

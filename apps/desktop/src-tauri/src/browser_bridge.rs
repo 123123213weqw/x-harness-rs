@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{OnceCell, Semaphore};
@@ -42,6 +42,9 @@ enum Operation {
     Perform,
     Screenshot,
     Input,
+    Request,
+    #[serde(rename = "read_response")]
+    ReadResponse,
 }
 
 fn matches_token(provided: &str, expected: &str) -> bool {
@@ -56,19 +59,48 @@ fn matches_token(provided: &str, expected: &str) -> bool {
 }
 
 impl BrowserBridge {
+    pub fn is_started(&self) -> bool {
+        self.0.get().is_some()
+    }
     pub async fn start(&self, app: &AppHandle) -> Result<&Connection, String> {
+        self.start_at(app, None).await
+    }
+
+    pub async fn start_at(
+        &self,
+        app: &AppHandle,
+        previous: Option<(std::net::SocketAddr, String)>,
+    ) -> Result<&Connection, String> {
+        if previous.as_ref().is_some_and(|(address, token)| {
+            address.ip() != std::net::Ipv4Addr::LOCALHOST
+                || address.port() == 0
+                || token.len() != 64
+                || !token.bytes().all(|b| b.is_ascii_hexdigit())
+        }) {
+            return Err("invalid native browser recovery binding".into());
+        }
         self.0
             .get_or_try_init(|| async {
-                let listener = TcpListener::bind("127.0.0.1:0")
+                let address = previous
+                    .as_ref()
+                    .map(|(address, _)| *address)
+                    .unwrap_or_else(|| std::net::SocketAddr::from(([127, 0, 0, 1], 0)));
+                let listener = TcpListener::bind(address)
                     .await
                     .map_err(|_| "native browser bridge unavailable")?;
                 let address = listener
                     .local_addr()
                     .map_err(|_| "native browser address unavailable")?
                     .to_string();
-                let mut bytes = [0u8; 32];
-                getrandom::fill(&mut bytes).map_err(|_| "native browser entropy unavailable")?;
-                let token: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+                let token = match previous {
+                    Some((_, token)) => token,
+                    None => {
+                        let mut bytes = [0u8; 32];
+                        getrandom::fill(&mut bytes)
+                            .map_err(|_| "native browser entropy unavailable")?;
+                        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+                    }
+                };
                 let secret = token.clone();
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
@@ -155,6 +187,14 @@ async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
             browser_lifecycle::ControlRequest::Status {} => {
                 Ok(browser_lifecycle::descriptor(&state, &request.owner))
             }
+            browser_lifecycle::ControlRequest::Close {} => {
+                if let Err(error) = state.delegated_tab(&request.owner) {
+                    return Ok(rejected_action(&error));
+                }
+                app.state::<browser_lifecycle::BrowserLifecycle>()
+                    .close(app, &request.owner)
+                    .await
+            }
             browser_lifecycle::ControlRequest::Open { url } => {
                 if let Err(error) = crate::browser::web_url(&url) {
                     return Ok(rejected_action(&error));
@@ -172,7 +212,29 @@ async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
         }
         Err(error) => return Err(error),
     };
+    let operation = match &request.op {
+        Operation::Observe => crate::browser_activity::Operation::Observe,
+        Operation::Perform => crate::browser_activity::Operation::Perform,
+        Operation::Screenshot => crate::browser_activity::Operation::Screenshot,
+        Operation::Input => crate::browser_activity::Operation::Input,
+        Operation::Request => crate::browser_activity::Operation::Request,
+        Operation::ReadResponse => crate::browser_activity::Operation::ReadResponse,
+        Operation::List | Operation::Control => unreachable!(),
+    };
+    let _activity =
+        crate::browser_activity::Activity::start(&request.owner, &tab, operation, |event| {
+            // Only the trusted shell receives metadata, never a guest page. Event
+            // delivery is best-effort and must not change the invocation's result.
+            let _ = app.emit_to("main", "xharness-browser-activity", event);
+        });
     match request.op {
+        Operation::Request => {
+            crate::browser_request::request(&state, &tab, &request.owner, request.arguments).await
+        }
+        Operation::ReadResponse => {
+            crate::browser_request::read_response(&state, &tab, &request.owner, request.arguments)
+                .await
+        }
         Operation::Screenshot => {
             if request.arguments != json!({}) {
                 return Err("screenshot takes no arguments".into());
@@ -230,7 +292,7 @@ fn parse_action(arguments: Value) -> Result<browser_perform::PerformRequest, Val
 }
 
 fn parse_control(arguments: Value) -> Result<browser_lifecycle::ControlRequest, Value> {
-    serde_json::from_value(arguments).map_err(|_| rejected_action("invalid native control arguments; describe control for status/open; no navigation was scheduled"))
+    serde_json::from_value(arguments).map_err(|_| rejected_action("invalid native control arguments; describe control for status/open/close; no action was scheduled"))
 }
 
 #[cfg(test)]

@@ -4,6 +4,8 @@
 //! contract: every upstream RPC method has a validated baseline behavior,
 //! while session prompts are driven by the provider-neutral Rust loop.
 
+#![cfg_attr(not(test), forbid(clippy::print_stderr))]
+
 // Keep only weak references in the index. An active guard (or a task waiting
 // for that guard) owns the strong Arc; completed one-shot operations such as
 // `agent-operation:*` must not leave a permanent map entry.
@@ -13,6 +15,9 @@ type SessionGateMap =
 mod approval_review;
 mod automation;
 mod bootstrap;
+mod driver_control;
+mod driver_lifecycle;
+mod session_recovery;
 pub use bootstrap::{prepare_goal_session, GoalBootstrapReceipt, GoalBootstrapSpec};
 mod control;
 mod credential_processor;
@@ -20,8 +25,9 @@ mod delegation;
 mod delegation_concurrency;
 #[cfg(test)]
 mod gate_tests;
+mod goal_edit_tool;
 mod goal_processor;
-mod goal_tool;
+mod goal_report_tool;
 mod goals;
 mod history_tool;
 mod instructions;
@@ -33,6 +39,7 @@ pub use delegation_concurrency::DelegationConcurrency;
 pub use memory::{MemoryMode, GLOBAL_MEMORY_URI, MEMORY_MAX_BYTES, MEMORY_URI};
 mod display;
 mod driver;
+mod error_boundary;
 mod event_gateway;
 mod execution;
 pub use execution::ExecutionGate;
@@ -43,6 +50,10 @@ mod github_backend;
 mod github_review;
 mod model_processor;
 mod model_settings;
+mod web_search_settings;
+pub use web_search_settings::{
+    WebSearchSettings, DEEPSEEK_SEARCH_CREDENTIAL, WEB_SEARCH_SETTINGS_NAMESPACE,
+};
 #[cfg(test)]
 mod permission_tests;
 mod plugin_backend;
@@ -62,6 +73,8 @@ mod state;
 #[cfg(test)]
 mod statecheck;
 mod subagent_processor;
+mod swarm_processor;
+mod swarm_tasks;
 mod titles;
 mod workspace_processor;
 
@@ -98,7 +111,7 @@ pub use runtime::{
     AgentResumeReport, AgentRuntime, AgentRuntimeError, AgentSessionRequest, AgentTurnRequest,
     AuxiliaryModel, DurableLoopAgentRuntime, LoopAgentRuntime, ModelDescriptor, ModelReasoning,
     ModelReasoningEffort, ModelRegistry, ModelRegistryError, ModelRoute, RegisteredModel,
-    RunningTurn,
+    RunningTurn, SessionObservation, TurnControlFuture,
 };
 pub use state::{AgentPreset, GoalState, PermissionPreset, SessionRecord, WorkspaceRecord};
 
@@ -131,6 +144,10 @@ pub struct HostConfig {
     /// event larger than this budget is delivered live and remains durable,
     /// but is not pinned in Host memory.
     pub session_event_cache_bytes: usize,
+    /// Shared estimated-resident-byte ceiling across durable display tails. This is not
+    /// an RSS limit; snapshots, running tools and provider inputs are separate.
+    /// Zero disables resident display tails without deleting durable history.
+    pub session_event_cache_total_bytes: usize,
 }
 
 impl HostConfig {
@@ -161,6 +178,7 @@ impl HostConfig {
             event_capacity: 2_048,
             session_event_cache_capacity: 2_048,
             session_event_cache_bytes: 16 * 1024 * 1024,
+            session_event_cache_total_bytes: 64 * 1024 * 1024,
         }
     }
 }
@@ -206,6 +224,17 @@ pub trait SessionToolFactory: Send + Sync + 'static {
     }
 
     /// Bounded, permission-aware read-only preview; non-native deployments fail closed.
+    async fn inspect_display_file(
+        &self,
+        _session_id: &str,
+        _cwd: &str,
+        _permission: PermissionPreset,
+        _path: &std::path::Path,
+        _thumbnail: bool,
+    ) -> Result<xharness_api::display::DisplayInspection, String> {
+        Err("File inspection is unavailable on this deployment".into())
+    }
+
     async fn read_display_file(
         &self,
         _session_id: &str,
@@ -255,6 +284,12 @@ pub trait SessionToolFactory: Send + Sync + 'static {
         _references: &[xharness_session::goal::GoalEvidence],
     ) -> Result<bool, String> {
         Ok(false)
+    }
+
+    /// Release session-scoped caches after its actor has been permanently
+    /// retired. Do not shut down shared services or unrelated conversations.
+    async fn release_session(&self, _session_id: &str) -> Result<(), String> {
+        Ok(())
     }
 
     /// Release factory-owned resources that outlive one Tool batch, such as
@@ -510,6 +545,15 @@ impl BasicHost {
         let Some(s) = state.sessions.get(id) else {
             return false;
         };
+        if let Some(model) = self
+            .agent_runtime
+            .model_catalog()
+            .iter()
+            .find(|model| model.provider == s.model.provider && model.model == s.model.model)
+        {
+            return model.image_input == Some(true);
+        }
+        // Compatibility for runtimes without descriptors. Unknown is not permission.
         state
             .settings
             .get(crate::MODEL_SETTINGS_NAMESPACE)
@@ -519,3 +563,5 @@ impl BasicHost {
             == Some(true)
     }
 }
+
+mod admission_cache;

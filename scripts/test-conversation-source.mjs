@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { File } from 'node:buffer'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { exposeConversation } from './conversation-artifact-test.mjs'
 import { compile, harness, legacySource, legacyTest, json, tick, controller, editorFixture } from './conversation-test-harness.mjs'
@@ -14,14 +15,74 @@ const compactionTerminalLocales = {
  en: {'xh.compact.skipped': 'Compaction skipped', 'xh.compact.cancelled': 'Compaction interrupted'},
  zh: {'xh.compact.skipped': '压缩已跳过', 'xh.compact.cancelled': '压缩已中断'},
 };
+const contextProvenanceLocales = {
+ en: {'context.yourMessages':'Your messages','context.agentReports':'Agent reports','context.runtimeContext':'Runtime context','context.checkpoints':'Checkpoints','context.unattributed':'Unattributed context','context.userRoleHistory':'User-role history (source unknown)'},
+ zh: {'context.yourMessages':'Your messages','context.agentReports':'Agent reports','context.runtimeContext':'Runtime context','context.checkpoints':'Checkpoints','context.unattributed':'Unattributed context','context.userRoleHistory':'User-role history (source unknown)'},
+};
+const contextMeterLocales = {
+ en: {'context.awaitingUpdate':'Awaiting update','context.unmeasured':'No measured input yet','context.byteUpperBound':'Admission byte ceiling (not measured)','context.preflightCount':'Current request input count','context.preflightEstimate':'Current request estimate'},
+ zh: {'context.awaitingUpdate':'待更新','context.unmeasured':'尚无实测用量','context.byteUpperBound':'准入字节保守上界（非实测）','context.preflightCount':'本次请求输入计数','context.preflightEstimate':'本次请求估算'},
+};
+const composerBusyLocales = {
+ en: {'input.sending':'Sending…','input.stopping':'Stopping…'},
+ zh: {'input.sending':'正在发送…','input.stopping':'正在停止…'},
+};
+const agentFailureLocales = {
+ en: {'chat.agentError':'Background task reported a failure: {message}'},
+ zh: {'chat.agentError':'后台任务报告异常：{message}'},
+};
+const agentFailureStyle = '\n.IxU-fW_openError[data-agent-error]{position:sticky;top:0;z-index:9;flex:none;padding:8px 16px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-interactive-bg-hover-solid)}\n';
+function baselineAgentFailureStyle(source) {
+ assert.ok(source.endsWith(agentFailureStyle),'reviewed agent failure notice must remain an exact append-only delta');
+ const baseline=source.slice(0,-agentFailureStyle.length);
+ assert.equal(createHash('sha256').update(baseline).digest('hex'),'ea56a6c3f52b53edd7d339e8d5c97a9c1a76fe032832c509bef447b84b164647','unrelated ChatView styles must retain their reviewed bytes');
+ return baseline;
+}
+const composerBusyStyle = '\n._7yzX1q_primary [data-composer-busy]{animation:xh-composer-busy 1s linear infinite}\n@keyframes xh-composer-busy{to{transform:rotate(360deg)}}\n@media(prefers-reduced-motion:reduce){._7yzX1q_primary [data-composer-busy]{animation:none}}\n';
+function baselineComposerStyle(source) {
+ assert.ok(source.endsWith(composerBusyStyle),'reviewed composer busy animation must remain an exact append-only delta');
+ const baseline=source.slice(0,-composerBusyStyle.length);
+ assert.equal(createHash('sha256').update(baseline).digest('hex'),'62fa5c5f10a5c38f6d04f8a082a9f9fe470a1d11453dcaec442ce3350519029d','unrelated InputBar styles must retain their reviewed bytes');
+ return baseline;
+}
+const recoveryLocales = {
+ en: {'session.recover':'Recover task','session.recoverHint':'Recover this idle task without resending input. Stop active work first. Other tasks and drafts are unchanged.','session.recovering':'Recovering…','session.recovered':'Recovered','session.recoverUnavailable':'This Host does not support single-task recovery.'},
+ zh: {'session.recover':'恢复任务','session.recoverHint':'恢复当前空闲任务，不重发输入。请先停止正在执行的工作；其他任务和草稿不变。','session.recovering':'恢复中…','session.recovered':'已恢复','session.recoverUnavailable':'当前 Host 不支持单任务恢复。'},
+};
 function baselineProductCopy(language, locale) {
  assert.equal(locale['xh.turn.working'], 'Working…');
+ assert.equal(locale['stats.title'], language === 'en' ? 'Conversation statistics' : '对话统计', 'reviewed statistics label');
  const normalized = {...locale, 'xh.turn.working': apis[0].plugin[language]['xh.turn.working']};
+ for(const [key,expected] of Object.entries(recoveryLocales[language])) {
+  assert.equal(locale[key],expected,'reviewed recovery label '+key);delete normalized[key];
+ }
+ for(const [key,expected] of Object.entries(contextMeterLocales[language])) {
+  assert.equal(Object.hasOwn(apis[0].plugin[language],key),false);
+  assert.equal(locale[key],expected,`${language} request-bound meter label ${key}`);
+  delete normalized[key];
+ }
+
  for (const [key, expected] of Object.entries(compactionTerminalLocales[language])) {
   assert.equal(Object.hasOwn(apis[0].plugin[language], key), false, 'terminal labels are an additive delta, not a frozen baseline edit');
   assert.equal(locale[key], expected, `${language} terminal label ${key} must match its reviewed value`);
   delete normalized[key];
  }
+ for (const [key, expected] of Object.entries(contextProvenanceLocales[language])) {
+  assert.equal(Object.hasOwn(apis[0].plugin[language],key),false,'provenance labels are additive; keep the frozen baseline unchanged');
+  assert.equal(locale[key],expected,`${language} provenance label ${key} must match its reviewed value`);
+  delete normalized[key];
+ }
+ for(const [key,expected] of Object.entries(composerBusyLocales[language])) {
+  assert.equal(Object.hasOwn(apis[0].plugin[language],key),false,'composer busy labels are additive; keep the frozen baseline unchanged');
+  assert.equal(locale[key],expected,`${language} composer busy label ${key} must match its reviewed value`);
+  delete normalized[key];
+ }
+ for(const [key,expected] of Object.entries(agentFailureLocales[language])) {
+  assert.equal(Object.hasOwn(apis[0].plugin[language],key),false,'agent failure labels are additive; keep the frozen baseline unchanged');
+  assert.equal(locale[key],expected,`${language} agent failure label ${key} must match its reviewed value`);
+  delete normalized[key];
+ }
+ delete normalized['stats.title'];
  return normalized;
 }
 function stateContext(def,state,matches){return{key:def.kind+':c',id:'c',state,matches,start:matches.find(m=>m.role==='start'),locations:[],target:'chat'}}
@@ -35,10 +96,64 @@ test('reviewed compaction locale additions reject missing or changed labels with
    assert.throws(()=>baselineProductCopy(language,missing),/terminal label/);
    assert.throws(()=>baselineProductCopy(language,{...current,[key]:'incorrect terminal label'}),/terminal label/);
   }
+  const missingStats = {...current}; delete missingStats['stats.title'];
+  assert.throws(()=>baselineProductCopy(language,missingStats),/statistics label/);
+  assert.throws(()=>baselineProductCopy(language,{...current,'stats.title':'incorrect'}),/statistics label/);
   const unexpected = baselineProductCopy(language,{...current,'xh.compact.unreviewed':'Unreviewed'});
   assert.equal(unexpected['xh.compact.unreviewed'],'Unreviewed');
   assert.notDeepEqual(unexpected,normalized,'unreviewed additions must remain visible to the strict dictionary comparison');
  }
+});
+
+test('reviewed provenance labels reject missing, changed and unrelated locale deltas',()=>{
+ for(const language of ['en','zh']) {
+  const current=json(apis[1].plugin[language]),normalized=baselineProductCopy(language,current);
+  for(const key of Object.keys(contextProvenanceLocales[language])) {
+   const missing={...current};delete missing[key];
+   assert.throws(()=>baselineProductCopy(language,missing),/provenance label/);
+   assert.throws(()=>baselineProductCopy(language,{...current,[key]:'wrong attribution'}),/provenance label/);
+  }
+  const unrelated=baselineProductCopy(language,{...current,'context.unreviewed':'unexpected'});
+  assert.equal(unrelated['context.unreviewed'],'unexpected');
+  assert.notDeepEqual(unrelated,normalized,'unrelated dictionary changes must still fail strict parity');
+ }
+});
+
+test('reviewed composer busy labels and styles reject missing, changed and unrelated deltas',()=>{
+ for(const language of ['en','zh']) {
+  const current=json(apis[1].plugin[language]),normalized=baselineProductCopy(language,current);
+  for(const key of Object.keys(composerBusyLocales[language])) {
+   const missing={...current};delete missing[key];
+   assert.throws(()=>baselineProductCopy(language,missing),/composer busy label/);
+   assert.throws(()=>baselineProductCopy(language,{...current,[key]:'incorrect busy label'}),/composer busy label/);
+  }
+  const unrelated=baselineProductCopy(language,{...current,'input.unreviewed':'unexpected'});
+  assert.equal(unrelated['input.unreviewed'],'unexpected');
+  assert.notDeepEqual(unrelated,normalized,'unrelated dictionary changes must still fail strict parity');
+ }
+ const source=readFileSync(new URL('../ui/src/modules/conversation/skeleton/InputBar.css',import.meta.url),'utf8');
+ const baseline=baselineComposerStyle(source);
+ assert.throws(()=>baselineComposerStyle(baseline),/busy animation/);
+ assert.throws(()=>baselineComposerStyle(source.replace('xh-composer-busy 1s','xh-composer-busy 2s')),/busy animation/);
+ assert.throws(()=>baselineComposerStyle(source.replace('animation:none','animation:initial')),/busy animation/);
+ assert.throws(()=>baselineComposerStyle('.unreviewed{color:red}'+source),/unrelated InputBar styles/);
+});
+
+test('reviewed agent failure copy and sticky notice reject missing, changed and unrelated deltas',()=>{
+ for(const language of ['en','zh']) {
+  const current=json(apis[1].plugin[language]),normalized=baselineProductCopy(language,current);
+  const missing={...current};delete missing['chat.agentError'];
+  assert.throws(()=>baselineProductCopy(language,missing),/agent failure label/);
+  assert.throws(()=>baselineProductCopy(language,{...current,'chat.agentError':'incorrect failure label'}),/agent failure label/);
+  const unrelated=baselineProductCopy(language,{...current,'chat.unreviewed':'unexpected'});
+  assert.equal(unrelated['chat.unreviewed'],'unexpected');
+  assert.notDeepEqual(unrelated,normalized,'unrelated dictionary changes must still fail strict parity');
+ }
+ const source=readFileSync(new URL('../ui/src/modules/conversation/chat/ChatView.css',import.meta.url),'utf8');
+ const baseline=baselineAgentFailureStyle(source);
+ assert.throws(()=>baselineAgentFailureStyle(baseline),/agent failure notice/);
+ assert.throws(()=>baselineAgentFailureStyle(source.replace('position:sticky;top:0;z-index:9','position:relative;top:0;z-index:9')),/agent failure notice/);
+ assert.throws(()=>baselineAgentFailureStyle('.unreviewed{color:red}'+source),/unrelated ChatView styles/);
 });
 
 test('fork/subagent breadcrumbs preserve source ancestry, missing parents and cycle guards',()=>{
@@ -80,7 +195,33 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
  const assistantId='@xharness/dsh-client-ui-conversation/AssistantMarkdown.module.css';
  assert.equal(nextCss[assistantId],readFileSync(new URL('../ui/src/modules/conversation/chat/AssistantMarkdown.css',import.meta.url),'utf8'));
  expectedCss[assistantId] += "\n.xh-tool-preparing{min-width:0;max-width:100%;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;overflow:hidden;font-size:13px;line-height:1.5;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}\n.xh-tool-preparing-toggle{display:flex;align-items:center;gap:9px;width:100%;min-height:44px;padding:10px 12px;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}\n.xh-tool-preparing-toggle:hover{background:var(--dsw-alias-interactive-bg-hover)}\n.xh-tool-preparing-toggle:focus-visible,.xh-tool-preparing-preview-head button:focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:-2px}\n.xh-tool-preparing-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-label-tertiary);animation:xh-tool-input-pulse 1.5s ease-in-out infinite}\n.xh-tool-preparing-title{flex:1;min-width:0;overflow-wrap:anywhere}.xh-tool-preparing-title code{margin-left:7px;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dsw-alias-label-secondary)}\n.xh-tool-preparing-metrics{flex:none;color:var(--dsw-alias-label-tertiary);font-size:11px;font-variant-numeric:tabular-nums}.xh-tool-preparing-chevron{flex:none;width:12px;text-align:center;color:var(--dsw-alias-label-tertiary)}\n.xh-tool-preparing-body{border-top:1px solid var(--dsw-alias-border-l2);padding:10px 12px 12px}.xh-tool-preparing-notice{margin:0 0 10px;color:var(--dsw-alias-label-secondary);font-size:12px}\n.xh-tool-preparing-preview-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;color:var(--dsw-alias-label-tertiary);font-size:11px}.xh-tool-preparing-preview-head button{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;cursor:pointer;padding:3px 5px;border-radius:4px}\n.xh-tool-preparing-input{max-height:260px;overflow:auto;margin:0;padding:10px;border-radius:7px;background:var(--dsw-alias-markdown-code-block);color:var(--dsw-alias-label-primary);font:12px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:2}\n.xh-tool-preparing-limit{margin:8px 0 0;color:var(--dsw-alias-label-tertiary);font-size:11px}\n@keyframes xh-tool-input-pulse{50%{opacity:.35}}\n@media(prefers-reduced-motion:reduce){.xh-tool-preparing-dot{animation:none}}\n@media(max-width:480px){.xh-tool-preparing-toggle{flex-wrap:wrap}.xh-tool-preparing-title{flex-basis:calc(100% - 40px)}.xh-tool-preparing-metrics{margin-left:16px;flex:1}.xh-tool-preparing-input{max-height:200px}}\n";
- assert.deepEqual({...nextCss,[reasoningId]:oldCss[reasoningId]},expectedCss,'every stylesheet and tag preserves its frozen bytes except the explicit reasoning and primary-foreground deltas');
+ // Reviewed product styling: pin each intentionally changed sheet explicitly,
+ // rather than weakening frozen-style parity for unrelated components.
+ const reviewedStyles = {
+  'skeleton/InputBar': '62fa5c5f10a5c38f6d04f8a082a9f9fe470a1d11453dcaec442ce3350519029d',
+  'chat/StatsLine': 'eab66196169a782ec6d580f699fc2398c429baa105576b82b0dc0d834898ee60',
+  'skeleton/ContextMeter': '7a712d895a114ee0a5cddc1cdbc55692e6d6b52289ef4409e927809bbc694ff2',
+  'skeleton/PermissionSelect': 'e91048346a2948571cfa55321fd43f8a22cf96c0b0b89b4bd4882736a29eda74',
+  'skeleton/TodoPanel': 'aaf719207bee33d33551031960513e1d0c8b7b01bb35a807a362f7b75e849fdc',
+  'queue/QueueDock': '3835c9f5eb3ccf4c71fdb5b6b9db96a37b726c6017a43770f537de092e32c1e2',
+  // Turn activity and failure notice are separately pinned; the new spinner sheet is additive.
+  'chat/ChatView': 'ea56a6c3f52b53edd7d339e8d5c97a9c1a76fe032832c509bef447b84b164647',
+  'chat/LoadingIndicator': 'a0e65b3b7f0373e84b3120ca7cc357aebae7434c1c967d42eafc1afb74641c9e',
+  // Narrow-viewport tab strip: a 16px gap plus horizontal scroll below 600px,
+  // and a 44px row on coarse pointers. Every byte above that append is
+  // unchanged; the desktop declarations (gap 36, 27px row) are untouched.
+  'skeleton/ConversationRoot': 'ba9b67ea1576903f4d2727faf002d3fdaa15bc2f3576aadc5dcb19de64a4d3e0',
+ };
+ assert.equal(Object.hasOwn(oldCss,'@xharness/dsh-client-ui-conversation/LoadingIndicator.module.css'),false,'the frozen baseline must not acquire the new spinner sheet');
+ for(const [name,sha] of Object.entries(reviewedStyles)) {
+  const id='@xharness/dsh-client-ui-conversation/'+name.split('/').at(-1)+'.module.css';
+  const source=readFileSync(new URL('../ui/src/modules/conversation/'+name+'.css',import.meta.url),'utf8');
+  const baseline=name==='skeleton/InputBar'?baselineComposerStyle(source):name==='chat/ChatView'?baselineAgentFailureStyle(source):source;
+  assert.equal(createHash('sha256').update(baseline).digest('hex'),sha,'reviewed product style '+name);
+  assert.equal(nextCss[id],source,'emitted product style is source-fresh');
+  expectedCss[id]=source;
+ }
+ assert.deepEqual({...nextCss,[reasoningId]:oldCss[reasoningId]},expectedCss,'every stylesheet and tag preserves its frozen bytes except the explicit reviewed product deltas');
  const tailStyle=h=>h.styles.find(s=>s.dataset.pluginCss.endsWith('/TurnTailNodeView.module.css')).textContent;
  assert.ok(tailStyle(next).startsWith(tailStyle(old)),'existing footer styles are preserved before the new summary rules');
  const argumentLocales={"en": {"tool.arguments.generating": "Generating tool input", "tool.arguments.received": "{size} received", "tool.arguments.elapsed": "{seconds}s", "tool.arguments.notExecuted": "The model is still generating input. The tool has not executed yet.", "tool.arguments.preview": "Input preview", "tool.arguments.raw": "Raw JSON", "tool.arguments.showPreview": "Show preview", "tool.arguments.showRaw": "Show raw JSON", "tool.arguments.waiting": "Waiting for input…", "tool.arguments.truncated": "Preview limited to {count} characters. The actual tool input is not truncated."}, "zh": {"tool.arguments.generating": "正在生成工具参数", "tool.arguments.received": "已接收 {size}", "tool.arguments.elapsed": "{seconds} 秒", "tool.arguments.notExecuted": "模型仍在生成参数，工具尚未执行。", "tool.arguments.preview": "内容预览", "tool.arguments.raw": "原始 JSON", "tool.arguments.showPreview": "查看内容预览", "tool.arguments.showRaw": "查看原始 JSON", "tool.arguments.waiting": "等待参数内容…", "tool.arguments.truncated": "仅预览前 {count} 个字符，实际工具参数未被截断。"}};
@@ -90,7 +231,7 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
  for(const [language,expected] of [['en','Reviewing on your behalf…'],['zh','正在代你审核…']])assert.equal(apis[1].plugin[language]['approval.reviewing'],expected);
  assert.deepEqual(Object.fromEntries(['message.foldedTools','message.expandedTools'].map(key=>[key,apis[1].plugin.en[key]])),{'message.foldedTools':'{count} completed operations','message.expandedTools':'Earlier completed operations · {count}'})
  assert.deepEqual(Object.fromEntries(['message.foldedTools','message.expandedTools'].map(key=>[key,apis[1].plugin.zh[key]])),{'message.foldedTools':'已收起 {count} 个完成的操作','message.expandedTools':'较早的已完成操作 · {count}'})
- assert.deepEqual(compiled.out.get('@xharness/dsh-client-ui-conversation').external.sort(),['@xharness/cordis','@xharness/dsh-client-runtime/client','@xharness/dsh-client-ui-primitives','@xharness/dsh-client-ui-slots','react','react-dom','react/jsx-runtime'].sort());
+ assert.deepEqual(compiled.out.get('@xharness/dsh-client-ui-conversation').external.sort(),['@xharness/cordis','@xharness/dsh-client-runtime/client','@xharness/dsh-client-ui-primitives','@xharness/dsh-client-ui-slots','react','react-dom','react/jsx-runtime','zod'].sort());
 });
 test('complete apply registration: keyed nodes, resident shell, overlays, docks, hooks and latest-master keyed seats',()=>{
  const receipts=[];for(const {plugin:api} of apis){const slots=[],defs=[],views=[],dicts=[],effects=[],events=[];
@@ -98,6 +239,11 @@ test('complete apply registration: keyed nodes, resident shell, overlays, docks,
  const ctx={effect:fn=>{const off=fn();if(typeof off==='function')effects.push(off)},locale:{register:(...args)=>dicts.push(args),bind:()=>k=>k},sessions:{provide:spec=>{events.push(['provide',spec.hooks,spec.props]);return()=>{}},list:{getSnapshot:()=>({byId:{}})},scope(){},on:()=>()=>{}},workspaces:{},layout:{},settingsScope:{bind:()=>host},conversationEvents:{register:d=>defs.push({kind:d.kind,target:d.target}),registerFallback:d=>defs.push({kind:d.kind,target:d.target,fallback:true})},conversationViews:{register:d=>views.push({target:d.target})},slots:{inject:(_n,fn)=>fn(),register:(spec,component)=>slots.push({spec,component}),entries:()=>[],subscribe:()=>()=>{},getVersion:()=>0},get:n=>ctx[n],on:(n)=>{events.push(n);return()=>{}},plugin:(plugin,config)=>{if(typeof plugin==='function')new plugin(ctx,config);else plugin.apply(ctx)}};
  api.apply(ctx);
  const normalize=slots.map(({spec})=>json({...spec,inject:undefined,select:undefined,store:undefined,label:typeof spec.label==='function'?spec.label():spec.label})).sort((a,b)=>(a.name+':'+(a.key??a.id??'')).localeCompare(b.name+':'+(b.key??b.id??'')));
+ if(api===apis[1].plugin){
+  const recovery=normalize.findIndex(spec=>spec.name==='conversation.session.header.utilities'&&spec.id==='session-recovery');
+  assert.ok(recovery>=0);assert.deepEqual(normalize[recovery],{name:'conversation.session.header.utilities',id:'session-recovery',order:90,locale:'conversation'});
+  normalize.splice(recovery,1);
+ }
  // Explicit additive environment slot, while old registrations remain unchanged.
  if(api===apis[1].plugin){const root=normalize.find(spec=>spec.name==='conversation');assert.deepEqual(root.children['conversation.hero.runtimeEnvironment'],{kind:'single',scope:'root'});delete root.children['conversation.hero.runtimeEnvironment'];}
  const baselineDicts=json(dicts).map(([ns,languages])=>[ns,Object.fromEntries(Object.entries(languages).map(([language,values])=>[language,Object.fromEntries(Object.entries(api === apis[1].plugin ? baselineProductCopy(language, values) : values).filter(([key])=>!key.startsWith('tool.arguments.')&&!['approval.reviewing','message.turnFinished','message.expandProcess','message.collapseProcess','message.foldedTools','message.expandedTools','chat.messageRail','chat.messageRail.message'].includes(key)))]))]);
@@ -140,7 +286,21 @@ test('checkpoint and max-steps turn termination remain visible and immediate',()
  for(const e of [event('run/checkpoint',{turn:2,notice:{kind:'continued',message:'continue'}},5),event('turn/end',{turn:2,reason:{kind:'max-steps'}},7)]){const out=apis.map(({plugin:api})=>{const d=api.xhCheckpointDefinition,m=match(e),s=d.start({},m);return{match:d.match(e),node:json(d.buildViewNode(stateContext(d,s,[m]))),publication:d.publication(m)}});assert.deepEqual(json(out[1]),json(out[0]));assert.equal(out[1].publication,'immediate')}
 });
 test('context accuracy/staleness, ring guards and reader-scroll ownership match all edge readings',()=>{
- for(const pressure of [undefined,{}, {projectedTokens:10,contextWindow:100},{pressureTokens:20,projectedTokens:1,contextWindow:100},{pressureTokens:10,pressureAccuracy:'estimated',contextWindow:100},{projectedTokens:33,projectedAccuracy:'exact_tokenizer',contextWindow:100,phase:'history_changed'},{projectedTokens:NaN,contextWindow:100},{pressureTokens:Infinity,projectedTokens:10,contextWindow:100},{projectedTokens:-1,contextWindow:100},{projectedTokens:0,contextWindow:0},{projectedTokens:500,contextWindow:100}])assert.deepEqual(json(apis[1].plugin.contextOccupancy(pressure)),json(apis[0].plugin.contextOccupancy(pressure)));
+ // Reviewed semantic delta: only request-bound actual readings own the ring;
+ // all preflight counts, even exact ones, live in the separate detail row.
+ const read=apis[1].plugin.contextOccupancy;
+ for(const p of [undefined,{}, {projectedTokens:10,contextWindow:100},{pressureTokens:10,pressureAccuracy:'estimated',contextWindow:100},{projectedTokens:33,projectedAccuracy:'exact_tokenizer',contextWindow:100,phase:'history_changed'},{pressureTokens:Infinity,projectedTokens:10,contextWindow:100},{pressureTokens:-1,contextWindow:100},{pressureTokens:0,contextWindow:0}])assert.equal(read(p),null);
+ for(const [tokens,percent] of [[0,0],[20,20],[500,100]]) {
+  const value=read({pressureTokens:tokens,projectedTokens:1,contextWindow:100});
+  assert.equal(value.usedTokens,tokens);assert.equal(value.percent,percent);assert.equal(value.exact,true);
+ }
+ const prior={tokens:7320,contextWindow:1048576,composition:{toolResultTokens:1}};
+ for(const phase of ['preparing','in_flight','unmeasured','history_changed']) {
+  const value=read({phase,lastMeasured:prior,projectedTokens:315420,contextWindow:2000000,composition:{toolResultTokens:285416}});
+  assert.equal(value.usedTokens,7320);assert.equal(value.contextWindow,1048576);assert.equal(value.percent,1);
+  assert.equal(value.stale,true);assert.equal(value.composition.toolResultTokens,1);
+ }
+
  // Intentional correction: even an upward move within 25px releases follow.
  // Other scroll/clamp ownership readings retain the pinned legacy baseline.
  for(const recent of [false,true])for(const pinned of [false,true])for(const [top,floor,observed] of [[0,100,100],[100,100,100],[50,50,100],[80,100,100]]){
@@ -172,3 +332,18 @@ test('lazy input-shell editor construction preserves standard-kit materializatio
 test('permission pending feedback belongs to current versus next execution round',()=>{
  for(const value of [undefined,{}, {pending:true},{pending:true,activeValue:'read-only'},{pending:false,activeValue:'workspace-write'}])assert.equal(apis[1].plugin.permissionFeedback(value),apis[0].plugin.permissionFeedback(value));
 });
+
+
+test('message fork opens only after success and reports failures on the unchanged source', async()=>{
+ const api=apis[1].plugin,calls=[];
+ const hub={shell:id=>({notify:(kind,message)=>calls.push(['notify',id,kind,message])})};
+ const sessions={fork:async input=>{calls.push(['fork',input]);return 'child'},open:id=>calls.push(['open',id])};
+ await api.xhForkAt(hub,sessions,'source',12);
+ assert.deepEqual(json(calls),[['fork',{sessionId:'source',atSeq:12,increaseTitle:true}],['open','child']]);
+ calls.length=0;
+ for(const message of ['fork-unavailable: selected turn is open','could not publish fork history','fork child rename failed']){
+  await api.xhForkAt(hub,{...sessions,fork:async()=>{throw Error(message)}},'source',12);
+  const last=calls.at(-1);assert.equal(last[0],'notify');assert.equal(last[1],'source');assert.equal(last[2],'error');assert.ok(last[3].includes(message));
+ }
+ assert.equal(calls.some(row=>row[0]==='open'),false,'a failed fork must not change the active chat');
+})

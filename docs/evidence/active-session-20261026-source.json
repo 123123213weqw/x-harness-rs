@@ -1,0 +1,24 @@
+{
+  "base": "0b118093100c63b837032da4ab6032920a1faada",
+  "sourceFiles": {
+    "ui/src/modules/client-runtime/contract/conversation.ts": "8ebda025ac50bf5d013533c1fabbaaa0d8fd6a982b2f0bb0d4934b8ac1caf1f2",
+    "ui/src/modules/client-runtime/sessions/active-working-set.ts": "c7705682fda857a6244e655f9576311378ff0c5a01d4b0307799a1bdbefbf35a",
+    "ui/src/modules/client-runtime/sessions/conversation-assembler.ts": "9a5a45bb7567a6f209a1e3c8a474f9b1bb15b58ff12323ea5319baaacde2ac05",
+    "ui/src/modules/client-runtime/sessions/conversation.ts": "fdc85e6dc6c471704eef3b83b87afecebdf4859b3e621d17fe1ed86ba51b15fa",
+    "ui/src/modules/client-runtime/sessions/cooperative-delivery.ts": "96a230c17e2dcd7d7f24da576db997edbd175195c303689664e931e8ee5ad971",
+    "ui/src/modules/client-runtime/sessions/manager.ts": "633e8d8dbbcae34df2f9b053f38b2b4115e2f016a7a047cc5e181161fed4183d",
+    "ui/src/modules/client-runtime/sessions/session.ts": "e4c31392520d272eb94f03cb48cd74a891d64545c8b59315e2ba1a9bb11643df",
+    "ui/src/modules/conversation/conversation-nodes/assistant.ts": "a81cfa9ef695b8aa2acff8a648c6c6b48337bc0ebf8bf0c40f783e862425c4de",
+    "ui/src/modules/conversation/conversation-nodes/command.ts": "1e6a1a091e2f2f607f80ed678137cbd2e317ec9835712937dc25e201880908c5",
+    "ui/src/modules/conversation/conversation-nodes/compaction.ts": "5c8c931dcec3192fa4da9d66e44e0eedfc8ea874bc1a39b0a0b118dc9f981c75",
+    "ui/src/modules/conversation/conversation-nodes/message.ts": "f5c073585ae131dcc36dcda2ad9e580964d5c782bec973003b0c663803d3c9dd",
+    "ui/src/modules/conversation/conversation-nodes/retry.ts": "e1dc060f7faa8748a85df9916430bd30313d01c03165e38f886f58baf818cbe7",
+    "ui/src/modules/conversation/conversation-nodes/tool.ts": "7e4c89df7f09548f587ea128bbf783b88a0f06c6b6a5716098ff07142eef7060",
+    "ui/src/modules/conversation/conversation-nodes/turn-tail.ts": "b71151a95c15fd615d86cea5562ab66a3901eaadb50da96ce2e714c8a023fa90",
+    "ui/src/modules/conversation/locales.ts": "882fbb5333a057b8479c57fe04b41b2c7dfbd1dc901c46aac1617f996577a7cc",
+    "ui/src/modules/conversation/skeleton/InputBar.css": "60e60212f5e6399a99ea05655b6f08c227bc6e0699ecbe021dbe8b9b401640a9",
+    "ui/src/modules/conversation/skeleton/InputBar.tsx": "71bd301cf5d740cfbbc62174f8351ee7b70d7256bb78d973b263de33c270b30f",
+    "ui/src/modules/conversation/types/events.ts": "f284ed5ee680115c0cedf9679072d1dd2cf51bd96bfead0e84b22825c3fb2938",
+    "ui/src/modules/conversation/types/model.ts": "cccff9f22abe4e115d8a99c513d47104ea720bff2aa3eb798a337cf80d332008"
+  }
+}

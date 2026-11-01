@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Add independently versioned session working plans while retaining the current durable event and scoped RPC contracts.",
+  "compatibility": "Existing Goal lifecycle, continuation records, ordinary session journals and scoped remote capabilities are retained. The additive plan event uses revision validation and does not become a Goal transition. Preserve replay/fork/compact behavior, including plans inherited by reverted children; validate API/session/Host/projection tests and native Windows CI.",
+  "paths": {
+    "crates/xharness-api/src/lib.rs": {
+      "before": "35b6e16594ae0a1f0950609e0bf9f1420994bdb5b6a9db0be975d824d8edc80d",
+      "after": "384716a3656ac027d03d71db6ce7b57e1542c81014d3878d106f260f15db7586"
+    },
+    "crates/xharness-api/src/protocol.rs": {
+      "before": "3f63ae7971741b2bfa87037c2c1768ec3e46ee748b4560f5d1a0826e0715d4b7",
+      "after": "02f13ab714c5b264b90fd6482f9e6af1d68b314c2c230ffc0e389bba14106492"
+    },
+    "crates/xharness-api/tests/contract.rs": {
+      "before": "6791248b57091c6c654f70adaed053ffb591c4f2f1a9d6d02bac969467b72101",
+      "after": "76043e43ec1a7ec46e1ac4d458d12fa8b8e51cac0787b166a47fec7bff9a083a"
+    },
+    "crates/xharness-projection/src/lib.rs": {
+      "before": "bb667c43ae59da081c4e63225e2d3e56695c6b9c72c0427fe58a8bbbe2b486a5",
+      "after": "eb586d8e7a47dc4bebbc2814fc9757648652e6819e17986ec93fa577f95f5d30"
+    },
+    "crates/xharness-session/src/event.rs": {
+      "before": "4116eb997398fc1ad29363a48d5102e1cd3b009257fac5b7ce766f836682a349",
+      "after": "9f971d617316996459c9382034eb74c2a0a0d3eb15deb877baa2746d545eec30"
+    },
+    "crates/xharness-session/src/lib.rs": {
+      "before": "9e00ea27e4aee43b178362d0e82704c31561f894290670c3c7486fa20d1ec656",
+      "after": "bccc475a131683b93935abc2ce70928e8c8c5d970653ebc7f14ac35af3159673"
+    },
+    "crates/xharness-session/src/plan.rs": {
+      "before": null,
+      "after": "60b15e7470480131cc08d435d3b924afdc172934792ae4deb1c4cf2cb9bf0355"
+    },
+    "crates/xharness-session/src/session.rs": {
+      "before": "8b7c9849f8ee8c01690b18fde801d209ab866549373078df47130f1fb2ef7f16",
+      "after": "a95c5979726058b702e83355d110187f0d0b62048c7350c1150e37c63ad1119e"
+    }
+  },
+  "regressions": [
+    "native",
+    "persistence",
+    "windows",
+    "wire"
+  ]
+}

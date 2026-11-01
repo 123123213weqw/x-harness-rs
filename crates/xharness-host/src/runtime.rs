@@ -61,6 +61,10 @@ pub struct ModelDescriptor {
     pub reasoning: Option<ModelReasoning>,
     /// Provenance/state for discovery; no vendor wire patches enter the UI.
     pub reasoning_capability: serde_json::Value,
+    /// Effective image admission for the exact active route. None means unknown.
+    pub image_input: Option<bool>,
+    /// Separate modality provenance; reasoning overrides never affect this field.
+    pub image_input_capability: serde_json::Value,
     /// Capability snapshot reported by the exact deployment, or an explicitly
     /// labelled deployment fallback when the Provider cannot advertise it.
     pub context_window: ContextWindowCapability,
@@ -133,6 +137,8 @@ impl ModelDescriptor {
             model_display_name: model_display_name.into(),
             reasoning: None,
             reasoning_capability: serde_json::json!({"state":"unknown"}),
+            image_input: None,
+            image_input_capability: serde_json::json!({"state":"unknown","source":"unknown"}),
             context_window: ContextWindowCapability::default(),
         }
     }
@@ -144,6 +150,16 @@ impl ModelDescriptor {
 
     pub fn with_context_window(mut self, context_window: ContextWindowCapability) -> Self {
         self.context_window = context_window;
+        self
+    }
+
+    pub fn with_image_input(
+        mut self,
+        supported: Option<bool>,
+        provenance: serde_json::Value,
+    ) -> Self {
+        self.image_input = supported;
+        self.image_input_capability = provenance;
         self
     }
 
@@ -424,6 +440,14 @@ impl ModelProvider for RouteBoundProvider {
         self.inner.count_input_tokens(request, cancellation).await
     }
 
+    async fn recount_input_tokens(
+        &self,
+        request: &xharness_core::ProviderRequest,
+        cancellation: CancellationToken,
+    ) -> Result<Option<xharness_core::ProviderInputTokenCount>, xharness_core::ProviderError> {
+        self.inner.recount_input_tokens(request, cancellation).await
+    }
+
     async fn capabilities(
         &self,
         cancellation: tokio_util::sync::CancellationToken,
@@ -510,11 +534,30 @@ pub struct AgentResumeReport {
     pub recovered_compaction_work_id: Option<String>,
 }
 
+pub type TurnControlFuture = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<(), LoopControlError>> + Send + 'static>,
+>;
+pub enum SessionObservation {
+    Unsupported,
+    Idle,
+    Active(Box<dyn RunningTurn>),
+}
+
 /// A live turn owned by the Host driver. This seam prevents Web control-plane
 /// code from depending on a particular loop or future long-lived Agent
 /// implementation.
 #[async_trait]
 pub trait RunningTurn: Send + 'static {
+    /// An owned command future must not borrow the event cursor. It is polled
+    /// concurrently, in FIFO order, with bounded acknowledgement waiting.
+    fn detached_control(
+        &self,
+        _command: LoopCommand,
+        _metadata: Option<serde_json::Value>,
+    ) -> Option<TurnControlFuture> {
+        None
+    }
+
     async fn next_event(&mut self) -> Option<LoopEvent>;
 
     async fn send(&mut self, command: LoopCommand) -> Result<(), LoopControlError>;
@@ -535,6 +578,15 @@ pub trait RunningTurn: Send + 'static {
 
 #[async_trait]
 impl RunningTurn for LoopRun {
+    fn detached_control(
+        &self,
+        command: LoopCommand,
+        _: Option<serde_json::Value>,
+    ) -> Option<TurnControlFuture> {
+        let control = self.control_handle();
+        Some(Box::pin(async move { control.send(command).await }))
+    }
+
     async fn next_event(&mut self) -> Option<LoopEvent> {
         self.next().await
     }
@@ -568,6 +620,23 @@ pub struct AuxiliaryModel {
 /// actual turn implementation.
 #[async_trait]
 pub trait AgentRuntime: Send + Sync + 'static {
+    /// Observe already admitted work only. Never activate, wake, replay or build
+    /// a request as a side effect of status repair.
+    async fn observe_session(
+        &self,
+        _session_id: &str,
+    ) -> Result<SessionObservation, AgentRuntimeError> {
+        Ok(SessionObservation::Unsupported)
+    }
+
+    /// Input-free replacement of one idle worker. Deployments must explicitly
+    /// opt in; a reload must never fall back to shutting down the whole Host.
+    async fn restart_idle_session(&self, _session_id: &str) -> Result<(), AgentRuntimeError> {
+        Err(AgentRuntimeError::Preparation {
+            message: "single-session restart is unavailable".into(),
+        })
+    }
+
     async fn process_runs(
         &self,
         _session_id: &str,
@@ -598,6 +667,17 @@ pub trait AgentRuntime: Send + Sync + 'static {
     }
 
     /// Deployment-owned read-only file display; independent of executing a turn.
+    async fn inspect_display_file(
+        &self,
+        _session_id: &str,
+        _cwd: &str,
+        _permission: PermissionPreset,
+        _path: &std::path::Path,
+        _thumbnail: bool,
+    ) -> Result<xharness_api::display::DisplayInspection, String> {
+        Err("File inspection is unavailable on this deployment".into())
+    }
+
     async fn read_display_file(
         &self,
         _session_id: &str,
@@ -690,6 +770,14 @@ pub trait AgentRuntime: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Optional admission-lifetime reuse; not a lock or a durability receipt.
+    fn admission_read_scope(
+        &self,
+        _session_id: &str,
+    ) -> Result<Box<dyn xharness_session::SessionReadScope>, AgentRuntimeError> {
+        Ok(Box::new(()))
+    }
+
     /// Load one immutable authoritative cut. Ephemeral runtimes return `None`;
     /// durable runtimes return the current Session when it has been created.
     async fn authoritative_session(
@@ -751,6 +839,14 @@ pub trait AgentRuntime: Send + Sync + 'static {
         _events: Vec<SessionEvent>,
     ) -> Result<bool, AgentRuntimeError> {
         Ok(false)
+    }
+
+    /// Publish a complete, independently owned fork in one storage transaction.
+    /// The validated snapshot retains the original history revision boundaries.
+    async fn persist_fork_session(&self, _session: Session) -> Result<(), AgentRuntimeError> {
+        Err(AgentRuntimeError::Preparation {
+            message: "atomic fork persistence is unsupported by this runtime".into(),
+        })
     }
 
     /// Opt in only if an idle, closed Session has no custom recovery work
@@ -908,6 +1004,19 @@ impl AgentRuntime for LoopAgentRuntime {
     ) -> Result<xharness_api::display::DisplayFile, String> {
         self.tool_factory
             .read_display_diff(session_id, cwd, path, scope, cancellation)
+            .await
+    }
+
+    async fn inspect_display_file(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        permission: PermissionPreset,
+        path: &std::path::Path,
+        thumbnail: bool,
+    ) -> Result<xharness_api::display::DisplayInspection, String> {
+        self.tool_factory
+            .inspect_display_file(session_id, cwd, permission, path, thumbnail)
             .await
     }
 
@@ -1126,30 +1235,36 @@ impl TurnRequestFactory for DurableTurnFactory {
                 .await
                 .map_err(|e| e.to_string())?;
         }
-        let fence = snapshot
-            .as_ref()
-            .and_then(xharness_session::goal::execution_state)
-            .filter(|s| {
-                s.definition.execution_enabled && (s.pending.is_some() || s.running.is_some())
-            })
-            .map(|s| (s.definition, s.activation_epoch));
-        if let Some(host) = self
-            .goals
-            .host
-            .get()
-            .filter(|_| self.tool_factory.allows_host_tool("goal"))
-        {
-            tool_executor
-                .registry()
-                .register(crate::goal_tool::spec(
-                    host.clone(),
-                    Arc::clone(&self.store),
-                    Arc::clone(&self.tool_factory),
-                    agent_id.into(),
-                    fence,
-                ))
-                .await
-                .map_err(|e| e.to_string())?;
+        if self.tool_factory.allows_host_tool("edit_goal_objective") {
+            if let Some(fence) = snapshot.as_ref().and_then(crate::goal_edit_tool::fence) {
+                tool_executor
+                    .registry()
+                    .register(crate::goal_edit_tool::spec(
+                        Arc::clone(&self.store),
+                        self.goals.changes.clone(),
+                        agent_id.into(),
+                        fence,
+                    ))
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        if self.tool_factory.allows_host_tool("goal_report") {
+            if let Some(fence) = snapshot
+                .as_ref()
+                .and_then(|session| crate::goal_report_tool::fence(session, &input))
+            {
+                tool_executor
+                    .registry()
+                    .register(crate::goal_report_tool::spec(
+                        Arc::clone(&self.store),
+                        Arc::clone(&self.tool_factory),
+                        agent_id.into(),
+                        fence,
+                    ))
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
         }
         self.tool_factory.validate_executor(&tool_executor).await?;
         let mut request = LoopRequest::new(self.execution.provider(provider), input);
@@ -1406,7 +1521,9 @@ impl DurableLoopAgentRuntime {
                 let mut tick = tokio::time::interval(Duration::from_secs(1));
                 loop {
                     tokio::select! {
+                        biased;
                         _=goals.shutdown.cancelled()=>break,
+                        _=handle.closed()=>break,
                         _=tick.tick()=>{
                             if handle.status()!=xharness_agent::AgentStatus::Idle {continue}
                             // Serialize retirement with re-attachment so resume cannot lose its watcher.
@@ -1487,6 +1604,13 @@ impl DurableLoopAgentRuntime {
         steer: bool,
     ) -> Result<PreparedDurableTurn, AgentRuntimeError> {
         let (input, input_id) = self.validate_turn_input(&request)?;
+        let mut header = SessionHeader::new(&request.session_id);
+        header.cwd = Some(request.cwd.clone());
+        let handle = self
+            .supervisor
+            .activate(header)
+            .await
+            .map_err(registry_error)?;
         self.sessions.write().await.insert(
             request.session_id.clone(),
             DurableSessionConfig {
@@ -1496,13 +1620,6 @@ impl DurableLoopAgentRuntime {
                 route: request.route,
             },
         );
-        let mut header = SessionHeader::new(&request.session_id);
-        header.cwd = Some(request.cwd);
-        let handle = self
-            .supervisor
-            .activate(header)
-            .await
-            .map_err(registry_error)?;
         let events = handle.subscribe();
         let input = InboxMessage {
             id: input_id.clone(),
@@ -1574,6 +1691,88 @@ impl DurableLoopAgentRuntime {
 
 #[async_trait]
 impl AgentRuntime for DurableLoopAgentRuntime {
+    async fn observe_session(
+        &self,
+        session_id: &str,
+    ) -> Result<SessionObservation, AgentRuntimeError> {
+        let handle = self.supervisor.get(session_id).await;
+        let events = handle.as_ref().map(DurableAgentHandle::subscribe);
+        let session = self
+            .store
+            .load(session_id)
+            .await
+            .map_err(|e| AgentRuntimeError::Preparation {
+                message: e.to_string(),
+            })?
+            .ok_or_else(|| AgentRuntimeError::Preparation {
+                message: "observer session disappeared".into(),
+            })?;
+        let open = session
+            .events()
+            .iter()
+            .rev()
+            .find_map(|e| match e.data() {
+                xharness_session::EventData::TurnStart { turn } => Some(Some(*turn)),
+                xharness_session::EventData::TurnEnd { .. } => Some(None),
+                _ => None,
+            })
+            .flatten();
+        let inbox = xharness_agent::InboxProjection::from_session(&session).map_err(|e| {
+            AgentRuntimeError::Preparation {
+                message: e.to_string(),
+            }
+        })?;
+        let pending = if xharness_agent::DispatchState::from_session(&session)
+            .decide(&inbox)
+            .can_run()
+        {
+            inbox.dispatch_inputs().next().map(|i| i.id.clone())
+        } else {
+            None
+        };
+        if open.is_none() && pending.is_none() {
+            return Ok(SessionObservation::Idle);
+        }
+        let (Some(handle), Some(events)) = (handle, events) else {
+            return Ok(SessionObservation::Unsupported);
+        };
+        // An open journal alone is not proof of a live Core: a failed writer
+        // can leave an abandoned open turn behind an idle/unavailable worker.
+        // Never attach an observer that can wait forever for a non-existent run.
+        if handle.availability() != xharness_agent::WorkerAvailability::Ready
+            || handle.status() == xharness_agent::AgentStatus::Idle
+        {
+            return Ok(SessionObservation::Unsupported);
+        }
+        let mut run = DurableRunningTurn::new(
+            PreparedDurableTurn {
+                handle,
+                events,
+                input_id: pending.unwrap_or_default(),
+            },
+            self.next_control_id.clone(),
+        );
+        if let Some(turn) = open {
+            run.bind_turn(turn);
+        }
+        Ok(SessionObservation::Active(Box::new(run)))
+    }
+
+    async fn restart_idle_session(&self, session_id: &str) -> Result<(), AgentRuntimeError> {
+        let _admission = self.lock_input_admission(session_id).await;
+        let handle = self.supervisor.get(session_id).await.ok_or_else(|| {
+            AgentRuntimeError::Preparation {
+                message: "session worker is not attached".into(),
+            }
+        })?;
+        handle
+            .restart_idle()
+            .await
+            .map_err(|error| AgentRuntimeError::Preparation {
+                message: error.to_string(),
+            })
+    }
+
     async fn read_display_diff(
         &self,
         session_id: &str,
@@ -1584,6 +1783,19 @@ impl AgentRuntime for DurableLoopAgentRuntime {
     ) -> Result<xharness_api::display::DisplayFile, String> {
         self.tool_factory
             .read_display_diff(session_id, cwd, path, scope, cancellation)
+            .await
+    }
+
+    async fn inspect_display_file(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        permission: PermissionPreset,
+        path: &std::path::Path,
+        thumbnail: bool,
+    ) -> Result<xharness_api::display::DisplayInspection, String> {
+        self.tool_factory
+            .inspect_display_file(session_id, cwd, permission, path, thumbnail)
             .await
     }
 
@@ -1600,6 +1812,35 @@ impl AgentRuntime for DurableLoopAgentRuntime {
     }
 
     async fn delete_session_data(&self, session_id: &str) -> Result<(), AgentRuntimeError> {
+        // The Host has committed its tombstone and still owns the session's
+        // admission fence. Reap the actor before removing files or caches.
+        self.supervisor
+            .retire(session_id, Duration::from_secs(8))
+            .await
+            .map_err(registry_error)?;
+        if let Some(schedules) = &self.schedules {
+            schedules
+                .retire_session(session_id)
+                .await
+                .map_err(|message| AgentRuntimeError::Preparation { message })?;
+        }
+        self.goals.handles.write().await.remove(session_id);
+        self.goals
+            .prepared
+            .lock()
+            .await
+            .retain(|(id, _), _| id != session_id);
+        self.goals.watched.lock().await.remove(session_id);
+        self.goals.retire_announcements(session_id).await;
+        self.prepared
+            .lock()
+            .await
+            .retain(|(id, _), _| id != session_id);
+        self.sessions.write().await.remove(session_id);
+        self.tool_factory
+            .release_session(session_id)
+            .await
+            .map_err(|message| AgentRuntimeError::Preparation { message })?;
         self.store
             .delete_session_data(session_id)
             .await
@@ -1704,6 +1945,13 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 model: request.route.model,
             });
         }
+        let mut header = SessionHeader::new(&request.session_id);
+        header.cwd = Some(request.cwd.clone());
+        let handle = self
+            .supervisor
+            .activate(header)
+            .await
+            .map_err(registry_error)?;
         self.sessions.write().await.insert(
             request.session_id.clone(),
             DurableSessionConfig {
@@ -1713,13 +1961,6 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 route: request.route,
             },
         );
-        let mut header = SessionHeader::new(request.session_id);
-        header.cwd = Some(request.cwd);
-        let handle = self
-            .supervisor
-            .activate(header)
-            .await
-            .map_err(registry_error)?;
         self.attach_schedules(&handle).await?;
         Ok(handle)
     }
@@ -1832,6 +2073,17 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         Some(self.goals.changes.subscribe())
     }
 
+    fn admission_read_scope(
+        &self,
+        session_id: &str,
+    ) -> Result<Box<dyn xharness_session::SessionReadScope>, AgentRuntimeError> {
+        self.store
+            .read_scope(session_id)
+            .map_err(|error| AgentRuntimeError::Preparation {
+                message: error.to_string(),
+            })
+    }
+
     async fn authoritative_session(
         &self,
         session_id: &str,
@@ -1888,6 +2140,15 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             .map_err(|e| AgentRuntimeError::Preparation {
                 message: format!("request audit unavailable: {e}"),
             })
+    }
+
+    async fn persist_fork_session(&self, session: Session) -> Result<(), AgentRuntimeError> {
+        self.store.create_seeded(session).await.map_err(|error| {
+            AgentRuntimeError::Preparation {
+                message: format!("could not publish fork history: {error}"),
+            }
+        })?;
+        Ok(())
     }
 
     async fn persist_session_events(
@@ -1963,6 +2224,13 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 model: request.route.model,
             });
         }
+        let mut header = SessionHeader::new(&request.session_id);
+        header.cwd = Some(request.cwd.clone());
+        let handle = self
+            .supervisor
+            .activate(header)
+            .await
+            .map_err(registry_error)?;
         self.sessions.write().await.insert(
             request.session_id.clone(),
             DurableSessionConfig {
@@ -1972,13 +2240,6 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 route: request.route,
             },
         );
-        let mut header = SessionHeader::new(&request.session_id);
-        header.cwd = Some(request.cwd);
-        let handle = self
-            .supervisor
-            .activate(header)
-            .await
-            .map_err(registry_error)?;
         // Ready is published only after startup reconcile_consumed finishes.
         // Reading the inbox while Starting can count an already-consumed steer
         // that the worker is concurrently deleting and fail Host reattachment.
@@ -2367,7 +2628,11 @@ fn pending_manual_compaction(session: &Session) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    mod admission_performance_tests;
     mod dispatch_tests;
+    mod queue_receipt_tests;
+    mod queue_timing;
+    mod stream_performance_tests;
     use std::{
         collections::VecDeque,
         sync::{
@@ -2394,6 +2659,7 @@ mod tests {
 
     mod max_tokens_diagnostic;
     mod observer_tests;
+    mod retirement_tests;
 
     struct ScriptProvider {
         answers: Mutex<VecDeque<String>>,

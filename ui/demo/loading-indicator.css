@@ -1,0 +1,47 @@
+html, body { margin: 0; min-height: 100%; }
+body { background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: 14px/1.6 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+* { box-sizing: border-box; }
+button { font: inherit; cursor: pointer; }
+button:focus-visible, summary:focus-visible { outline: 2px solid var(--dsw-alias-label-secondary); outline-offset: 3px; }
+.loading-preview { width: min(100%, 900px); margin: auto; padding: 28px; }
+.preview-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--dsw-alias-label-secondary); }
+.preview-controls > div { display: flex; gap: 8px; }
+.preview-controls button { border: 0; background: transparent; color: var(--dsw-alias-label-secondary); padding: 6px 10px; border-radius: 8px; }
+.preview-controls button:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.stage-picker { display: flex; gap: 5px; flex-wrap: wrap; margin: 24px 0 18px; }
+.stage-picker button { border: 1px solid transparent; background: transparent; color: var(--dsw-alias-label-secondary); border-radius: 9px; padding: 6px 13px; }
+.stage-picker button[aria-pressed=true] { background: var(--dsw-alias-interactive-bg-hover); border-color: var(--dsw-alias-border-l2); color: var(--dsw-alias-label-primary); }
+.chat-preview { border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); border-radius: 18px; overflow: hidden; }
+.chat-header { display: flex; align-items: center; gap: 16px; padding: 19px 26px; border-bottom: 1px solid var(--dsw-alias-border-l2); color: var(--dsw-alias-label-tertiary); }
+.wordmark { color: var(--dsw-alias-label-primary); font-size: 18px; font-weight: 500; letter-spacing: -.4px; }
+.chat-body { padding: 32px 34px 28px; min-height: 330px; }
+.user-bubble { width: fit-content; max-width: 90%; margin-left: auto; background: var(--dsw-specific-bubble); border-radius: 18px; padding: 11px 17px; }
+.assistant-row { margin-top: 44px; }
+.assistant-row > p { margin: 0 0 16px; }
+.activity-seat { min-height: 90px; }
+.tool-preview { color: var(--dsw-alias-label-secondary); }
+.tool-preview summary { display: flex; align-items: center; gap: 12px; cursor: pointer; min-height: 28px; list-style: none; }
+.tool-preview summary::-webkit-details-marker { display: none; }
+.tool-title { color: var(--dsw-alias-label-primary); font-weight: 500; }
+.tool-preview pre { color: var(--dsw-alias-label-secondary); font: 12px/1.6 monospace; white-space: pre-wrap; overflow-wrap: anywhere; margin: 10px 0 0; background: var(--dsw-alias-markdown-code-block); padding: 12px 14px; border-radius: 10px; }
+.approval-preview { border-left: 2px solid var(--dsw-alias-border-l2); padding-left: 16px; }
+.approval-preview > div:first-child { font-weight: 500; }
+.approval-preview p { color: var(--dsw-alias-label-secondary); margin: 5px 0 12px; }
+.approval-actions { display: flex; gap: 8px; }
+.approval-actions button { border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); border-radius: 8px; padding: 5px 12px; }
+.done-preview { color: var(--dsw-alias-label-secondary); }
+.composer-preview { margin: 0 18px 18px; padding: 17px 18px 13px; border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-base); border-radius: 21px; }
+.composer-placeholder { color: var(--dsw-alias-label-caption); font-size: 16px; }
+.composer-toolbar { display: flex; align-items: center; gap: 13px; color: var(--dsw-alias-label-tertiary); font-size: 12px; margin-top: 25px; }
+.composer-model { margin-left: auto; }
+.composer-toolbar button { border: 0; border-radius: 50%; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-caption); width: 30px; height: 30px; cursor: default; }
+.preview-note { color: var(--dsw-alias-label-tertiary); font-size: 12px; padding: 14px 2px 0; }
+@media (max-width: 480px) {
+  .loading-preview { padding: 16px 12px; }
+  .preview-controls { flex-wrap: wrap; }
+  .chat-header { padding: 15px 17px; }
+  .chat-body { padding: 24px 20px 14px; }
+  .composer-preview { margin: 0 10px 10px; padding: 15px 13px 10px; }
+  .composer-toolbar { flex-wrap: wrap; gap: 9px; }
+  .composer-placeholder { font-size: 16px; }
+}

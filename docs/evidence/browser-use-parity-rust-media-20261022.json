@@ -1,0 +1,68 @@
+{
+  "schema": "xharness.browser-use.rust-media-acceptance.v1",
+  "generatedAt": "2026-10-22T11:14:08.490651+00:00",
+  "host": "WZU_Server (same host via authorized V100_LAN_J route)",
+  "directory": "~/codex-build/x-harness-rs/browser-use-parity-20261022",
+  "localRustCompilation": false,
+  "sourceHashes": {
+    "crates/xharness-host-app/src/plugin_mcp.rs": "fae53c052cd84b691a943ef8fd835c56e08975c9dd0d08a3c2cca70a5d55a910",
+    "crates/xharness-host-app/src/plugin_mcp/media.rs": "a9fe0306132b16ec712e4ea0416cca1b7db5562a385f16d6319886def7ae48bc",
+    "crates/xharness-mcp/src/lib.rs": "95c73c5b716ba56f9caf794563dfa7745d7583ae69d4ce4a3daeeec78e7a0394",
+    "Cargo.lock": "e82fa2a0543318c46ba98dde12e49967d38f27f6b59c02506268a3647e2f154a",
+    "crates/xharness-host-app/src/plugin_mcp/browser_e2e.rs": "2cebf5d8418e29addb3327601aad0cb391dba5a3e19f4be8d9eee89170ec7d75"
+  },
+  "gates": [
+    {
+      "command": "cargo test --locked -p xharness-host-app --lib plugin_mcp",
+      "status": "passed",
+      "tests": 10
+    },
+    {
+      "command": "cargo test --locked -p xharness-mcp",
+      "status": "passed",
+      "unitTests": 2,
+      "integrationTests": 8
+    },
+    {
+      "command": "cargo clippy --locked -p xharness-host-app -p xharness-mcp --all-targets -- -D warnings",
+      "status": "passed"
+    },
+    {
+      "command": "cargo test --locked -p xharness-host-app --lib",
+      "status": "passed-with-existing-ignored-tests",
+      "passed": 137,
+      "failed": 0,
+      "ignored": 3
+    },
+    {
+      "command": "XHARNESS_BROWSER_TEST_SERVER=1 cargo test --locked -p xharness-host-app --lib plugin_mcp::browser_e2e::real_browser_mcp_image_reaches_provider_request_and_durable_history -- --ignored --exact --nocapture --test-threads=1",
+      "status": "passed",
+      "tests": 1,
+      "scope": "Actual Chromium / stdio MCP / PluginManager / production Host sink / durable attachment / scripted-provider request; pixel-checked image; NOT real model task quality"
+    }
+  ],
+  "log": "/Users/wangyue/codex-build/xharness-browser-use-parity-evidence-20261022/logs/rust-media.log",
+  "logSha256": "07393e2086159f970185d3ceb45a0b284098c986bf01374f3e1683a15da66adf",
+  "scope": "Real server Chromium through plugin install/MCP/production Host media sink into scripted provider input and durable session attachments, plus Rust/MCP baselines. Not live LLM decision/vision quality or full ZCode parity.",
+  "uniquePassingTests": 148,
+  "uniquePassingTestsNote": "137 Host lib tests include the 10 targeted plugin_mcp tests; plus 2 MCP unit and 8 integration tests; plus the explicitly executed ignored browser e2e test. The full Host baseline has 3 ignored tests, including this opt-in e2e; the other 2 were not executed.",
+  "logs": {
+    "host-e2e-compile.log": {
+      "path": "/Users/wangyue/codex-build/xharness-browser-use-parity-evidence-20261022/logs/host-e2e-compile.log",
+      "sha256": "8d1f8e8337fd49817cf7b98f71b1fc6c417e13987ab9c431f6ef9a92779baf82"
+    },
+    "host-e2e-first-setup-failure.log": {
+      "path": "/Users/wangyue/codex-build/xharness-browser-use-parity-evidence-20261022/logs/host-e2e-first-setup-failure.log",
+      "sha256": "bae7bc9a89e7069e1d919436121ef26dd61f0d4ed495e5504624b070a85151a2"
+    },
+    "host-e2e-real.log": {
+      "path": "/Users/wangyue/codex-build/xharness-browser-use-parity-evidence-20261022/logs/host-e2e-real.log",
+      "sha256": "8b004e64e1b53c881b156b59dfad80e860e08a525e9774fa15429d5572d1c019"
+    },
+    "host-e2e-final-baseline.log": {
+      "path": "/Users/wangyue/codex-build/xharness-browser-use-parity-evidence-20261022/logs/host-e2e-final-baseline.log",
+      "sha256": "03c3bd30c42ad1be4f6a3a09df934c799bd705399a50b2cb23fe283ffce67a5f"
+    }
+  },
+  "setupFailure": "First explicit e2e setup mistakenly enabled Skill on an MCP-only plugin and was rejected before browser startup. Fixed only the test to enable MCP independently; the second explicit run passed. The initial failure log is retained."
+}

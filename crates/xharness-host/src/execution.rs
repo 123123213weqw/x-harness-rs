@@ -92,6 +92,14 @@ impl ModelProvider for GatedProvider {
         self.gate.require_active().map_err(ProviderError::new)?;
         self.inner.count_input_tokens(request, cancellation).await
     }
+    async fn recount_input_tokens(
+        &self,
+        request: &ProviderRequest,
+        cancellation: CancellationToken,
+    ) -> Result<Option<ProviderInputTokenCount>, ProviderError> {
+        self.gate.require_active().map_err(ProviderError::new)?;
+        self.inner.recount_input_tokens(request, cancellation).await
+    }
     async fn stream(
         &self,
         request: ProviderRequest,
@@ -180,11 +188,15 @@ mod tests {
             .count_input_tokens(&request(), CancellationToken::new())
             .await
             .unwrap();
+        provider
+            .recount_input_tokens(&request(), CancellationToken::new())
+            .await
+            .unwrap();
         let _ = provider
             .stream(request(), CancellationToken::new())
             .await
             .unwrap();
-        assert_eq!(inner.0.load(Ordering::SeqCst), 3);
+        assert_eq!(inner.0.load(Ordering::SeqCst), 4);
         gate.0.store(false, Ordering::SeqCst);
         assert!(provider
             .capabilities(CancellationToken::new())
@@ -195,10 +207,14 @@ mod tests {
             .await
             .is_err());
         assert!(provider
+            .recount_input_tokens(&request(), CancellationToken::new())
+            .await
+            .is_err());
+        assert!(provider
             .stream(request(), CancellationToken::new())
             .await
             .is_err());
-        assert_eq!(inner.0.load(Ordering::SeqCst), 3);
+        assert_eq!(inner.0.load(Ordering::SeqCst), 4);
     }
     #[test]
     fn unset_local_boundary_returns_same_provider_and_gate_cannot_be_replaced() {

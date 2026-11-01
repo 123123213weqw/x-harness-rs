@@ -1114,10 +1114,13 @@ async fn concurrent_stop_is_not_overwritten_by_resume_commit() {
         .await
         .is_err());
     rt.release.notify_one();
-    tokio::time::timeout(Duration::from_secs(3), stop)
+    let result = tokio::time::timeout(Duration::from_secs(3), stop)
         .await
-        .unwrap()
         .unwrap();
+    // This fixture deliberately has no control receiver or executing Core.
+    // Persist the pause under the admission gate, but do not report a stop as
+    // confirmed solely because the fixture omitted its control channel.
+    assert!(result.unwrap_err().message.contains("outcome unknown"));
     tokio::time::timeout(Duration::from_secs(3), driver)
         .await
         .unwrap()
@@ -1143,6 +1146,9 @@ impl SessionToolFactory for RestrictedHostTools {
 
 #[tokio::test]
 async fn deployment_policy_fences_host_injected_history_and_goal_tools() {
+    // Bootstrap requires a genuinely absolute workspace on every target OS.
+    let workspace = std::env::temp_dir().to_str().unwrap().to_owned();
+    assert!(std::path::Path::new(&workspace).is_absolute());
     struct FixtureGate(bool);
     impl crate::ExecutionGate for FixtureGate {
         fn require_active(&self) -> Result<(), String> {
@@ -1157,70 +1163,335 @@ async fn deployment_policy_fences_host_injected_history_and_goal_tools() {
     // hosted modes; an inactive hosted gate must reject before tool injection.
     for gate_active in [None, Some(true), Some(false)] {
         for restricted in [false, true] {
-            let execution = crate::execution::ExecutionBoundary::default();
-            if let Some(active) = gate_active {
-                execution.install(Arc::new(FixtureGate(active))).unwrap();
-            }
-            let mut models = ModelRegistry::new();
-            models
-                .register(RegisteredModel::new(
-                    ModelDescriptor::new("test", "test", "test-model", "test-model"),
-                    Arc::new(ScriptProvider {
-                        answers: Mutex::new(VecDeque::new()),
-                    }),
-                ))
-                .unwrap();
-            let goals = Arc::new(crate::goals::GoalBridge::default());
-            // Register the Host branch without dereferencing a live application.
-            goals.host.set(std::sync::Weak::new()).unwrap();
-            let tool_factory: Arc<dyn SessionToolFactory> = if restricted {
-                Arc::new(RestrictedHostTools)
-            } else {
-                Arc::new(NoTools)
-            };
-            let factory = DurableTurnFactory {
-                execution,
-                goals,
-                store: Arc::new(MemorySessionStore::default()),
-                delegation_slots: Arc::new(tokio::sync::Semaphore::new(1)),
-                models: Arc::new(StdRwLock::new(models)),
-                tool_factory,
-                context_policy: Arc::new(IdentityContextPolicy),
-                compaction: Arc::new(StdRwLock::new(None)),
-                sessions: Arc::new(RwLock::new(HashMap::from([(
-                    "restricted".into(),
-                    DurableSessionConfig {
-                        cwd: "/tmp".into(),
-                        permission: PermissionPreset::DangerFullAccess,
-                        prompt: None,
-                        route: ModelRoute::new("test", "test-model"),
-                    },
-                )]))),
-                debug: Arc::new(StdRwLock::new(DebugRecorder::default())),
-            };
-            let request = factory.build("restricted", Vec::new()).await;
-            if gate_active == Some(false) {
-                assert_eq!(
-                    request.err().expect("inactive gate must reject"),
-                    "fixture execution is inactive"
-                );
-                continue;
-            }
-            let request = request.unwrap();
-            let names = request
-                .tool_executor
-                .unwrap()
-                .registry()
-                .definitions()
-                .await
-                .into_iter()
-                .map(|d| d.name)
-                .collect::<Vec<_>>();
-            if restricted {
-                assert!(names.is_empty(), "{names:?}");
-            } else {
-                assert_eq!(names, vec!["goal", "history"]);
+            for goal_mode in [
+                "none",
+                "disarmed",
+                "paused",
+                "complete",
+                "ordinary",
+                "automatic",
+            ] {
+                let goal_active = matches!(goal_mode, "ordinary" | "automatic");
+                let has_goal = goal_mode != "none";
+                let automatic_goal = goal_mode == "automatic";
+                let execution = crate::execution::ExecutionBoundary::default();
+                if let Some(active) = gate_active {
+                    execution.install(Arc::new(FixtureGate(active))).unwrap();
+                }
+                let mut models = ModelRegistry::new();
+                models
+                    .register(RegisteredModel::new(
+                        ModelDescriptor::new("test", "test", "test-model", "test-model"),
+                        Arc::new(ScriptProvider {
+                            answers: Mutex::new(VecDeque::new()),
+                        }),
+                    ))
+                    .unwrap();
+                let goals = Arc::new(crate::goals::GoalBridge::default());
+                // Register the Host branch without dereferencing a live application.
+                goals.host.set(std::sync::Weak::new()).unwrap();
+                let tool_factory: Arc<dyn SessionToolFactory> = if restricted {
+                    Arc::new(RestrictedHostTools)
+                } else {
+                    Arc::new(NoTools)
+                };
+                let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+                let input = if has_goal {
+                    crate::prepare_goal_session(
+                        store.as_ref(),
+                        &crate::GoalBootstrapSpec {
+                            operation_id: "visibility-fixture".into(),
+                            session_id: "restricted".into(),
+                            goal_id: "visibility-goal".into(),
+                            objective: "Check evidence".into(),
+                            acceptance_criteria: vec![],
+                            max_goal_rounds: 2,
+                            created_at_ms: 1,
+                            workspace: workspace.clone(),
+                            provider: "test".into(),
+                            model: "test-model".into(),
+                            reasoning_effort: None,
+                            context_window_tokens: None,
+                            permission: PermissionPreset::DangerFullAccess,
+                        },
+                        false,
+                    )
+                    .await
+                    .unwrap();
+                    if goal_active {
+                        xharness_agent::GoalController::new(store.clone(), "restricted")
+                            .reconcile()
+                            .await
+                            .unwrap();
+                    } else {
+                        let session = store.load("restricted").await.unwrap().unwrap();
+                        let mut snapshot = xharness_agent::goal_snapshot(&session).unwrap();
+                        snapshot.version = 1;
+                        snapshot.goal.revision += 1;
+                        snapshot.operation = match goal_mode {
+                            "paused" => {
+                                snapshot.goal.phase = xharness_session::GoalPhase::Paused;
+                                xharness_session::GoalSnapshotOperation::Pause
+                            }
+                            "complete" => {
+                                snapshot.goal.phase = xharness_session::GoalPhase::Complete;
+                                xharness_session::GoalSnapshotOperation::Complete
+                            }
+                            _ => xharness_session::GoalSnapshotOperation::Edit,
+                        };
+                        store
+                            .append(
+                                "restricted",
+                                session.revision(),
+                                vec![xharness_session::EventData::GoalChange {
+                                    change: xharness_session::GoalChange::Snapshot(snapshot),
+                                }
+                                .into()],
+                            )
+                            .await
+                            .unwrap();
+                    }
+                    let session = store.load("restricted").await.unwrap().unwrap();
+                    if automatic_goal {
+                        vec![xharness_agent::InboxProjection::from_session(&session)
+                            .unwrap()
+                            .next_turn()[0]
+                            .message
+                            .clone()]
+                    } else {
+                        vec![xharness_core::AgentMessage::user(
+                            "edit the existing objective",
+                        )]
+                    }
+                } else {
+                    Vec::new()
+                };
+                let factory = DurableTurnFactory {
+                    execution,
+                    goals,
+                    store,
+                    delegation_slots: Arc::new(tokio::sync::Semaphore::new(1)),
+                    models: Arc::new(StdRwLock::new(models)),
+                    tool_factory,
+                    context_policy: Arc::new(IdentityContextPolicy),
+                    compaction: Arc::new(StdRwLock::new(None)),
+                    sessions: Arc::new(RwLock::new(HashMap::from([(
+                        "restricted".into(),
+                        DurableSessionConfig {
+                            cwd: workspace.clone(),
+                            permission: PermissionPreset::DangerFullAccess,
+                            prompt: None,
+                            route: ModelRoute::new("test", "test-model"),
+                        },
+                    )]))),
+                    debug: Arc::new(StdRwLock::new(DebugRecorder::default())),
+                };
+                let request = factory.build("restricted", input).await;
+                if gate_active == Some(false) {
+                    assert_eq!(
+                        request.err().expect("inactive gate must reject"),
+                        "fixture execution is inactive"
+                    );
+                    continue;
+                }
+                let request = request.unwrap();
+                let names = request
+                    .tool_executor
+                    .unwrap()
+                    .registry()
+                    .definitions()
+                    .await
+                    .into_iter()
+                    .map(|d| d.name)
+                    .collect::<Vec<_>>();
+                if restricted {
+                    assert!(names.is_empty(), "{names:?}");
+                } else {
+                    assert_eq!(
+                        names,
+                        if automatic_goal {
+                            vec!["edit_goal_objective", "goal_report", "history"]
+                        } else if goal_active {
+                            vec!["edit_goal_objective", "history"]
+                        } else {
+                            vec!["history"]
+                        }
+                    );
+                }
             }
         }
     }
+}
+
+#[tokio::test]
+async fn orphaned_host_driver_reattaches_active_agent_without_restarting_it() {
+    use xharness_api::{ApiBackend, RpcId, RpcMethod};
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let provider = Arc::new(BlockFirstTurn {
+        attempts: AtomicUsize::new(0),
+    });
+    let runtime = Arc::new(DurableLoopAgentRuntime::new(
+        "test",
+        "test-model",
+        Some(provider.clone()),
+        Arc::new(NoTools),
+        Arc::new(IdentityContextPolicy),
+        store.clone(),
+        Arc::new(MemoryLeaseManager::default()),
+        64,
+    ));
+    let mut config = crate::HostConfig::new(std::env::temp_dir());
+    config.provider_id = "test".into();
+    config.model_id = "test-model".into();
+    let host = crate::BasicHost::with_agent_runtime(config, runtime.clone());
+    crate::rpc::session_lifecycle::create(&host, &json!({"sessionId":"orphan"}))
+        .await
+        .unwrap();
+    let mut message = AgentMessage::user("synthetic input");
+    message.id = Some("stable-input".into());
+    let request = AgentTurnRequest {
+        session_id: "orphan".into(),
+        cwd: std::env::temp_dir().to_string_lossy().into(),
+        route: ModelRoute::new("test", "test-model"),
+        permission: PermissionPreset::WorkspaceWrite,
+        prompt: None,
+        messages: vec![message],
+        input_metadata: None,
+    };
+    runtime.admit_turn(request.clone()).await.unwrap();
+    let observer = runtime.start_turn(request).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while provider.attempts.load(AtomicOrdering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    drop(observer); // Observer loss must not cancel or replay the Agent's Core.
+    let handle = runtime.supervisor.get("orphan").await.unwrap();
+    assert!(matches!(
+        handle
+            .control_turn(Some(u32::MAX), LoopCommand::InterruptByUser)
+            .await,
+        Err(xharness_agent::AgentCommandError::NoActiveTurn)
+    ));
+    assert!(!store
+        .load("orphan")
+        .await
+        .unwrap()
+        .unwrap()
+        .events()
+        .iter()
+        .any(|e| matches!(e.data(), xharness_session::EventData::TurnEnd { .. })));
+    let (dead, rx) = tokio::sync::mpsc::channel(4);
+    drop(rx);
+    {
+        let mut state = host.state.write().await;
+        let r = state.sessions.get_mut("orphan").unwrap();
+        r.running = true;
+        r.control = Some(dead);
+        r.driver_epoch = Some(Arc::new(crate::driver_lifecycle::DriverEpoch::default()));
+    }
+    let response = host
+        .call(
+            RpcId::new("list"),
+            RpcMethod::SessionList,
+            json!({}),
+            CancellationToken::new(),
+        )
+        .await;
+    assert!(response.is_ok());
+    assert!(!host.state.read().await.sessions["orphan"]
+        .control
+        .as_ref()
+        .unwrap()
+        .is_closed());
+    let response = host
+        .call(
+            RpcId::new("stop"),
+            RpcMethod::SessionCancel,
+            json!({"sessionId":"orphan"}),
+            CancellationToken::new(),
+        )
+        .await;
+    assert!(response.is_ok(), "{response:?}");
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while host.state.read().await.sessions["orphan"].running {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(provider.attempts.load(AtomicOrdering::SeqCst), 1);
+    let durable = store.load("orphan").await.unwrap().unwrap();
+    assert_eq!(
+        durable
+            .events()
+            .iter()
+            .filter(|e| matches!(e.data(), xharness_session::EventData::UserMessage { .. }))
+            .count(),
+        1
+    );
+    assert!(durable.events().iter().any(|e| matches!(
+        e.data(),
+        xharness_session::EventData::TurnEnd {
+            reason: TurnEndReason::UserInterrupted,
+            ..
+        }
+    )));
+    runtime.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn abandoned_open_turn_is_not_mistaken_for_a_live_idle_worker() {
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let header = SessionHeader::new("abandoned-observer");
+    store.create(header.clone()).await.unwrap();
+    store
+        .append(
+            "abandoned-observer",
+            Revision::ZERO,
+            vec![xharness_session::EventData::TurnStart { turn: 1 }.into()],
+        )
+        .await
+        .unwrap();
+    let runtime = DurableLoopAgentRuntime::new(
+        "test",
+        "test",
+        None,
+        Arc::new(NoTools),
+        Arc::new(IdentityContextPolicy),
+        store.clone(),
+        Arc::new(MemoryLeaseManager::default()),
+        16,
+    );
+    let before = store
+        .load("abandoned-observer")
+        .await
+        .unwrap()
+        .unwrap()
+        .revision();
+    assert!(matches!(
+        runtime.observe_session("abandoned-observer").await.unwrap(),
+        SessionObservation::Unsupported
+    ));
+    assert!(runtime.supervisor.get("abandoned-observer").await.is_none());
+    let handle = runtime.supervisor.activate(header).await.unwrap();
+    handle.when_ready().await.unwrap();
+    assert_eq!(handle.status(), xharness_agent::AgentStatus::Idle);
+    assert!(matches!(
+        runtime.observe_session("abandoned-observer").await.unwrap(),
+        SessionObservation::Unsupported
+    ));
+    assert_eq!(
+        store
+            .load("abandoned-observer")
+            .await
+            .unwrap()
+            .unwrap()
+            .revision(),
+        before,
+        "status observation must not close, wake or replay abandoned work"
+    );
+    runtime.shutdown(Duration::from_secs(1)).await;
 }

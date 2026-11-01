@@ -1,0 +1,1184 @@
+{
+  "status": "complete",
+  "completed_at": "2026-10-31T10:01:08+0800",
+  "phases": {
+    "matrix": {
+      "cases": 24,
+      "trials": 168,
+      "protocol_sha256": "1e861acdde7a0ca2ad81934d088615858fe734ebace5f95a203eba388b4841bf",
+      "cases_sha256": "f4f8c8e8266d813800df5ef8903cdcd180bf0ee50379acf08369e1e90374bdd3"
+    },
+    "holdout": {
+      "cases": 24,
+      "trials": 168,
+      "protocol_sha256": "c81252cb802ccec3fb534d6b9503834acbdb1146e2eaaa0419c3f0cd8ccaca2b",
+      "cases_sha256": "68d1edd6fdb03173f285fb46067c035c8a84079c9bc59cb774ffceae5ba426ff"
+    }
+  },
+  "paired_cases": 48,
+  "trials": 336,
+  "model": "deepseek-flash",
+  "thinking": "enabled/high",
+  "unique_successful_api_responses": 1119,
+  "actual_prompt_tokens_including_rereads": 4503183,
+  "actual_completion_tokens": 194722,
+  "history_attempts": {
+    "history:search": 719,
+    "history:read": 475,
+    "search:search": 1
+  },
+  "groups": {
+    "all2k": {
+      "n": 48,
+      "strict_contract_successes": 41,
+      "required_fields_successes": 47,
+      "nested_evidence_successes": 47,
+      "strict_rate": 0.8541666666666666,
+      "content_rate": 0.9791666666666666,
+      "content_wilson95": [
+        0.891,
+        0.9963
+      ],
+      "mean_total_prompt_tokens": 11357.375,
+      "mean_total_completion_tokens": 743.3958333333334,
+      "mean_initial_tool_chars": 2028.125,
+      "mean_latency_s": 13.776395833333332,
+      "p95_latency_s": 33.674,
+      "median_total_prompt_tokens": 8790.0,
+      "mean_regular_prompt_tokens": 11835.904761904761,
+      "mean_paged_stress_prompt_tokens": 8007.666666666667,
+      "total_generations": 203,
+      "history_calls": 247,
+      "history_errors": 0,
+      "provider_failures": 0,
+      "paired_content_regressions": 1,
+      "paired_content_improvements": 1,
+      "failures": [
+        {
+          "case": "paged_search-s0",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s1",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s2",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s3",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s4",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "stale_version-s2",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "unknown_effect-s3",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        }
+      ],
+      "families": {
+        "code_patch": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "config": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "join": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "paged_search": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 1
+        },
+        "partial_write": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "root_cause": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "stale_version": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 5
+        },
+        "unknown_effect": {
+          "n": 6,
+          "required_fields": 5,
+          "strict": 5
+        }
+      },
+      "prompt_reduction_vs_full": 0.5812917149901304,
+      "prompt_reduction_vs_current": 0.26069485900890577,
+      "regular_prompt_reduction_vs_full": 0.1526327452484446,
+      "regular_prompt_reduction_vs_current": 0.24042215407370737
+    },
+    "all8k": {
+      "n": 48,
+      "strict_contract_successes": 41,
+      "required_fields_successes": 46,
+      "nested_evidence_successes": 48,
+      "strict_rate": 0.8541666666666666,
+      "content_rate": 0.9583333333333334,
+      "content_wilson95": [
+        0.8602,
+        0.9885
+      ],
+      "mean_total_prompt_tokens": 16723.8125,
+      "mean_total_completion_tokens": 877.3958333333334,
+      "mean_initial_tool_chars": 6880.625,
+      "mean_latency_s": 14.995208333333332,
+      "p95_latency_s": 47.087,
+      "median_total_prompt_tokens": 12095.5,
+      "mean_regular_prompt_tokens": 17266.595238095237,
+      "mean_paged_stress_prompt_tokens": 12924.333333333334,
+      "total_generations": 208,
+      "history_calls": 265,
+      "history_errors": 0,
+      "provider_failures": 0,
+      "paired_content_regressions": 2,
+      "paired_content_improvements": 1,
+      "failures": [
+        {
+          "case": "paged_search-s0",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s1",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s2",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s3",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s4",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s5",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "root_cause-s2",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        }
+      ],
+      "families": {
+        "code_patch": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "config": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "join": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "paged_search": {
+          "n": 6,
+          "required_fields": 4,
+          "strict": 0
+        },
+        "partial_write": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "root_cause": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 5
+        },
+        "stale_version": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "unknown_effect": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        }
+      },
+      "prompt_reduction_vs_full": 0.38344918163733976,
+      "prompt_reduction_vs_current": -0.08863188529225496,
+      "regular_prompt_reduction_vs_full": -0.23616636836273752,
+      "regular_prompt_reduction_vs_current": -0.10809637972474717
+    },
+    "archive_only": {
+      "n": 48,
+      "strict_contract_successes": 40,
+      "required_fields_successes": 47,
+      "nested_evidence_successes": 47,
+      "strict_rate": 0.8333333333333334,
+      "content_rate": 0.9791666666666666,
+      "content_wilson95": [
+        0.891,
+        0.9963
+      ],
+      "mean_total_prompt_tokens": 13443.125,
+      "mean_total_completion_tokens": 859.5208333333334,
+      "mean_initial_tool_chars": 380.375,
+      "mean_latency_s": 17.739708333333336,
+      "p95_latency_s": 49.291,
+      "median_total_prompt_tokens": 10403.5,
+      "mean_regular_prompt_tokens": 13948.666666666666,
+      "mean_paged_stress_prompt_tokens": 9904.333333333334,
+      "total_generations": 244,
+      "history_calls": 285,
+      "history_errors": 4,
+      "provider_failures": 0,
+      "paired_content_regressions": 0,
+      "paired_content_improvements": 0,
+      "failures": [
+        {
+          "case": "config-s4",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "join-s2",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s0",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s1",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s2",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s3",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "paged_search-s4",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "stale_version-s5",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        }
+      ],
+      "families": {
+        "code_patch": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "config": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 5
+        },
+        "join": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 5
+        },
+        "paged_search": {
+          "n": 6,
+          "required_fields": 5,
+          "strict": 1
+        },
+        "partial_write": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "root_cause": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "stale_version": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 5
+        },
+        "unknown_effect": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        }
+      },
+      "prompt_reduction_vs_full": 0.5043971151852165,
+      "prompt_reduction_vs_current": 0.12492354760797242,
+      "regular_prompt_reduction_vs_full": 0.0013739026676894417,
+      "regular_prompt_reduction_vs_current": 0.10483411337406967
+    },
+    "current": {
+      "n": 48,
+      "strict_contract_successes": 40,
+      "required_fields_successes": 47,
+      "nested_evidence_successes": 48,
+      "strict_rate": 0.8333333333333334,
+      "content_rate": 0.9791666666666666,
+      "content_wilson95": [
+        0.891,
+        0.9963
+      ],
+      "mean_total_prompt_tokens": 15362.229166666666,
+      "mean_total_completion_tokens": 558.1875,
+      "mean_initial_tool_chars": 18792.291666666668,
+      "mean_latency_s": 9.893770833333333,
+      "p95_latency_s": 25.192,
+      "median_total_prompt_tokens": 12929.0,
+      "mean_regular_prompt_tokens": 15582.214285714286,
+      "mean_paged_stress_prompt_tokens": 13822.333333333334,
+      "total_generations": 155,
+      "history_calls": 160,
+      "history_errors": 3,
+      "provider_failures": 0,
+      "paired_content_regressions": 1,
+      "paired_content_improvements": 1,
+      "failures": [
+        {
+          "case": "config-s1",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s0",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s1",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s2",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s3",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s4",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s5",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "stale_version-s4",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        }
+      ],
+      "families": {
+        "code_patch": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "config": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 5
+        },
+        "join": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "paged_search": {
+          "n": 6,
+          "required_fields": 5,
+          "strict": 0
+        },
+        "partial_write": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "root_cause": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "stale_version": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 5
+        },
+        "unknown_effect": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        }
+      },
+      "prompt_reduction_vs_full": 0.43364618775873864,
+      "prompt_reduction_vs_current": 0.0,
+      "regular_prompt_reduction_vs_full": -0.11557657888008177,
+      "regular_prompt_reduction_vs_current": 0.0
+    },
+    "full": {
+      "n": 48,
+      "strict_contract_successes": 44,
+      "required_fields_successes": 47,
+      "nested_evidence_successes": 47,
+      "strict_rate": 0.9166666666666666,
+      "content_rate": 0.9791666666666666,
+      "content_wilson95": [
+        0.891,
+        0.9963
+      ],
+      "mean_total_prompt_tokens": 27124.791666666668,
+      "mean_total_completion_tokens": 271.375,
+      "mean_initial_tool_chars": 66507.08333333333,
+      "mean_latency_s": 5.849541666666667,
+      "p95_latency_s": 17.911,
+      "median_total_prompt_tokens": 11764.0,
+      "mean_regular_prompt_tokens": 13967.857142857143,
+      "mean_paged_stress_prompt_tokens": 119223.33333333333,
+      "total_generations": 82,
+      "history_calls": 47,
+      "history_errors": 0,
+      "provider_failures": 0,
+      "paired_content_regressions": 0,
+      "paired_content_improvements": 0,
+      "failures": [
+        {
+          "case": "paged_search-s0",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s1",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s2",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s3",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        }
+      ],
+      "families": {
+        "code_patch": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "config": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "join": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "paged_search": {
+          "n": 6,
+          "required_fields": 5,
+          "strict": 2
+        },
+        "partial_write": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "root_cause": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "stale_version": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "unknown_effect": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        }
+      },
+      "prompt_reduction_vs_full": 0.0,
+      "prompt_reduction_vs_current": -0.7656807076880934,
+      "regular_prompt_reduction_vs_full": 0.0,
+      "regular_prompt_reduction_vs_current": 0.10360255052692857
+    },
+    "typed2k": {
+      "n": 48,
+      "strict_contract_successes": 41,
+      "required_fields_successes": 47,
+      "nested_evidence_successes": 48,
+      "strict_rate": 0.8541666666666666,
+      "content_rate": 0.9791666666666666,
+      "content_wilson95": [
+        0.891,
+        0.9963
+      ],
+      "mean_total_prompt_tokens": 8950.229166666666,
+      "mean_total_completion_tokens": 580.8958333333334,
+      "mean_initial_tool_chars": 2295.25,
+      "mean_latency_s": 12.28204166666667,
+      "p95_latency_s": 34.799,
+      "median_total_prompt_tokens": 8556.5,
+      "mean_regular_prompt_tokens": 8798.357142857143,
+      "mean_paged_stress_prompt_tokens": 10013.333333333334,
+      "total_generations": 179,
+      "history_calls": 191,
+      "history_errors": 2,
+      "provider_failures": 0,
+      "paired_content_regressions": 1,
+      "paired_content_improvements": 1,
+      "failures": [
+        {
+          "case": "join-s4",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s1",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s2",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s3",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "paged_search-s5",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": true
+        },
+        {
+          "case": "stale_version-s5",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        },
+        {
+          "case": "unknown_effect-s2",
+          "reason": "wrong_fields",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": true,
+          "nested_evidence": true
+        }
+      ],
+      "families": {
+        "code_patch": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "config": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "join": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 5
+        },
+        "paged_search": {
+          "n": 6,
+          "required_fields": 5,
+          "strict": 2
+        },
+        "partial_write": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "root_cause": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "stale_version": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 5
+        },
+        "unknown_effect": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 5
+        }
+      },
+      "prompt_reduction_vs_full": 0.6700351001159763,
+      "prompt_reduction_vs_current": 0.4173873420605463,
+      "regular_prompt_reduction_vs_full": 0.37009971874200975,
+      "regular_prompt_reduction_vs_current": 0.4353589944579672
+    },
+    "typed2k_nohistory": {
+      "n": 48,
+      "strict_contract_successes": 11,
+      "required_fields_successes": 11,
+      "nested_evidence_successes": 11,
+      "strict_rate": 0.22916666666666666,
+      "content_rate": 0.22916666666666666,
+      "content_wilson95": [
+        0.1331,
+        0.3654
+      ],
+      "mean_total_prompt_tokens": 854.75,
+      "mean_total_completion_tokens": 165.9375,
+      "mean_initial_tool_chars": 2295.25,
+      "mean_latency_s": 2.2608333333333333,
+      "p95_latency_s": 4.909,
+      "median_total_prompt_tokens": 751.0,
+      "mean_regular_prompt_tokens": 874.8809523809524,
+      "mean_paged_stress_prompt_tokens": 713.8333333333334,
+      "total_generations": 48,
+      "history_calls": 0,
+      "history_errors": 0,
+      "provider_failures": 0,
+      "paired_content_regressions": 36,
+      "paired_content_improvements": 0,
+      "failures": [
+        {
+          "case": "code_patch-s0",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "code_patch-s1",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "code_patch-s2",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "code_patch-s3",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "code_patch-s4",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "code_patch-s5",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "config-s0",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "config-s1",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "config-s2",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "config-s3",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "config-s4",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "config-s5",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "join-s0",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "join-s1",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "join-s2",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "join-s3",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "join-s4",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "join-s5",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "paged_search-s0",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "paged_search-s1",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "paged_search-s2",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "paged_search-s3",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "paged_search-s4",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "paged_search-s5",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "root_cause-s0",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "root_cause-s1",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "root_cause-s2",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "root_cause-s3",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "root_cause-s4",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "root_cause-s5",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "stale_version-s0",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "stale_version-s1",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "stale_version-s2",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "stale_version-s3",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "stale_version-s4",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "stale_version-s5",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        },
+        {
+          "case": "unknown_effect-s4",
+          "reason": "invalid_json",
+          "outcome": "completed",
+          "strict": false,
+          "required_fields": false,
+          "nested_evidence": false
+        }
+      ],
+      "families": {
+        "code_patch": {
+          "n": 6,
+          "required_fields": 0,
+          "strict": 0
+        },
+        "config": {
+          "n": 6,
+          "required_fields": 0,
+          "strict": 0
+        },
+        "join": {
+          "n": 6,
+          "required_fields": 0,
+          "strict": 0
+        },
+        "paged_search": {
+          "n": 6,
+          "required_fields": 0,
+          "strict": 0
+        },
+        "partial_write": {
+          "n": 6,
+          "required_fields": 6,
+          "strict": 6
+        },
+        "root_cause": {
+          "n": 6,
+          "required_fields": 0,
+          "strict": 0
+        },
+        "stale_version": {
+          "n": 6,
+          "required_fields": 0,
+          "strict": 0
+        },
+        "unknown_effect": {
+          "n": 6,
+          "required_fields": 5,
+          "strict": 5
+        }
+      },
+      "prompt_reduction_vs_full": 0.9684882372368452,
+      "prompt_reduction_vs_current": 0.9443602884238534,
+      "regular_prompt_reduction_vs_full": 0.9373646978607346,
+      "regular_prompt_reduction_vs_current": 0.9438538749153873
+    }
+  },
+  "limitations": [
+    "48 synthetic matched tasks in eight families, not a production user success rate.",
+    "Same task templates with independent factual seeds; cases are not independent draws from arbitrary production workloads.",
+    "Primary strict-object score frozen before discovery; secondary content audit introduced before replication, original scores untouched.",
+    "Production pruner and history executor; experimental typed extractor and Python provider loop, not full LoopEngine.",
+    "History queries inspect a frozen synthetic original prefix; generated model/read replies are replayed in the API conversation but not appended into its evidence store.",
+    "No semantic-summary compaction, working-set retirement, images, desktop shell or actual production side effects tested.",
+    "Input tokens are upstream returned usage, not estimated counts or dollar charges.",
+    "No production policy/configuration change, merge or release."
+  ]
+}

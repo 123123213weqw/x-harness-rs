@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "The installed macOS desktop panicked in Wry 0.55.1 url_from_webview when WKWebView.URL was nil. Pin the same dependency version with a minimal nullable-URL patch and require a real never-navigated native WebView regression in the existing CI probe.",
+  "compatibility": "Preserve all application identity, signing/updater configuration, Host/RPC/session persistence, dependency versions and native CI gates. Only unavailable macOS URLs become recoverable Result errors; Linux and Windows backend sources remain byte-identical upstream. Add provenance mutation checks without weakening existing architecture or native regression enrollment.",
+  "paths": {
+    ".github/workflows/ci.yml": {
+      "before": "a1d1eb0f612790fb88d24e332b1ac09b7b8d0a6ddea867c997485299497a286a",
+      "after": "e8185f9bd3f3b0392d591c1f5ddf1b3425ec4859fc9820a5e8b48d5c614f715f"
+    },
+    "apps/desktop/src-tauri/Cargo.toml": {
+      "before": "1a230de14dc50da194900d2104aa88235fabfecbf51c87a5299c4e123f845c1e",
+      "after": "a2e655a6b253960577fab21221c79291b910a30a449b1bc80f81a8e0a672ecc5"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "updater",
+    "windows"
+  ]
+}
