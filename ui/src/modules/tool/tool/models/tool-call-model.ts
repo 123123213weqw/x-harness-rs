@@ -136,6 +136,7 @@ function browserCall(toolName:string,argsRaw:string):{title:string;summary:strin
   const args=parseArgs(argsRaw)
   if(!isRecord(args)||args.action!=='call')return
   const title=args.plugin==='@xharness/native-browser'&&args.server==='webview'?'Embedded browser'
+    :args.plugin==='@xharness/native-browser'&&args.server==='browser'?'Built-in browser'
     :args.plugin==='browser-use'&&args.server==='browser'?'Background browser':undefined
   if(!title)return
   const action=isRecord(args.arguments)?args.arguments.action:undefined

@@ -2,15 +2,28 @@
  * Synthetic RPC pages let the test hold cold opens at deterministic boundaries. */
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { readFileSync, readdirSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { root, runtimeTestSource, conversationBrowserTestSource } from './runtime-source-test-harness.mjs'
 import { installOwnedViewPlatform } from './fixtures/owned-view-platform-browser.mjs'
 const require = createRequire(resolve(process.env.UI_TEST_DEPS ?? '/tmp/ui-tests', 'package.json'))
 const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
+assert.ok(['chromium', 'webkit'].includes(engine), 'unsupported history-fixture engine')
+const evidence = resolve(root, 'dist/history-open-target', engine)
+mkdirSync(evidence, { recursive: true })
+// Playwright's generic evaluation error can also rewrite a CDP failure, not
+// just navigation. Preserve the original protocol response in CI artifacts.
+if (engine === 'chromium') {
+  process.env.DEBUG = [process.env.DEBUG, 'pw:protocol'].filter(Boolean).join(',')
+  process.env.DEBUG_FILE = resolve(evidence, 'protocol.log')
+}
+const diagnostics = { navigations: [], crashed: false, closed: false, phase: 'boot', passed: false }
 const browser = await require('playwright')[engine].launch({ headless: true })
 try {
   const page = await browser.newPage({ viewport: { width: 1000, height: 720 } })
+  page.on('framenavigated', frame => { if (frame === page.mainFrame()) diagnostics.navigations.push(frame.url()) })
+  page.on('crash', () => { diagnostics.crashed = true })
+  page.on('close', () => { diagnostics.closed = true })
   const errors = []
   page.on('pageerror', e => { if (!e.message.includes('owned feature fixture: stop Host boot')) errors.push(e.message) })
   await installOwnedViewPlatform(page, 'source')
@@ -34,16 +47,29 @@ try {
     const row = seq => ({ event: { seq, time: seq, type: 'user/message', surfaceOp: 'append', data: { id: String(seq), source: { kind: 'user' }, content: [{ type: 'text', text: 'Message ' + seq }], text: 'Message ' + seq } } })
     const pageOf = (before = 201) => { const start = Math.max(1, before - 50); return { events: Array.from({ length: before - start }, (_, i) => row(start + i)), hasMore: start > 1 } }
     window.calls = []; window.hold = false; window.releaseTail = undefined
+    window.holdOlder = false; window.releaseOlder = undefined
     const api = { sessions: { history: async p => {
       calls.push(p.beforeSeq ?? null)
       if (hold && p.beforeSeq === undefined) await new Promise(r => { window.releaseTail = r })
+      if (holdOlder && p.beforeSeq !== undefined) await new Promise(r => { window.releaseOlder = r })
       await new Promise(r => setTimeout(r, 10))
       return { result: { ok: true, value: pageOf(p.beforeSeq) } }
     } } }
     window.manager = new runtime.SessionManager(api, {}, undefined, undefined, conversation)
     for (const sessionId of ['reader', 'other']) manager.summaries.push({ sessionId, running: false, blank: false })
     manager.select('reader'); window.session = manager.get('reader'); await session.open()
-    while (session.hasMore) await session.loadOlder()
+    window.expandAllHistory = async () => {
+      const deadline = performance.now() + 6000
+      while (session.hasMore) {
+        if (performance.now() >= deadline) throw Error('fixture history expansion made no progress')
+        // loadOlder deliberately returns immediately when another read owns
+        // loadingOlder. Yield a task, not only a resolved promise: otherwise
+        // this fixture can starve that read's timer/response indefinitely.
+        if (!session.getSnapshot().loadingOlder) await session.loadOlder()
+        await new Promise(resolve => setTimeout(resolve, 0))
+      }
+    }
+    await expandAllHistory()
     window.memory = new ui.ChatScrollMemory((id, position) => {
       const seq = position?.anchorSeq
       manager.get(id).setHistoryOpenTarget(position === null ? { kind: 'latest' }
@@ -123,7 +149,35 @@ try {
   await settle()
   assert.ok(Math.abs((await anchorOffset()) - before) < 2, 'pagination preserves the restored reader')
   // Expand all again, return to bottom, and reopen: never reload that old range.
-  await page.evaluate(async () => { while (session.hasMore) await session.loadOlder(); memory.requestFollow('reader') })
+  // Exercise that exact overlap deterministically instead of depending on
+  // whether the preceding UI paging callback has settled on a busy runner.
+  await page.evaluate(() => { holdOlder = true; window.concurrentOlder = session.loadOlder() })
+  await page.waitForFunction(() => typeof releaseOlder === 'function')
+  diagnostics.phase = 'concurrent-page-start'
+  await page.evaluate(() => {
+    window.historyDrainDone = false; window.historyDrainError = null
+    // Keep this asynchronous fixture task strongly reachable in its own
+    // realm. Do not leave an ephemeral long-running evaluate promise as its
+    // only lifetime/observation mechanism across pagination and browser GC.
+    window.historyDrain = expandAllHistory().then(() => {
+      memory.requestFollow('reader')
+    }).catch(error => {
+      window.historyDrainError = error?.stack ?? String(error)
+    }).finally(() => {
+      window.historyDrainDone = true
+    })
+  })
+  if (engine === 'chromium') {
+    const gc = await page.context().newCDPSession(page)
+    await gc.send('HeapProfiler.collectGarbage')
+    await gc.detach()
+  }
+  diagnostics.phase = 'concurrent-page-release'
+  await page.evaluate(() => { holdOlder = false; releaseOlder() })
+  await page.waitForFunction(() => window.historyDrainDone, undefined, { timeout: 6000 })
+  assert.equal(await page.evaluate(() => historyDrainError), null, 'history expansion must succeed, not merely settle')
+  diagnostics.phase = 'concurrent-page-complete'
+  await page.evaluate(() => concurrentOlder)
   await settle()
   assert.equal((await page.evaluate(() => state())).bookmark, null)
   await page.evaluate(() => evict()); await page.evaluate(() => reopen())
@@ -185,5 +239,11 @@ try {
   assert.ok(await page.locator('[data-heavy-message]').count() < 30, 'large conversation still uses bounded virtual rows')
   await page.evaluate(() => unmount())
   assert.deepEqual(errors, [])
-  console.log(JSON.stringify({ engine, anchor: { seq: saved.anchorSeq, offsetBefore: before }, restoredPages: restored.calls.length, latestPages: latest.calls.length, pagination: 'preserved', windowing: 'bounded', coldLayout: 'bookmark retained', explicitFollow: 'supersedes bookmark', largeHistory: { messages: 100000, requests: 2, rows: 51, obsoleteRead: 'aborted' } }))
-} finally { await browser.close() }
+  assert.deepEqual(diagnostics.navigations, ['http://owned-platform-fixture.test/'], 'the fixture must never navigate away')
+  assert.equal(diagnostics.crashed, false)
+  diagnostics.passed = true
+  console.log(JSON.stringify({ engine, anchor: { seq: saved.anchorSeq, offsetBefore: before }, restoredPages: restored.calls.length, latestPages: latest.calls.length, pagination: 'preserved', concurrentPaging: 'pending read completes without microtask starvation', windowing: 'bounded', coldLayout: 'bookmark retained', explicitFollow: 'supersedes bookmark', largeHistory: { messages: 100000, requests: 2, rows: 51, obsoleteRead: 'aborted' } }))
+} finally {
+  try { writeFileSync(resolve(evidence, 'diagnostics.json'), JSON.stringify(diagnostics, null, 2) + '\n') }
+  finally { await browser.close() }
+}

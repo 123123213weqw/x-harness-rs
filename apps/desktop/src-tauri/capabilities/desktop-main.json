@@ -44,6 +44,8 @@
     "allow-desktop-browser-inspect",
     "allow-desktop-browser-pick",
     "allow-desktop-browser-perform",
+    "allow-desktop-headless-preview",
+    "allow-desktop-headless-control",
     "allow-desktop-account-start",
     "allow-desktop-account-poll",
     "allow-desktop-account-finish",

@@ -435,7 +435,8 @@ function browserCall(toolName, argsRaw) {
     if (!(0, value_guards_1.isRecord)(args) || args.action !== 'call')
         return;
     const title = args.plugin === '@xharness/native-browser' && args.server === 'webview' ? 'Embedded browser'
-        : args.plugin === 'browser-use' && args.server === 'browser' ? 'Background browser' : undefined;
+        : args.plugin === '@xharness/native-browser' && args.server === 'browser' ? 'Built-in browser'
+            : args.plugin === 'browser-use' && args.server === 'browser' ? 'Background browser' : undefined;
     if (!title)
         return;
     const action = (0, value_guards_1.isRecord)(args.arguments) ? args.arguments.action : undefined;
