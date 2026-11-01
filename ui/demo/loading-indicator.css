@@ -45,3 +45,9 @@ button:focus-visible, summary:focus-visible { outline: 2px solid var(--dsw-alias
   .composer-toolbar { flex-wrap: wrap; gap: 9px; }
   .composer-placeholder { font-size: 16px; }
 }
+
+.preview-running { display: flex; align-items: center; gap: 9px; min-height: 20px; }
+.preview-elapsed { color: var(--dsw-alias-label-secondary); white-space: nowrap; font-size: 12px; }
+.preview-elapsed time { font-variant-numeric: tabular-nums; }
+.done-preview .preview-elapsed { margin-left: 8px; }
+.tool-preview summary { flex-wrap: wrap; }

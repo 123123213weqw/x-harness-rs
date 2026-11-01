@@ -1,3 +1,4 @@
+// Retain the historical bundled loader notices; the pixel geometry below is original.
 /*!
 ISC License
 
@@ -44,8 +45,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 */
-// Visual behavior adapted from ZCode ChatLoading (Apache-2.0).
-// Loader glyph: Lucide/Feather (ISC/MIT); see docs/licenses/lucide-loader.txt.
 import css from './LoadingIndicator.styles'
 
 export interface LoadingIndicatorProps {
@@ -53,21 +52,21 @@ export interface LoadingIndicatorProps {
   label: string
 }
 
+// Twelve 2px squares trace a single 16px ring. Only opacity moves; the
+// square edges remain aligned to the pixel grid instead of rotating the SVG.
+const pixels = [[5, 0], [9, 0], [12, 2], [14, 5], [14, 9], [12, 12],
+  [9, 14], [5, 14], [2, 12], [0, 9], [0, 5], [2, 2]] as const
+
 /** Presentation only: the caller owns the authoritative activity state. */
 export function LoadingIndicator({ active, label }: LoadingIndicatorProps) {
   if (!active) return null
   return (
     <div className={css.root} role="status" aria-live="polite" aria-label={label} data-xh-loading-indicator="true">
-      <div className={css.rotor} data-xh-loading-rotor="true">
-        <svg className={css.icon} width="16" height="16" viewBox="0 0 24 24"
-          fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-          strokeLinejoin="round" aria-hidden="true" focusable="false">
-          <path d="M12 2v4" /><path d="m16.2 7.8 2.9-2.9" />
-          <path d="M18 12h4" /><path d="m16.2 16.2 2.9 2.9" />
-          <path d="M12 18v4" /><path d="m4.9 19.1 2.9-2.9" />
-          <path d="M2 12h4" /><path d="m4.9 4.9 2.9 2.9" />
-        </svg>
-      </div>
+      <svg className={css.icon} data-xh-loading-ring="true" width="16" height="16" viewBox="0 0 16 16"
+        fill="currentColor" shapeRendering="crispEdges" aria-hidden="true" focusable="false">
+        {pixels.map(([x, y], index) => <rect key={index} className={css.pixel}
+          x={x} y={y} width="2" height="2" style={{ animationDelay: `${index * 100 - 1200}ms` }} />)}
+      </svg>
     </div>
   )
 }
