@@ -66,8 +66,32 @@ Validated on WZU_Server against the exact source-file hashes:
 - Actual business-error compiler mutations: 35/35 rejected the intended forbidden
   operations; original bytes restored and positive strict Clippy passed.
 - Local architecture checker against master
-  `636bf8c5632f8aecd9e6d0902ece37c9ff8ff5a4`: passed; no frozen boundary changed.
+  `636bf8c5632f8aecd9e6d0902ece37c9ff8ff5a4`: passed. The body fix changed no frozen boundary; the subsequently authorized workflow addition is bound by the compatibility record below.
   Architecture policy/mutation unit tests: 34 passed.
 
 GitHub exact-head CI and independent review are separate merge requirements;
 these remote receipts do not replace them. No running installation was changed.
+
+## Strict protected-branch CI aggregate (separately authorized)
+
+The existing branch protection requires a check literally named `CI`. The
+workflow name alone did not produce such a job check. The user explicitly
+approved adding a real aggregate to this PR; branch protection is unchanged.
+
+The aggregate directly depends on all 16 original workflow jobs, runs with
+`always()` so failure cannot silently skip the gate, and validates the exact
+nonempty dependency set and native results. Every applicable job must succeed;
+only the existing Unix signed rehearsal is expected to be skipped outside a
+push to master. Missing, cancelled, failed, timed-out, neutral and unexpected
+skipped results fail the aggregate. UI matrix coverage is still enforced by
+its original shard and parity gates, not replaced by this aggregate.
+
+PR and master-push runs expose the required `CI` check. Manual dispatch uses
+`CI / manual diagnostics`, so it cannot substitute for PR-only native smoke
+admission. The seven aggregate regression tests include all dependency mutations
+and actual CLI exit-code cases; they run in the aggregate, early UI build and
+native Windows validation. Existing job commands, matrix sizes, runner/action
+versions and lockfiles are unchanged apart from those additional test calls.
+The frozen workflow change has a content-bound compatibility record against
+master. Independent approval and independent workflow checks (such as mirror)
+remain separate requirements; this gate posts no status through an API.
