@@ -1,3 +1,4 @@
+mod child_policy;
 mod observer;
 use observer::DurableRunningTurn;
 
@@ -620,6 +621,25 @@ pub struct AuxiliaryModel {
 /// actual turn implementation.
 #[async_trait]
 pub trait AgentRuntime: Send + Sync + 'static {
+    /// Authoritative storage alone does not promise execution enforcement.
+    fn supports_child_execution_policy(&self) -> bool {
+        false
+    }
+    /// Read-only admission fence; it must not consume/reset a child budget.
+    async fn check_child_execution_budget(&self, _id: &str) -> Result<(), String> {
+        Ok(())
+    }
+    /// Admission-only capability enumeration; never invokes a handler/model.
+    async fn available_tool_names(
+        &self,
+        _session_id: &str,
+        _cwd: &str,
+        _permission: PermissionPreset,
+    ) -> Result<Vec<String>, AgentRuntimeError> {
+        Err(AgentRuntimeError::Preparation {
+            message: "tool capability enumeration is unavailable".into(),
+        })
+    }
     /// Observe already admitted work only. Never activate, wake, replay or build
     /// a request as a side effect of status repair.
     async fn observe_session(
@@ -1185,17 +1205,41 @@ impl TurnRequestFactory for DurableTurnFactory {
             .and_then(crate::delegation::restored_delegation)
             .is_some()
         {
-            self.delegation_slots
-                .clone()
-                .acquire_owned()
-                .await
-                .map(Some)
-                .map_err(|e| e.to_string())
+            let wait = child_policy::admission_wait(session.as_ref())?;
+            let acquire = self.delegation_slots.clone().acquire_owned();
+            let permit = if let Some(wait) = wait {
+                tokio::time::timeout(wait, acquire).await.map_err(|_| {
+                    "agent timeout_seconds budget exceeded while waiting for capacity".to_owned()
+                })?
+            } else {
+                acquire.await
+            };
+            permit.map(Some).map_err(|e| e.to_string())
         } else {
             Ok(None)
         }
     }
     async fn build(&self, agent_id: &str, input: Vec<AgentMessage>) -> Result<LoopRequest, String> {
+        let snapshot = self.store.load(agent_id).await.map_err(|e| e.to_string())?;
+        let wait = child_policy::preparation_wait(snapshot.as_ref())?;
+        let build = self.build_request(agent_id, input, snapshot);
+        if let Some(wait) = wait {
+            tokio::time::timeout(wait, build).await.map_err(|_| {
+                "agent timeout_seconds budget exceeded during preparation".to_owned()
+            })?
+        } else {
+            build.await
+        }
+    }
+}
+
+impl DurableTurnFactory {
+    async fn build_request(
+        &self,
+        agent_id: &str,
+        input: Vec<AgentMessage>,
+        snapshot: Option<Session>,
+    ) -> Result<LoopRequest, String> {
         self.execution.check()?;
         let mut config = self
             .sessions
@@ -1240,8 +1284,8 @@ impl TurnRequestFactory for DurableTurnFactory {
             .tool_factory
             .executor(agent_id, &config.cwd, config.permission)
             .await?;
-        let tool_executor = self.execution.executor(tool_executor);
-        let snapshot = self.store.load(agent_id).await.map_err(|e| e.to_string())?;
+        let mut tool_executor = self.execution.executor(tool_executor);
+
         if self.tool_factory.allows_host_tool("history") {
             tool_executor
                 .registry()
@@ -1284,7 +1328,19 @@ impl TurnRequestFactory for DurableTurnFactory {
             }
         }
         self.tool_factory.validate_executor(&tool_executor).await?;
+        if let Some(state) = snapshot.as_ref().and_then(xharness_session::agent_policy) {
+            if let Some(requested) = &state.policy.tool_allowlist {
+                let parent = self.parent_tools(state.parent_session_id).await?;
+                let allowed = requested
+                    .iter()
+                    .filter(|name| parent.contains(*name))
+                    .cloned()
+                    .collect();
+                tool_executor = tool_executor.restrict_tools(&allowed).await;
+            }
+        }
         let mut request = LoopRequest::new(self.execution.provider(provider), input);
+        child_policy::apply_request_policy(&mut request, snapshot.as_ref())?;
         request.reasoning_effort = config.route.reasoning_effort;
         request.compaction_reasoning_effort = compaction_reasoning_effort;
         request.debug = self
@@ -1708,6 +1764,24 @@ impl DurableLoopAgentRuntime {
 
 #[async_trait]
 impl AgentRuntime for DurableLoopAgentRuntime {
+    async fn check_child_execution_budget(&self, id: &str) -> Result<(), String> {
+        let snapshot = self.store.load(id).await.map_err(|e| e.to_string())?;
+        child_policy::admission_wait(snapshot.as_ref()).map(|_| ())
+    }
+    fn supports_child_execution_policy(&self) -> bool {
+        true
+    }
+    async fn available_tool_names(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        permission: PermissionPreset,
+    ) -> Result<Vec<String>, AgentRuntimeError> {
+        child_policy::tool_names(self.tool_factory.as_ref(), session_id, cwd, permission)
+            .await
+            .map_err(|message| AgentRuntimeError::Preparation { message })
+    }
+
     async fn observe_session(
         &self,
         session_id: &str,

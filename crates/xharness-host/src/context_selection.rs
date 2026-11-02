@@ -214,6 +214,7 @@ mod tests {
                             parent_session_id: "parent".into(),
                             invocation_id: "i".into(),
                             task: "review".into(),
+                            policy: None,
                         }
                         .into(),
                     ],
@@ -257,6 +258,7 @@ mod tests {
                             parent_session_id: "parent".into(),
                             invocation_id: "i".into(),
                             task: "preserve this task".into(),
+                            policy: None,
                         }
                         .into(),
                     ],
