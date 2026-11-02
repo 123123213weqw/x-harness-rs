@@ -1,33 +1,31 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Menu, IconChevronDownOutline14, IconFollowsystemOutline16, IconGlobeOutline14 } from '@xharness/dsh-client-ui-primitives'
-import type { HostDescriptionSource } from '../client-connection/install'
+import type { EnvironmentCatalogueClient, HostDescriptionSource } from '../client-connection/install'
 import type { RuntimeEnvironmentOwnerProps } from '../conversation/contract/slots'
 import { EnvironmentPicker } from './EnvironmentPicker'
 import { openEnvironment, parseCatalogue, type EnvironmentCatalogue } from './gateway'
 import type { EnvironmentKey } from './locales'
 
 type Translate = (key: EnvironmentKey) => string
-interface GatewayProps { description: HostDescriptionSource }
-function useCatalogue(): EnvironmentCatalogue | undefined {
+interface CatalogueProps { catalogueClient: EnvironmentCatalogueClient | undefined }
+interface GatewayProps extends CatalogueProps { description: HostDescriptionSource }
+function useCatalogue(client: EnvironmentCatalogueClient | undefined): EnvironmentCatalogue | undefined {
   const [catalogue, setCatalogue] = useState<EnvironmentCatalogue>()
   useEffect(() => {
+    if (client === undefined) return
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
     const refresh = async (): Promise<void> => {
       try {
-        const response = await fetch('/api/environments', { signal: controller.signal, cache: 'no-store', credentials: 'same-origin' })
-        if (controller.signal.aborted) return
-        if (response.ok) {
-          const raw: unknown = await response.json()
-          const parsed = parseCatalogue(raw, location.origin)
-          if (!controller.signal.aborted && parsed !== undefined) setCatalogue(previous => previous ?? parsed)
-        } // A missing optional endpoint is normal on an ordinary local Host.
+        const raw = await client.read(controller.signal)
+        const parsed = parseCatalogue(raw, location.origin)
+        if (!controller.signal.aborted && parsed !== undefined) setCatalogue(previous => previous ?? parsed)
       } catch { /* Discovery is optional. Retain this page's immutable validated identity; live connectivity is owned by ConnectionController. */ }
       if (!controller.signal.aborted) timer = setTimeout(() => { void refresh() }, 30_000)
     }
     void refresh()
     return () => { controller.abort(); clearTimeout(timer) }
-  }, [])
+  }, [client])
   return catalogue
 }
 function Picker({ catalogue, t, appearance }: { catalogue: EnvironmentCatalogue; t: Translate; appearance?: RuntimeEnvironmentOwnerProps['appearance'] }) {
@@ -52,17 +50,17 @@ function Picker({ catalogue, t, appearance }: { catalogue: EnvironmentCatalogue;
   </span>
 }
 /** Header selector exists for real configured Gateways only. Local stays quiet. */
-export function GatewayHeader({ t }: { t: Translate }) {
-  const catalogue = useCatalogue()
+export function GatewayHeader({ t, catalogueClient }: CatalogueProps & { t: Translate }) {
+  const catalogue = useCatalogue(catalogueClient)
   return catalogue === undefined ? null : <Picker catalogue={catalogue} t={t} />
 }
-export function GatewayHero({ t, ...owner }: RuntimeEnvironmentOwnerProps & { t: Translate }) {
-  const catalogue = useCatalogue()
+export function GatewayHero({ t, catalogueClient, ...owner }: RuntimeEnvironmentOwnerProps & CatalogueProps & { t: Translate }) {
+  const catalogue = useCatalogue(catalogueClient)
   return catalogue === undefined ? <EnvironmentPicker {...owner} t={t} /> : <Picker catalogue={catalogue} t={t} appearance={owner.appearance} />
 }
 /** No “takeover” or “synced” claim: v1 only provides real isolated connections. */
-export function GatewayCloudStatus({ t, description }: GatewayProps & { t: Translate }) {
-  const catalogue = useCatalogue()
+export function GatewayCloudStatus({ t, description, catalogueClient }: GatewayProps & { t: Translate }) {
+  const catalogue = useCatalogue(catalogueClient)
   const connected = useSyncExternalStore(description.subscribe, description.getSnapshot, () => undefined) !== undefined
   const current = catalogue?.entries.find(e => e.id === catalogue.current)
   if (current?.kind !== 'cloud') return null

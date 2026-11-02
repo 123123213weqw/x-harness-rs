@@ -18,9 +18,9 @@ exports.ENVIRONMENT_SLOT = 'conversation.hero.runtimeEnvironment';
 /** Owned source-module registration, not a patch of a generated JS bundle. */
 function apply(ctx) {
     ctx.effect(() => ctx.locale.register(locales_1.NS, { en: locales_1.en, zh: locales_1.zh }), 'runtime-environment: dictionaries');
-    ctx.slots.inject(exports.ENVIRONMENT_SLOT, () => ctx.slots.register({ name: exports.ENVIRONMENT_SLOT, locale: locales_1.NS }, GatewayEnvironment_1.GatewayHero));
-    ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({ name: 'conversation.session.header.actions', id: 'environment-gateway', order: -20, locale: locales_1.NS }, GatewayEnvironment_1.GatewayHeader));
-    ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({ name: 'conversation.input.dock', id: 'environment-cloud-status', order: -20, locale: locales_1.NS }, (props) => (0, react_1.createElement)(GatewayEnvironment_1.GatewayCloudStatus, { t: props.t, description: ctx.get('connection').hostDescription })));
+    ctx.slots.inject(exports.ENVIRONMENT_SLOT, () => ctx.slots.register({ name: exports.ENVIRONMENT_SLOT, locale: locales_1.NS }, (props) => (0, react_1.createElement)(GatewayEnvironment_1.GatewayHero, { ...props, catalogueClient: ctx.get('connection').environmentCatalogue })));
+    ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({ name: 'conversation.session.header.actions', id: 'environment-gateway', order: -20, locale: locales_1.NS }, (props) => (0, react_1.createElement)(GatewayEnvironment_1.GatewayHeader, { ...props, catalogueClient: ctx.get('connection').environmentCatalogue })));
+    ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({ name: 'conversation.input.dock', id: 'environment-cloud-status', order: -20, locale: locales_1.NS }, (props) => (0, react_1.createElement)(GatewayEnvironment_1.GatewayCloudStatus, { t: props.t, description: ctx.get('connection').hostDescription, catalogueClient: ctx.get('connection').environmentCatalogue })));
 }
 
 },
@@ -37,22 +37,19 @@ const react_1 = require("react");
 const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
 const EnvironmentPicker_1 = require("./EnvironmentPicker");
 const gateway_1 = require("./gateway");
-function useCatalogue() {
+function useCatalogue(client) {
     const [catalogue, setCatalogue] = (0, react_1.useState)();
     (0, react_1.useEffect)(() => {
+        if (client === undefined)
+            return;
         const controller = new AbortController();
         let timer;
         const refresh = async () => {
             try {
-                const response = await fetch('/api/environments', { signal: controller.signal, cache: 'no-store', credentials: 'same-origin' });
-                if (controller.signal.aborted)
-                    return;
-                if (response.ok) {
-                    const raw = await response.json();
-                    const parsed = (0, gateway_1.parseCatalogue)(raw, location.origin);
-                    if (!controller.signal.aborted && parsed !== undefined)
-                        setCatalogue(previous => previous ?? parsed);
-                } // A missing optional endpoint is normal on an ordinary local Host.
+                const raw = await client.read(controller.signal);
+                const parsed = (0, gateway_1.parseCatalogue)(raw, location.origin);
+                if (!controller.signal.aborted && parsed !== undefined)
+                    setCatalogue(previous => previous ?? parsed);
             }
             catch { /* Discovery is optional. Retain this page's immutable validated identity; live connectivity is owned by ConnectionController. */ }
             if (!controller.signal.aborted)
@@ -60,7 +57,7 @@ function useCatalogue() {
         };
         void refresh();
         return () => { controller.abort(); clearTimeout(timer); };
-    }, []);
+    }, [client]);
     return catalogue;
 }
 function Picker({ catalogue, t, appearance }) {
@@ -80,17 +77,17 @@ function Picker({ catalogue, t, appearance }) {
                     icon: e.kind === 'cloud' ? (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconGlobeOutline14, { size: 16, "aria-hidden": "true" }) : (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconFollowsystemOutline16, { size: 16, "aria-hidden": "true" }) })), anchor: (0, jsx_runtime_1.jsxs)("button", { type: "button", className: appearance?.trigger, "aria-label": t('choose'), "aria-haspopup": "menu", "aria-expanded": open, title: t('separate'), onClick: () => { setOpen(value => !value); }, style: appearance ? undefined : { display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid currentColor', borderRadius: 8, padding: '5px 9px', background: 'transparent', color: 'inherit', cursor: 'pointer', font: 'inherit' }, children: [(0, jsx_runtime_1.jsx)(Icon, { size: 16, className: appearance?.icon, "aria-hidden": "true" }), (0, jsx_runtime_1.jsx)("span", { className: appearance?.label, children: current?.label }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconChevronDownOutline14, { size: 12, className: appearance?.chevron, "aria-hidden": "true" })] }) }), blocked && (0, jsx_runtime_1.jsx)("span", { role: "alert", children: t('popupBlocked') })] });
 }
 /** Header selector exists for real configured Gateways only. Local stays quiet. */
-function GatewayHeader({ t }) {
-    const catalogue = useCatalogue();
+function GatewayHeader({ t, catalogueClient }) {
+    const catalogue = useCatalogue(catalogueClient);
     return catalogue === undefined ? null : (0, jsx_runtime_1.jsx)(Picker, { catalogue: catalogue, t: t });
 }
-function GatewayHero({ t, ...owner }) {
-    const catalogue = useCatalogue();
+function GatewayHero({ t, catalogueClient, ...owner }) {
+    const catalogue = useCatalogue(catalogueClient);
     return catalogue === undefined ? (0, jsx_runtime_1.jsx)(EnvironmentPicker_1.EnvironmentPicker, { ...owner, t: t }) : (0, jsx_runtime_1.jsx)(Picker, { catalogue: catalogue, t: t, appearance: owner.appearance });
 }
 /** No “takeover” or “synced” claim: v1 only provides real isolated connections. */
-function GatewayCloudStatus({ t, description }) {
-    const catalogue = useCatalogue();
+function GatewayCloudStatus({ t, description, catalogueClient }) {
+    const catalogue = useCatalogue(catalogueClient);
     const connected = (0, react_1.useSyncExternalStore)(description.subscribe, description.getSnapshot, () => undefined) !== undefined;
     const current = catalogue?.entries.find(e => e.id === catalogue.current);
     if (current?.kind !== 'cloud')

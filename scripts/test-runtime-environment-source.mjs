@@ -9,6 +9,7 @@ const rows = [
   { id, source: 'src/modules/runtime-environment/index.ts' },
   { id: id + '/test', source: 'src/modules/runtime-environment/test-exports.ts' },
   { id: 'conversation/test', source: 'src/modules/conversation/test-exports.ts' },
+  { id: 'catalogue-client/test', source: 'src/modules/client-connection/environment-catalogue.ts' },
 ]
 const built = compileSourceModules(new URL('../ui', import.meta.url).pathname, rows)
 const create = (react = {}) => { const loaded = harness(built.get(id + '/test').bytes.toString(), { react: { useEffect() {}, ...react } }); loaded.context.URL = URL; return loaded.plugin }
@@ -145,4 +146,32 @@ test('switch opens exactly the registered immutable origin and never claims a bl
   assert.deepEqual(opened, ['http://127.0.0.1:4186/'])
   assert.equal(api.openEnvironment(catalogue, 'cloud', () => null), false)
   for (const id of ['local', 'http://evil.invalid', '__proto__', 'missing']) assert.equal(api.openEnvironment(catalogue, id, () => { throw Error('must not dispatch') }), false)
+})
+
+test('UI without an installed catalogue capability performs no network discovery', () => {
+  let requests = 0
+  const loaded = harness(built.get(id + '/test').bytes.toString(), {
+    react: { useEffect: effect => effect(), useSyncExternalStore: (_subscribe, snapshot) => snapshot() },
+    globals: { fetch() { requests++; throw Error('fixture must never fetch') } },
+  })
+  const subject = loaded.plugin
+  assert.equal(subject.GatewayHeader({ t: key => key, catalogueClient: undefined }), null)
+  assert.equal(subject.GatewayCloudStatus({ t: key => key, catalogueClient: undefined, description: { subscribe: () => () => {}, getSnapshot: () => undefined } }), null)
+  subject.GatewayHero({ ...draft, t: key => key, catalogueClient: undefined })
+  assert.equal(requests, 0)
+  const fixture = readFileSync('ui/src/modules/client-connection/fixture-entry.ts', 'utf8')
+  assert.ok(!fixture.includes('createWebEnvironmentCatalogue'))
+})
+
+test('production wire root alone installs same-origin abortable catalogue I/O', async () => {
+  const calls = []
+  const loaded = harness(built.get('catalogue-client/test').bytes.toString(), { globals: {
+    location: { origin: 'http://127.0.0.1:4185' },
+    fetch: async (url, init) => { calls.push({ url: url.href, signal: init.signal, cache: init.cache, credentials: init.credentials }); return { ok: true, json: async () => catalogue } },
+  } })
+  loaded.context.URL = URL
+  const signal = new AbortController().signal
+  assert.equal(await loaded.plugin.createWebEnvironmentCatalogue().read(signal), catalogue)
+  assert.deepEqual(calls, [{ url: 'http://127.0.0.1:4185/api/environments', signal, cache: 'no-store', credentials: 'same-origin' }])
+  assert.match(readFileSync('ui/src/modules/client-connection/index.ts', 'utf8'), /environmentCatalogue: createWebEnvironmentCatalogue\(\)/)
 })

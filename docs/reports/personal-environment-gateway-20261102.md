@@ -50,7 +50,7 @@ normal tab close does not produce false failure records.
 
 ## Automated evidence
 
-- Production UI source tests: 9 passed, including all 120 original fail-closed
+- Production UI source tests: 11 passed, including all 120 original fail-closed
   composer/history combinations; catalogue origin/shape/secret-field confusion
   and failed-popup/forged-selection cases are rejected.
 - Strict owned TypeScript, production UI assembly (61 modules / 190 assets),
@@ -71,3 +71,17 @@ This report does not claim GitHub CI completion, Windows Gateway support,
 Mac model acceptance, workspace sync, native bundle portability, active-task
 migration, distributed execution ownership, merge or release. See the runbook's
 remaining handoff work before enabling any such capability.
+
+## First CI feedback and correction
+
+The first browser/parity CI run correctly rejected direct `/api/environments`
+discovery inside the presentation plugin: isolated fixture carriers must never
+contact a real Host. Discovery was moved into an optional Connection capability,
+installed only by the production wire root. Fixture roots do not install it;
+presentation without that capability performs zero network discovery. Existing
+fixture-isolation and pixel-parity assertions were not relaxed. A dedicated
+source regression covers the absent-capability path.
+
+The first macOS job failed before Rust execution in its unchanged locked npm
+install (`Exit handler never called`). No dependency/runtime/action upgrade or
+lockfile refresh was used as a workaround; a fresh CI attempt is required.

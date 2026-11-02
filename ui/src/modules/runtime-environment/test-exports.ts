@@ -5,3 +5,5 @@ export { environmentPresentation, canAcknowledgeLocalPick } from './policy'
 export { NS, en, zh } from './locales'
 
 export { parseCatalogue, openEnvironment } from './gateway'
+
+export { GatewayHeader, GatewayHero, GatewayCloudStatus } from './GatewayEnvironment'

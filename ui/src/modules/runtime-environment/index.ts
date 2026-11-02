@@ -3,6 +3,7 @@ import type { ClientContext } from '../conversation/types/runtime'
 import type {} from '../conversation/index'
 import type { SlotMap } from '../conversation/types/slots'
 import { GatewayHeader, GatewayHero, GatewayCloudStatus } from './GatewayEnvironment'
+import type { EnvironmentPickerProps } from './EnvironmentPicker'
 import type { ConnectionHandle } from '../client-connection/install'
 import { en, NS, zh, type EnvironmentKey } from './locales'
 
@@ -13,10 +14,12 @@ export const ENVIRONMENT_SLOT = 'conversation.hero.runtimeEnvironment' satisfies
 export function apply(ctx: Pick<ClientContext, 'slots' | 'locale' | 'effect'> & { get(name: 'connection'): ConnectionHandle }): void {
   ctx.effect(() => ctx.locale.register(NS, { en, zh }), 'runtime-environment: dictionaries')
   ctx.slots.inject(ENVIRONMENT_SLOT, () =>
-    ctx.slots.register({ name: ENVIRONMENT_SLOT, locale: NS }, GatewayHero))
+    ctx.slots.register({ name: ENVIRONMENT_SLOT, locale: NS }, (props: EnvironmentPickerProps) =>
+      createElement(GatewayHero, { ...props, catalogueClient: ctx.get('connection').environmentCatalogue })))
   ctx.slots.inject('conversation.session.header.actions', () =>
-    ctx.slots.register({ name: 'conversation.session.header.actions', id: 'environment-gateway', order: -20, locale: NS }, GatewayHeader))
+    ctx.slots.register({ name: 'conversation.session.header.actions', id: 'environment-gateway', order: -20, locale: NS }, (props: { t: (key: EnvironmentKey) => string }) =>
+      createElement(GatewayHeader, { ...props, catalogueClient: ctx.get('connection').environmentCatalogue })))
   ctx.slots.inject('conversation.input.dock', () =>
     ctx.slots.register({ name: 'conversation.input.dock', id: 'environment-cloud-status', order: -20, locale: NS }, (props: { t: (key: EnvironmentKey) => string }) =>
-      createElement(GatewayCloudStatus, { t: props.t, description: ctx.get('connection').hostDescription })))
+      createElement(GatewayCloudStatus, { t: props.t, description: ctx.get('connection').hostDescription, catalogueClient: ctx.get('connection').environmentCatalogue })))
 }

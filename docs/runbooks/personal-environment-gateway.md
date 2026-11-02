@@ -9,6 +9,9 @@ or same-session handoff.** The catalogue advertises `workspaceSync: false` and
 - The original native Host owns models, credentials, journal recovery, tools,
   permissions, receipts and shutdown. The Gateway runs no Agent Loop, changes
   no native execution permit and starts/stops neither Host.
+- Catalogue discovery belongs to an optional Connection capability installed
+  only by the production wire root. Fixture carriers install none; UI never
+  issues its own out-of-band Host HTTP requests.
 - Each environment has an immutable upstream and a **different browser origin**.
   Selecting another environment opens another tab; it does not hot-swap the
   current API URL or reuse its session/draft/history/IndexedDB/event generation.
