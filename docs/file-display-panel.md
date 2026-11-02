@@ -130,7 +130,8 @@ objects are its nested `arguments`:
   an unborn repository); `head`: tracked worktree vs HEAD. Git must be installed
   on the connected Host. These are workspace scopes, **not** turn checkpoints.
   Untracked files and submodule internals are explicitly excluded. This does
-  not replace the existing GitHub PR/AI Code Review feature.
+  not change GitHub PR reviews. The separate built-in Code Review workspace
+  was retired on 2026-11-02.
 - The browser blank-tab form offers **Git Diff**; an empty path means the session
   workspace. Scope changes use separate/reusable file tabs keyed by scope as
   well as session, path and Markdown resource base.
@@ -170,8 +171,9 @@ objects are its nested `arguments`:
   Parsing is capped at 20,000 lines and 1,024 framed files. Malformed hunks,
   combined diffs and encoded binary patches retain their raw source with a
   visible unsupported/error state, not a made-up partial valid diff.
-- Code Review and file display now share the original strict readonly hunk
-  coordinate parser under `shared/diff`; evidence validation rules are unchanged.
+- File display retains the original strict readonly hunk
+  coordinate parser under `shared/diff`; retiring Code Review does not remove
+  this parser or change diff validation.
   The internal Layout event's scope values are also generated from Rust, without
   adding a second Zod runtime to the Layout bundle.
 

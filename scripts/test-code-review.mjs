@@ -4,6 +4,9 @@ import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import {createRequire} from 'node:module'
 import vm from 'node:vm'
+import {reviewedUiAdditions} from './fixtures/reviewed-ui-additions.mjs'
+import {assertProductionSources} from './ui-build-variant.mjs'
+import {compileSourceModules} from './build-source-modules.mjs'
 const require=createRequire(new URL('../ui/package.json',import.meta.url))
 const {buildSync}=require('esbuild')
 const compile=path=>buildSync({entryPoints:[new URL(path,import.meta.url).pathname],bundle:true,write:false,format:'cjs',platform:'node'}).outputFiles[0].text
@@ -27,34 +30,32 @@ test('PR links match full repository identity and exact number',()=>{
 test('filters preserve source records, order and selected identities',()=>{
  const original=plain(records);const subset=filterRecords(records,'memory','all');assert.equal(subset.length,4);assert.deepEqual(plain(records),original);assert.equal(subset[0],records[4])
 })
-test('feature is repository-built and contributes slots; it adds no remote or mutation execution',()=>{
+test('retired feature is absent from product registry and cannot return through source assembly',()=>{
  const manifest=JSON.parse(readFileSync(new URL('../ui/modules.json',import.meta.url),'utf8'))
- const entry=manifest.modules.find(item=>item.id==='@xlang/xharness-client-ui-code-review');assert.equal(entry.source,'src/modules/code-review/index.tsx')
- const source=readFileSync(new URL('../ui/'+entry.source,import.meta.url),'utf8')
- assert.match(source,/slots.inject\('review.center'/);assert.match(source,/slots.inject\('sidebar.footer.action'/)
- for(const prohibited of ['createPluginClient','window.open','iframe','download=','Merge</button>'])assert.ok(!source.includes(prohibited),prohibited)
- assert.ok(!/\bfetch\s*\(/.test(source),'feature must use the Host RPC client, not raw fetch')
- assert.ok(!/\bany\b|\bas\b|dangerouslySetInnerHTML/.test(source))
- assert.match(source,/new GitHubClient/);assert.ok(!source.includes('records,recordKey'));assert.ok(!manifest.assets.some(item=>item.path==='navigation/review-author.png'))
+ assert.ok(!manifest.modules.some(item=>item.id==='@xlang/xharness-client-ui-code-review'||item.source.startsWith('src/modules/code-review/')))
+ assert.ok(!reviewedUiAdditions().some(item=>item.id==='@xlang/xharness-client-ui-code-review'))
+ for(const source of ['src/modules/code-review/index.tsx','src/modules/code-review/ReviewPanel.tsx','src/modules/code-review/cache.ts']){
+  assert.throws(()=>assertProductionSources([source]),/Retired Code Review/)
+ }
+ assert.doesNotThrow(()=>assertProductionSources(['src/modules/assistant/index.tsx','src/modules/assistant/pull-reference.ts','src/modules/browser/file-display/diff.ts']))
+ assert.throws(()=>compileSourceModules(new URL('../ui',import.meta.url).pathname,[{id:'retired',source:'src/modules/code-review/index.tsx'}]),/Retired Code Review/)
+ const graph=JSON.parse(readFileSync('ui/dist/client-graph.json','utf8'))
+ assert.ok(!graph.entries.some(row=>row.id==='@xlang/xharness-client-ui-code-review'))
+ const receipt=JSON.parse(readFileSync('ui/dist/.xharness-ui-output.json','utf8'))
+ for(const rows of Object.values(receipt.moduleSources))assert.ok(rows.every(source=>!source.startsWith('src/modules/code-review/')))
 })
-test('frame retains conversation identity and borrows rather than overwrites saved panel width',()=>{
- const frame=readFileSync(new URL('../ui/src/modules/layout/AppFrame.tsx',import.meta.url),'utf8')
- assert.match(frame,/centerPage === 'review' \|\|/);assert.match(frame,/workspaceOpen=centerPage !== 'review'/)
- assert.ok(!frame.includes('reviewChat'));assert.match(frame,/assistantVisible/);assert.equal((frame.match(/renderSlot\('conversation', \{\}\)/g)??[]).length,1);assert.match(frame,/showConversation:setAssistantVisible/)
- assert.ok(!frame.includes('setSidebar(56)'))
- assert.match(frame,/closest\('\[data-shell-navigation\],\[data-sidebar-toggle\],\[data-xharness-assistant-nav\],\[data-xharness-review-nav\],\[data-xharness-plugin-nav\],\[data-xharness-work-nav\]'\)/)
- assert.match(frame,/centerPage !== 'chat'\) closeCenterPage\(\)/)
- const layout=readFileSync(new URL('../ui/src/modules/layout/index.ts',import.meta.url),'utf8');assert.match(layout,/'review.center': \{ kind: 'single', scope: 'root' \}/)
+test('frame retains a single conversation, saved geometry and no retired center slot',()=>{
+ const frame=readFileSync('ui/src/modules/layout/AppFrame.tsx','utf8'),layout=readFileSync('ui/src/modules/layout/index.ts','utf8')
+ for(const source of [frame,layout])assert.ok(!source.includes('review.center'))
+ assert.ok(!frame.includes("centerPage === 'review'"));assert.ok(!frame.includes("centerPage !== 'review'"))
+ assert.equal((frame.match(/renderSlot\('conversation', \{\}\)/g)??[]).length,1)
+ assert.match(frame,/showConversation:setAssistantVisible/);assert.match(frame,/showConversation:setSwarmVisible/)
+ assert.ok(!frame.includes('setSidebar(56)'));assert.ok(!frame.includes('data-xharness-review-nav'))
 })
-
-test('review navigation explicitly separates wide left-aligned labels from the icon-only rail',()=>{
- const source=readFileSync(new URL('../ui/src/modules/code-review/index.tsx',import.meta.url),'utf8')
- const css=readFileSync(new URL('../ui/src/modules/code-review/CodeReview.css',import.meta.url),'utf8')
- assert.match(source,/className="xhreview-nav" data-wide=\{wide\}/)
- assert.match(source,/<IconBranchOutline16 size=\{wide\?16:18\}/)
- assert.match(source,/<Tooltip label="Code Review" side="right" disabled=\{wide\}/)
- const rule=selector=>css.split(selector+'{')[1]?.split('}')[0]
- assert.match(rule('.xhreview-nav'),/justify-content:flex-start/);assert.match(rule('.xhreview-nav'),/padding:0 8px/)
- const sidebar=readFileSync(new URL('../ui/src/modules/sidebar/SidebarRoot.css',import.meta.url),'utf8');assert.match(sidebar,/\.U910La_footerActions\{display:flex;flex-direction:column\}/)
- assert.match(rule('.xhreview-nav[data-wide=false]'),/justify-content:center/);assert.match(rule('.xhreview-nav[data-wide=false]'),/width:36px;height:36px;margin:0;padding:0/)
+test('native composition no longer wires review storage; tombstone precedes generic GitHub access',()=>{
+ const native=readFileSync('crates/xharness-host-app/src/main.rs','utf8'),rpc=readFileSync('crates/xharness-host/src/rpc.rs','utf8'),host=readFileSync('crates/xharness-host/src/lib.rs','utf8')
+ assert.ok(!native.includes('with_review_directory'));assert.ok(!host.includes('review_work'))
+ assert.ok(rpc.indexOf('github/review-')<rpc.indexOf('if endpoint.starts_with("github/")'))
+ assert.ok(rpc.includes('crate::github_review::retired()'))
+ assert.ok(native.includes('args.bind.ip().is_loopback()'),'keep credential exposure protection')
 })

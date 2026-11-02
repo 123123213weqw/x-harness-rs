@@ -6,7 +6,7 @@
 
 ## 导航
 
-- 插件／工作／Code Review 等本地页面不依赖 Host 首次 session.list 成功。
+- 插件／工作／小 X 等本地页面不依赖 Host 首次 session.list 成功。Code Review 已于 2026-11-02 下线；旧打开事件回到当前聊天，不创建会话或发起模型请求。
 - 首次未知会话与用户主动打开空白页不同。首次权威列表仅绑定未知历史，不能清空当前页面、浏览历史或前进分支。
 - Host 断线时同会话页面仍能前后导航，不调用会话 open／clear；切到未知或被删除的会话仍失败关闭。
 - 宽／窄侧栏重挂载通过只读 route-requested／route-changed 投影恢复选中状态，不重放 feature:open，不重复启动 Agent。
