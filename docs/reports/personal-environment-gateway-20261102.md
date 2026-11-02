@@ -12,9 +12,19 @@ new disposable state/workspace. The Linux edge used a remotely built native
 Host with another disposable state/workspace. A loopback-only Linux Gateway
 connected to both through verified SSH forwarding for this acceptance. The
 Mac edge intentionally had no model credential in its new state; **Mac model
-execution and a natively running Mac Gateway are not claimed by this report**.
+execution is not claimed by this report**.
 An existing authorized DeepSeek environment was reused on its owning server;
 no model credential was brought to the Mac or browser.
+
+Additional native Mac acceptance downloaded only the arm64 Gateway artifact
+from CI run `41399615144`, source head `fc5909b2e891b7c7717c1993414aee77a0801cc8`.
+The archive SHA-256 matched GitHub's artifact digest. This executable booted a
+temporary loopback-only Mac Gateway against the isolated Mac Host: the real
+production UI loaded its `local-workspace`, and authenticated catalogue and
+fresh-identity readiness requests returned HTTP 200. Local showed no Cloud
+strip. The temporary Gateway was then shut down without stopping either Host.
+This adds native Mac carrier boot acceptance, not Mac model or Cloud handoff
+acceptance. No Rust compilation occurred on the Mac.
 
 ## Real browser/model/tool evidence
 
@@ -84,4 +94,16 @@ source regression covers the absent-capability path.
 
 The first macOS job failed before Rust execution in its unchanged locked npm
 install (`Exit handler never called`). No dependency/runtime/action upgrade or
-lockfile refresh was used as a workaround; a fresh CI attempt is required.
+lockfile refresh was used as a workaround. A fresh CI attempt passed that install,
+the full macOS workspace tests and strict Clippy, and retained the Mac artifact
+used above. Both committed and rebuilt strict pixel parity and all eight browser
+shards passed on that attempt.
+
+A remaining UI contract rejected the runtime-environment plugin's new Connection
+dependency because its independent reviewed ABI registry still listed the old
+two dependencies. The registry now pins exactly the new three-dependency ABI;
+the immutable master reference and strict equality assertions are unchanged.
+Additional runtime-plugin mutations reject missing/extra/reordered dependencies,
+source/kind changes, removal and eager boot. The aggregate layout gate correctly
+remained failed until its prerequisite contract was corrected; no gate was
+skipped or changed to accept failed prerequisites. Final-head CI is still required.
