@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Enroll the pure personal workspace reconciliation seam in compiler-enforced error fences and prevent filesystem, transport, Host or Agent ownership from entering its decision core.",
+  "compatibility": "Existing wire, journal, permission and execution protocols remain unchanged. This seam produces metadata proposals only and cannot mutate files, migrate sessions or acknowledge native quiescence.",
+  "paths": {
+    "scripts/regression/check-architecture.py": {
+      "before": "78c18b1aa05b78bff35bdc65c2293927965baf347e45a2efd42528ab5f4f0641",
+      "after": "a0cae1b3f209fec81b021f200d23a6ee18496610c11b16f71f6cc5b4bb754526"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}
