@@ -28,7 +28,7 @@ import type { ShellNavigation } from './shell-navigation'
 const xhWorkspaceWindow=xhCreateBrowserWindowController(typeof window==='undefined'?undefined:window.__TAURI__)
 
 /** Full composed props: runtime share + child-slot render share + store share. */
-export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay' | 'workspace.item' | 'work.center.tasks' | 'work.center.automations' | 'work.center.executions' | 'review.center' | 'assistant.center' | 'swarm.center'> {
+export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay' | 'workspace.item' | 'work.center.tasks' | 'work.center.automations' | 'work.center.executions' | 'assistant.center' | 'swarm.center'> {
   useSessions<T>(select: (state: import('../views-types').SessionSnapshot) => T): T
   useStore<T>(select: (state: import('./stores').LayoutState) => T): T
   actions: import('./service').PanelActions
@@ -279,11 +279,10 @@ export function AppFrame({
   // the solver keeps the control rail reserved and never squeezes the center.
   const narrow = viewport < SIDEBAR_AUTO_COLLAPSE
   useEffect(() => { actions.setNarrow(narrow) }, [actions, narrow])
-  // Review borrows the compact rail without changing the user's saved panel preference.
-  const sidebarCollapsed = centerPage === 'review' || (narrow ? !panels.narrowExpanded : panels.sidebar === 0)
+  const sidebarCollapsed = narrow ? !panels.narrowExpanded : panels.sidebar === 0
   const sidebarDrawer = narrow && !sidebarCollapsed
   const sidebarWidth=sidebarCollapsed||sidebarDrawer?56:panels.sidebar===0?SIDEBAR_DEFAULT:clampWidth(panels.sidebar,264,420)
-  const workspaceOpen=centerPage !== 'review' && space.items.length>0 && space.collapsed!==true
+  const workspaceOpen=space.items.length>0 && space.collapsed!==true
   useEffect(()=>{void xhWorkspaceWindow.set(workspaceOpen,440)},[workspaceOpen])
   useEffect(()=>{
     const publish=():void=>{window.dispatchEvent(new CustomEvent(workspaceDockEvents.visibility,{detail:{open:workspaceOpen}}))}
@@ -341,7 +340,7 @@ export function AppFrame({
         const target = event.target
         // Shell controls and peer page entries own their transitions. Do not
         // insert an intermediate chat route (or close the replayed destination).
-        if (target instanceof Element && target.closest('[data-shell-navigation],[data-sidebar-toggle],[data-xharness-assistant-nav],[data-xharness-review-nav],[data-xharness-plugin-nav],[data-xharness-work-nav]')) return
+        if (target instanceof Element && target.closest('[data-shell-navigation],[data-sidebar-toggle],[data-xharness-assistant-nav],[data-xharness-plugin-nav],[data-xharness-work-nav]')) return
         if (centerPage !== 'chat') closeCenterPage()
       }} onClick={event => {
         // Row actions stop propagation; dismiss only a completed navigation
@@ -373,7 +372,6 @@ export function AppFrame({
           {renderSlot('plugins.center', {})}
         </main>}
         {centerPage === 'work' && <WorkCenter close={closeCenterPage} renderTasks={() => renderSlot('work.center.tasks', {openSession: openWorkSession})} renderAutomations={() => renderSlot('work.center.automations', {openSession: openWorkSession})} renderExecutions={()=>renderSlot('work.center.executions',{openSession:openWorkSession})}/>}
-        {centerPage === 'review' && renderSlot('review.center', {close: closeCenterPage})}
         </div></CenterColumn>
         {workspaceDrawer&&<button type="button" className={css.workspaceScrim} aria-label="关闭工作区" onClick={()=>updateSpace(value=>({...value,collapsed:true}))} />}
         <DetailsColumn><XhWorkspacePane space={space} spaces={spaces} open={workspaceOpen} sessionId={spaceKey==='__global__'?null:spaceKey} renderSlot={renderSlot} onSelect={id=>updateSpace(value=>({...value,activeId:id}))} onClose={closeWorkspace} onUpdate={updateItem} onUpdateOwner={(owner,id,patch)=>setSpaces(all=>{
