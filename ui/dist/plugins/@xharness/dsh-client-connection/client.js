@@ -2417,7 +2417,9 @@ exports.createWebEnvironmentCatalogue = createWebEnvironmentCatalogue;
 function createWebEnvironmentCatalogue() {
     return {
         async read(signal) {
-            const response = await globalThis.fetch('/api/environments', {
+            if (typeof location === 'undefined' || location.origin === 'null')
+                throw new Error('environment catalogue requires a browser origin');
+            const response = await globalThis.fetch(new URL('/api/environments', location.origin), {
                 signal, cache: 'no-store', credentials: 'same-origin',
             });
             if (!response.ok)
