@@ -23,6 +23,7 @@ impl ModelOverride {
     pub(super) fn is_empty(&self) -> bool {
         self.provider.is_none() && self.model.is_none() && self.reasoning_effort.is_none()
     }
+    #[cfg(test)]
     pub(super) fn operation(&self, task: &str, label: &Option<String>) -> AgentOperation {
         AgentOperation::Start {
             task: task.into(),
@@ -30,6 +31,9 @@ impl ModelOverride {
             provider: self.provider.clone(),
             model: self.model.clone(),
             reasoning_effort: self.reasoning_effort.clone(),
+            max_steps: None,
+            timeout_seconds: None,
+            tool_allowlist: None,
         }
     }
     pub(super) fn resolve(
@@ -400,6 +404,21 @@ mod tests {
             ..Default::default()
         }
         .operation("review", &None)
+    }
+    #[test]
+    fn approval_binding_covers_optional_limits_and_tools() {
+        let base = operation();
+        let encoded = serde_json::to_value(&base).unwrap();
+        for (field, value) in [
+            ("max_steps", json!(4)),
+            ("timeout_seconds", json!(60)),
+            ("tool_allowlist", json!([])),
+        ] {
+            let mut changed = encoded.clone();
+            changed[field] = value;
+            let changed: AgentOperation = serde_json::from_value(changed).unwrap();
+            assert_ne!(fingerprint(&base), fingerprint(&changed));
+        }
     }
     fn approved(outcome: Option<ApprovalOutcome>) -> Session {
         let mut session = Session::new(SessionHeader::new("caller")).unwrap();
@@ -822,6 +841,7 @@ mod tests {
             parent_session_id: "caller".into(),
             invocation_id: "call".into(),
             task: "review".into(),
+            policy: None,
         };
         session
             .append_batch(

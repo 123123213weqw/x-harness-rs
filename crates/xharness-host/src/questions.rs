@@ -975,6 +975,7 @@ mod tests {
                     parent_session_id: "parent".into(),
                     invocation_id: "delegate".into(),
                     task: "review".into(),
+                    policy: None,
                 }
                 .into()],
             )
@@ -1032,6 +1033,7 @@ mod tests {
                         parent_session_id: "parent".into(),
                         invocation_id: "old".into(),
                         task: "copied history".into(),
+                        policy: None,
                     }
                     .into(),
                     EventData::SessionForkOrigin {
@@ -1068,6 +1070,7 @@ mod tests {
                         parent_session_id: "parent".into(),
                         invocation_id: "old".into(),
                         task: "review".into(),
+                        policy: None,
                     }
                     .into(),
                     EventData::QuestionRequested {
@@ -1144,6 +1147,7 @@ mod tests {
                         parent_session_id: "parent".into(),
                         invocation_id: "old".into(),
                         task: "review".into(),
+                        policy: None,
                     }
                     .into(),
                     EventData::QuestionRequested {
