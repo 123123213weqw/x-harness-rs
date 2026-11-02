@@ -3,3 +3,7 @@ export { apply, inject } from './index'
 export { EnvironmentPicker } from './EnvironmentPicker'
 export { environmentPresentation, canAcknowledgeLocalPick } from './policy'
 export { NS, en, zh } from './locales'
+
+export { parseCatalogue, openEnvironment } from './gateway'
+
+export { GatewayHeader, GatewayHero, GatewayCloudStatus } from './GatewayEnvironment'

@@ -132,6 +132,24 @@ async fn desktop_identity_is_nonce_bound_domain_separated_and_does_not_authorize
         .map(|b| format!("{b:02x}"))
         .collect();
     assert_eq!(body["proof"], expected);
+    assert!(xharness_server::verify_desktop_identity(
+        &token, &nonce, &expected
+    ));
+    assert!(!xharness_server::verify_desktop_identity(
+        "different",
+        &nonce,
+        &expected
+    ));
+    assert!(!xharness_server::verify_desktop_identity(
+        &token,
+        &"c".repeat(64),
+        &expected
+    ));
+    for invalid in ["", "short", &"z".repeat(64), &"0".repeat(65)] {
+        assert!(!xharness_server::verify_desktop_identity(
+            &token, &nonce, invalid
+        ));
+    }
     assert!(!body.to_string().contains(&token));
     for query in [
         "nonce=short".to_owned(),

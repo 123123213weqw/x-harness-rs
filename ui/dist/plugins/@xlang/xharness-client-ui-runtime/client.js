@@ -10,14 +10,89 @@ const __units = {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ENVIRONMENT_SLOT = exports.inject = void 0;
 exports.apply = apply;
-const EnvironmentPicker_1 = require("./EnvironmentPicker");
+const react_1 = require("react");
+const GatewayEnvironment_1 = require("./GatewayEnvironment");
 const locales_1 = require("./locales");
-exports.inject = ['slots', 'locale'];
+exports.inject = ['slots', 'locale', 'connection'];
 exports.ENVIRONMENT_SLOT = 'conversation.hero.runtimeEnvironment';
 /** Owned source-module registration, not a patch of a generated JS bundle. */
 function apply(ctx) {
     ctx.effect(() => ctx.locale.register(locales_1.NS, { en: locales_1.en, zh: locales_1.zh }), 'runtime-environment: dictionaries');
-    ctx.slots.inject(exports.ENVIRONMENT_SLOT, () => ctx.slots.register({ name: exports.ENVIRONMENT_SLOT, locale: locales_1.NS }, EnvironmentPicker_1.EnvironmentPicker));
+    ctx.slots.inject(exports.ENVIRONMENT_SLOT, () => ctx.slots.register({ name: exports.ENVIRONMENT_SLOT, locale: locales_1.NS }, (props) => (0, react_1.createElement)(GatewayEnvironment_1.GatewayHero, { ...props, catalogueClient: ctx.get('connection').environmentCatalogue })));
+    ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({ name: 'conversation.session.header.actions', id: 'environment-gateway', order: -20, locale: locales_1.NS }, (props) => (0, react_1.createElement)(GatewayEnvironment_1.GatewayHeader, { ...props, catalogueClient: ctx.get('connection').environmentCatalogue })));
+    ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({ name: 'conversation.input.dock', id: 'environment-cloud-status', order: -20, locale: locales_1.NS }, (props) => (0, react_1.createElement)(GatewayEnvironment_1.GatewayCloudStatus, { t: props.t, description: ctx.get('connection').hostDescription, catalogueClient: ctx.get('connection').environmentCatalogue })));
+}
+
+},
+"src/modules/runtime-environment/GatewayEnvironment.js": function(module, exports, require) {
+// source: src/modules/runtime-environment/GatewayEnvironment.tsx
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.GatewayHeader = GatewayHeader;
+exports.GatewayHero = GatewayHero;
+exports.GatewayCloudStatus = GatewayCloudStatus;
+const jsx_runtime_1 = require("react/jsx-runtime");
+const react_1 = require("react");
+const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
+const EnvironmentPicker_1 = require("./EnvironmentPicker");
+const gateway_1 = require("./gateway");
+function useCatalogue(client) {
+    const [catalogue, setCatalogue] = (0, react_1.useState)();
+    (0, react_1.useEffect)(() => {
+        if (client === undefined)
+            return;
+        const controller = new AbortController();
+        let timer;
+        const refresh = async () => {
+            try {
+                const raw = await client.read(controller.signal);
+                const parsed = (0, gateway_1.parseCatalogue)(raw, location.origin);
+                if (!controller.signal.aborted && parsed !== undefined)
+                    setCatalogue(previous => previous ?? parsed);
+            }
+            catch { /* Discovery is optional. Retain this page's immutable validated identity; live connectivity is owned by ConnectionController. */ }
+            if (!controller.signal.aborted)
+                timer = setTimeout(() => { void refresh(); }, 30000);
+        };
+        void refresh();
+        return () => { controller.abort(); clearTimeout(timer); };
+    }, [client]);
+    return catalogue;
+}
+function Picker({ catalogue, t, appearance }) {
+    const [open, setOpen] = (0, react_1.useState)(false);
+    const [blocked, setBlocked] = (0, react_1.useState)(false);
+    const current = catalogue.entries.find(e => e.id === catalogue.current);
+    const Icon = current?.kind === 'cloud' ? dsh_client_ui_primitives_1.IconGlobeOutline14 : dsh_client_ui_primitives_1.IconFollowsystemOutline16;
+    return (0, jsx_runtime_1.jsxs)("span", { "data-xh-environment-switcher": "", style: { display: 'inline-flex', alignItems: 'center', gap: 8, maxWidth: '100%', flexWrap: 'wrap' }, children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: open, portal: true, side: "bottom", selectedId: catalogue.current, onClose: () => { setOpen(false); }, onSelect: id => {
+                    setOpen(false);
+                    if (id === catalogue.current)
+                        return;
+                    setBlocked(!(0, gateway_1.openEnvironment)(catalogue, id, href => { const page = window.open('about:blank', '_blank'); if (page !== null) {
+                        page.opener = null;
+                        page.location.replace(href);
+                    } ; return page; }));
+                }, items: catalogue.entries.map(e => ({ id: e.id, label: e.label, disabled: e.id === catalogue.current,
+                    icon: e.kind === 'cloud' ? (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconGlobeOutline14, { size: 16, "aria-hidden": "true" }) : (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconFollowsystemOutline16, { size: 16, "aria-hidden": "true" }) })), anchor: (0, jsx_runtime_1.jsxs)("button", { type: "button", className: appearance?.trigger, "aria-label": t('choose'), "aria-haspopup": "menu", "aria-expanded": open, title: t('separate'), onClick: () => { setOpen(value => !value); }, style: appearance ? undefined : { display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid currentColor', borderRadius: 8, padding: '5px 9px', background: 'transparent', color: 'inherit', cursor: 'pointer', font: 'inherit' }, children: [(0, jsx_runtime_1.jsx)(Icon, { size: 16, className: appearance?.icon, "aria-hidden": "true" }), (0, jsx_runtime_1.jsx)("span", { className: appearance?.label, children: current?.label }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconChevronDownOutline14, { size: 12, className: appearance?.chevron, "aria-hidden": "true" })] }) }), blocked && (0, jsx_runtime_1.jsx)("span", { role: "alert", children: t('popupBlocked') })] });
+}
+/** Header selector exists for real configured Gateways only. Local stays quiet. */
+function GatewayHeader({ t, catalogueClient }) {
+    const catalogue = useCatalogue(catalogueClient);
+    return catalogue === undefined ? null : (0, jsx_runtime_1.jsx)(Picker, { catalogue: catalogue, t: t });
+}
+function GatewayHero({ t, catalogueClient, ...owner }) {
+    const catalogue = useCatalogue(catalogueClient);
+    return catalogue === undefined ? (0, jsx_runtime_1.jsx)(EnvironmentPicker_1.EnvironmentPicker, { ...owner, t: t }) : (0, jsx_runtime_1.jsx)(Picker, { catalogue: catalogue, t: t, appearance: owner.appearance });
+}
+/** No “takeover” or “synced” claim: v1 only provides real isolated connections. */
+function GatewayCloudStatus({ t, description, catalogueClient }) {
+    const catalogue = useCatalogue(catalogueClient);
+    const connected = (0, react_1.useSyncExternalStore)(description.subscribe, description.getSnapshot, () => undefined) !== undefined;
+    const current = catalogue?.entries.find(e => e.id === catalogue.current);
+    if (current?.kind !== 'cloud')
+        return null;
+    return (0, jsx_runtime_1.jsxs)("div", { "data-xh-cloud-status": "", role: "status", style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 12, padding: '7px 10px', border: '1px solid currentColor', borderRadius: 8, opacity: 0.8 }, children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconGlobeOutline14, { size: 14, "aria-hidden": "true" }), (0, jsx_runtime_1.jsx)("strong", { children: current.label }), (0, jsx_runtime_1.jsx)("span", { children: connected ? t('connected') : t('disconnected') }), (0, jsx_runtime_1.jsx)("span", { children: t('notSynced') })] });
 }
 
 },
@@ -113,6 +188,48 @@ function canAcknowledgeLocalPick(presentation, id) {
 }
 
 },
+"src/modules/runtime-environment/gateway.js": function(module, exports, require) {
+// source: src/modules/runtime-environment/gateway.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.parseCatalogue = parseCatalogue;
+exports.openEnvironment = openEnvironment;
+function object(value) { return typeof value === 'object' && value !== null && !Array.isArray(value); }
+function entry(value) {
+    if (!object(value) || Object.keys(value).length !== 4 || Object.keys(value).some(key => !['id', 'label', 'kind', 'href'].includes(key)) || typeof value.id !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(value.id)
+        || typeof value.label !== 'string' || value.label.trim() === '' || value.label.length > 80 || /[\x00-\x1f\x7f]/.test(value.label)
+        || (value.kind !== 'local' && value.kind !== 'cloud') || typeof value.href !== 'string')
+        return false;
+    try {
+        const url = new URL(value.href);
+        return url.protocol === 'http:' && url.hostname === '127.0.0.1' && url.port !== '' && url.pathname === '/' && !url.username && !url.password && !url.search && !url.hash && url.href === value.href;
+    }
+    catch {
+        return false;
+    }
+}
+function parseCatalogue(value, origin) {
+    if (!object(value) || Object.keys(value).length !== 5 || Object.keys(value).some(key => !['version', 'current', 'entries', 'sessionMigration', 'workspaceSync'].includes(key)) || value.version !== 1 || typeof value.current !== 'string'
+        || value.sessionMigration !== false || value.workspaceSync !== false || !Array.isArray(value.entries)
+        || !value.entries.length || value.entries.length > 8 || !value.entries.every(entry))
+        return undefined;
+    const entries = value.entries;
+    if (new Set(entries.map(e => e.id)).size !== entries.length || new Set(entries.map(e => e.href)).size !== entries.length
+        || entries.filter(e => e.kind === 'local').length !== 1 || entries.find(e => e.id === value.current)?.href !== origin + '/')
+        return undefined;
+    return { version: 1, current: value.current, entries, sessionMigration: false, workspaceSync: false };
+}
+/** A pick opens another origin. It never rebinds a SessionManager or copies its
+ * draft/history/attachment cache. A blocked popup is not a successful switch. */
+function openEnvironment(catalogue, id, open) {
+    const target = catalogue.entries.find(e => e.id === id);
+    if (target === undefined || id === catalogue.current)
+        return false;
+    return open(target.href) !== null;
+}
+
+},
 "src/modules/runtime-environment/locales.js": function(module, exports, require) {
 // source: src/modules/runtime-environment/locales.ts
 
@@ -121,12 +238,20 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.zh = exports.en = exports.NS = void 0;
 exports.NS = 'runtime.environment';
 exports.en = {
+    separate: 'Open another environment in a new tab. This task and draft stay here.',
+    popupBlocked: 'Browser blocked the new environment tab. Allow popups and try again.',
+    connected: 'Cloud Host connected', disconnected: 'Cloud connection unavailable',
+    notSynced: 'Independent workspace · session transfer and file sync are not enabled',
     choose: 'Choose execution environment', local: 'Local', cloud: 'Cloud',
     unavailable: 'Cloud execution is not connected yet. Tasks still run on the current Host.',
     bound: 'This conversation keeps its existing environment. Start a new task to choose another.',
     unknown: 'Conversation history has not been confirmed. Its environment cannot be changed.',
 };
 exports.zh = {
+    separate: '在新标签页打开另一环境；当前任务和草稿保持不变。',
+    popupBlocked: '新环境标签页被浏览器拦截，请允许弹出窗口后重试。',
+    connected: '云端 Host 已连接', disconnected: '云端连接不可用',
+    notSynced: '独立工作区 · 尚未启用会话迁移与文件同步',
     choose: '选择执行环境', local: '本机', cloud: 'Cloud',
     unavailable: '云端执行尚未接入。任务仍在当前 Host 上运行。',
     bound: '此对话保持原执行环境。切换环境需要新建任务。',
@@ -135,7 +260,7 @@ exports.zh = {
 
 }
 };
-const __dependencies = {"src/modules/runtime-environment/index.js":{"./EnvironmentPicker":"src/modules/runtime-environment/EnvironmentPicker.js","./locales":"src/modules/runtime-environment/locales.js"},"src/modules/runtime-environment/EnvironmentPicker.js":{"./policy":"src/modules/runtime-environment/policy.js"},"src/modules/runtime-environment/policy.js":{},"src/modules/runtime-environment/locales.js":{}};
+const __dependencies = {"src/modules/runtime-environment/index.js":{"./GatewayEnvironment":"src/modules/runtime-environment/GatewayEnvironment.js","./locales":"src/modules/runtime-environment/locales.js"},"src/modules/runtime-environment/GatewayEnvironment.js":{"./EnvironmentPicker":"src/modules/runtime-environment/EnvironmentPicker.js","./gateway":"src/modules/runtime-environment/gateway.js"},"src/modules/runtime-environment/EnvironmentPicker.js":{"./policy":"src/modules/runtime-environment/policy.js"},"src/modules/runtime-environment/policy.js":{},"src/modules/runtime-environment/gateway.js":{},"src/modules/runtime-environment/locales.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

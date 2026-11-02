@@ -9,9 +9,10 @@ const rows = [
   { id, source: 'src/modules/runtime-environment/index.ts' },
   { id: id + '/test', source: 'src/modules/runtime-environment/test-exports.ts' },
   { id: 'conversation/test', source: 'src/modules/conversation/test-exports.ts' },
+  { id: 'catalogue-client/test', source: 'src/modules/client-connection/environment-catalogue.ts' },
 ]
 const built = compileSourceModules(new URL('../ui', import.meta.url).pathname, rows)
-const create = (react = {}) => harness(built.get(id + '/test').bytes.toString(), { react: { useEffect() {}, ...react } }).plugin
+const create = (react = {}) => { const loaded = harness(built.get(id + '/test').bytes.toString(), { react: { useEffect() {}, ...react } }); loaded.context.URL = URL; return loaded.plugin }
 const api = create()
 const appearance = { trigger: 'workspace-trigger', icon: 'workspace-icon', label: 'workspace-label', chevron: 'workspace-chevron' }
 const draft = { sessionId: 's', summaryBlank: true, composerPhase: 'blank', openState: 'cold', appearance }
@@ -91,15 +92,15 @@ test('locale and slot registrations return their cleanup handles', () => {
     locale: { register: (ns, dictionaries) => { calls.push(['locale', ns, dictionaries]); return () => calls.push(['locale-disposed']) } },
     slots: {
       inject: (name, fn) => { calls.push(['inject', name]); cleanups.push(fn()) },
-      register: (spec, component) => { calls.push(['register', spec, component]); return () => calls.push(['slot-disposed']) },
+      register: (spec, component) => { if (spec.name !== 'conversation.hero.runtimeEnvironment') assert.equal(typeof spec.id, 'string', 'list slots require stable IDs'); calls.push(['register', spec, component]); return () => calls.push(['slot-disposed']) },
     },
   })
-  assert.deepEqual(JSON.parse(JSON.stringify(api.inject)), ['slots', 'locale'])
+  assert.deepEqual(JSON.parse(JSON.stringify(api.inject)), ['slots', 'locale', 'connection'])
   assert.equal(calls.find(row => row[0] === 'register')[1].name, 'conversation.hero.runtimeEnvironment')
   assert.equal(calls.find(row => row[0] === 'register')[1].locale, api.NS)
-  assert.equal(cleanups.length, 2)
+  assert.equal(cleanups.length, 4)
   for (const dispose of cleanups) { assert.equal(typeof dispose, 'function'); dispose() }
-  assert.equal(calls.filter(row => row[0].endsWith('disposed')).length, 2)
+  assert.equal(calls.filter(row => row[0].endsWith('disposed')).length, 4)
 })
 
 test('bilingual copy explicitly states cloud unavailable without exposing machine names', () => {
@@ -115,7 +116,7 @@ test('production graph admits the owned TS picker, not its private test entry or
   const row = spec.modules.find(row => row.id === id)
   assert.equal(row.kind, 'source-module')
   assert.equal(row.source, rows[0].source)
-  assert.deepEqual(row.inject, ['@xharness/dsh-client-ui-conversation', '@xharness/dsh-client-locale'])
+  assert.deepEqual(row.inject, ['@xharness/dsh-client-connection', '@xharness/dsh-client-ui-conversation', '@xharness/dsh-client-locale'])
   assert.ok(!spec.modules.some(row => row.source?.endsWith('/runtime-environment/test-exports.ts')))
   const root = readFileSync('ui/src/modules/conversation/skeleton/ConversationRoot.tsx', 'utf8')
   assert.match(root, /renderSlot\('conversation\.hero\.runtimeEnvironment'/)
@@ -124,4 +125,53 @@ test('production graph admits the owned TS picker, not its private test entry or
   const graph = JSON.parse(readFileSync('ui/dist/client-graph.json', 'utf8'))
   assert.equal(graph.entries.filter(row => row.id === id).length, 1)
   assert.ok(built.get(id).sources.every(source => !source.startsWith('reference/') && !source.startsWith('legacy/')))
+})
+
+const catalogue = { version: 1, current: 'local', sessionMigration: false, workspaceSync: false, entries: [
+  { id: 'local', kind: 'local', label: 'Local', href: 'http://127.0.0.1:4185/' },
+  { id: 'cloud', kind: 'cloud', label: 'Cloud', href: 'http://127.0.0.1:4186/' },
+] }
+test('real catalogue fails closed on origin confusion, duplicate IDs, secrets and unsupported migration claims', () => {
+  assert.equal(api.parseCatalogue(catalogue, 'http://127.0.0.1:4185').current, 'local')
+  for (const mutate of [v => v.version = 2, v => v.current = 'cloud', v => v.workspaceSync = true,
+    v => v.sessionMigration = true, v => v.entries[1].id = 'local', v => v.entries[1].href = v.entries[0].href,
+    v => v.entries[1].href = 'http://user:secret@127.0.0.1:4186/', v => v.entries[1].href = 'https://evil.invalid/',
+    v => v.entries[1].tokenFile = '/private/secret', v => v.secret = 'never-copy', v => v.entries[1].kind = { toString: null }, v => v.entries[1].kind = 'unknown', v => v.entries[1].href += '?token=secret', v => v.entries[1].label = '\n']) {
+    const value = structuredClone(catalogue); mutate(value); assert.equal(api.parseCatalogue(value, 'http://127.0.0.1:4185'), undefined)
+  }
+})
+test('switch opens exactly the registered immutable origin and never claims a blocked popup succeeded', () => {
+  const opened = []
+  assert.equal(api.openEnvironment(catalogue, 'cloud', href => { opened.push(href); return {} }), true)
+  assert.deepEqual(opened, ['http://127.0.0.1:4186/'])
+  assert.equal(api.openEnvironment(catalogue, 'cloud', () => null), false)
+  for (const id of ['local', 'http://evil.invalid', '__proto__', 'missing']) assert.equal(api.openEnvironment(catalogue, id, () => { throw Error('must not dispatch') }), false)
+})
+
+test('UI without an installed catalogue capability performs no network discovery', () => {
+  let requests = 0
+  const loaded = harness(built.get(id + '/test').bytes.toString(), {
+    react: { useEffect: effect => effect(), useSyncExternalStore: (_subscribe, snapshot) => snapshot() },
+    globals: { fetch() { requests++; throw Error('fixture must never fetch') } },
+  })
+  const subject = loaded.plugin
+  assert.equal(subject.GatewayHeader({ t: key => key, catalogueClient: undefined }), null)
+  assert.equal(subject.GatewayCloudStatus({ t: key => key, catalogueClient: undefined, description: { subscribe: () => () => {}, getSnapshot: () => undefined } }), null)
+  subject.GatewayHero({ ...draft, t: key => key, catalogueClient: undefined })
+  assert.equal(requests, 0)
+  const fixture = readFileSync('ui/src/modules/client-connection/fixture-entry.ts', 'utf8')
+  assert.ok(!fixture.includes('createWebEnvironmentCatalogue'))
+})
+
+test('production wire root alone installs same-origin abortable catalogue I/O', async () => {
+  const calls = []
+  const loaded = harness(built.get('catalogue-client/test').bytes.toString(), { globals: {
+    location: { origin: 'http://127.0.0.1:4185' },
+    fetch: async (url, init) => { calls.push({ url: url.href, signal: init.signal, cache: init.cache, credentials: init.credentials }); return { ok: true, json: async () => catalogue } },
+  } })
+  loaded.context.URL = URL
+  const signal = new AbortController().signal
+  assert.equal(await loaded.plugin.createWebEnvironmentCatalogue().read(signal), catalogue)
+  assert.deepEqual(calls, [{ url: 'http://127.0.0.1:4185/api/environments', signal, cache: 'no-store', credentials: 'same-origin' }])
+  assert.match(readFileSync('ui/src/modules/client-connection/index.ts', 'utf8'), /environmentCatalogue: createWebEnvironmentCatalogue\(\)/)
 })
