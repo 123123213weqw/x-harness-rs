@@ -211,6 +211,7 @@
       "kind": "source-module",
       "source": "src/modules/runtime-environment/index.ts",
       "inject": [
+        "@xharness/dsh-client-connection",
         "@xharness/dsh-client-ui-conversation",
         "@xharness/dsh-client-locale"
       ]

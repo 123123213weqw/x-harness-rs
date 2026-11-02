@@ -844,6 +844,13 @@ jobs:
         if: runner.os != 'Windows'
         run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Retain personal environment Gateway for no-local-Rust acceptance
+        uses: actions/upload-artifact@v7
+        with:
+          name: personal-environment-gateway-macos-arm64
+          path: target/debug/xharness-environment-gateway
+          if-no-files-found: error
+          retention-days: 3
       - name: Stage debug macOS sidecars for PR smoke
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         run: |

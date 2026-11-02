@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Enroll the opt-in personal environment carrier in existing compiler-enforced business error fences; it owns no Agent Loop or Host business state.",
+  "compatibility": "Existing wire/journal schemas, execution permits and all lint fences remain unchanged. One immutable upstream per browser origin; no task replay or session ownership transfer.",
+  "paths": {
+    "scripts/regression/check-architecture.py": {
+      "before": "12eaedb46fa276be2bf680189fbff404c9bc0386d841d92672db866478e34763",
+      "after": "78c18b1aa05b78bff35bdc65c2293927965baf347e45a2efd42528ab5f4f0641"
+    },
+    ".github/workflows/ci.yml": {
+      "before": "ef3ba90de15b6731bd41d83c51958ec021d7e7b6b661e029a50608dd97847a68",
+      "after": "e3225ff2919dae2015dcbeb6d436319a784c8041f67ae6551fffb549b2543371"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}
