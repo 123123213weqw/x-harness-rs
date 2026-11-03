@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Add opt-in SSH/rsync native participants with prepare-before-publish and durable cross-process recovery",
+  "compatibility": "Existing same-process executor, readonly HTTP export, installed Host, UI and execution routes remain unchanged. Separate owner registration is required; strict full hashes, native observed versions and retained preimages protect publication. No deletion, runtime dependency update, local Rust compilation or automatic activation. Native/Windows stubs and actual compiler/error mutations remain enrolled.",
+  "paths": {
+    "crates/xharness-fs/src/workspace_apply.rs": {
+      "before": "bb4386d73b0ed42111ac35ea9b6c4f0ea55c38bbaf184f6baf445ceb2efb9aa6",
+      "after": "5d801e55fc233d13726d7a0b1a4f333a443f27ee97f1d7a8c395d0093520baab"
+    },
+    "scripts/regression/check-architecture.py": {
+      "before": "9eaf6f0e91f789ed4a01c5e6bfa19edf9019d0d5a917168c4753edca7f026b0f",
+      "after": "9b65f820b4d7ea81f2319d1ee34b58e494c9e68a57c98bdf8d9ad628adf40b98"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows",
+    "wire",
+    "persistence"
+  ]
+}

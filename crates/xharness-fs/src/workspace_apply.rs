@@ -82,6 +82,14 @@ pub struct StageSpec<'a> {
     pub bytes: u64,
     pub executable: bool,
 }
+/// Authenticated transport bytes are still not a filesystem grant. Only a
+/// native owner holding this lease may choose the destination and operation.
+pub struct ReceivedStageSpec<'a> {
+    pub path: &'a str,
+    pub operation: &'a str,
+    pub sha256: &'a str,
+    pub executable: bool,
+}
 pub struct SyncLease {
     service: FsService,
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -892,6 +900,89 @@ mod native {
             }
             Ok(staged)
         }
+        /// Stage a fully received bounded object, never the live destination.
+        /// Validate the entire payload before any directory/namespace effect.
+        /// Partial private stages survive crashes as evidence, not user files.
+        pub fn stage_bytes(
+            &self,
+            spec: ReceivedStageSpec<'_>,
+            bytes: &[u8],
+        ) -> Result<FileWitness, ApplyError> {
+            let ReceivedStageSpec {
+                path,
+                operation,
+                sha256,
+                executable,
+            } = spec;
+            let (new, _, _) = Self::names(path, operation)?;
+            if bytes.len() as u64 > MAX_FILE_BYTES {
+                return Err(ApplyError::Limit);
+            }
+            if format!("{:x}", Sha256::digest(bytes)) != sha256 {
+                return Err(ApplyError::Changed);
+            }
+            let directory = parent(&self.service, &self.root, path, true)?;
+            let name = Path::new(&new)
+                .file_name()
+                .and_then(OsStr::to_str)
+                .ok_or(ApplyError::Invalid)?;
+            if let Some(existing) = self.probe(&new)? {
+                if existing.sha256 == sha256
+                    && existing.bytes == bytes.len() as u64
+                    && existing.executable == executable
+                {
+                    optional(&self.service, &self.root, &new)?
+                        .ok_or(ApplyError::Changed)?
+                        .sync_all()?;
+                    directory.sync_all()?;
+                    if self.probe(&new)?.as_ref() != Some(&existing) {
+                        return Err(ApplyError::Changed);
+                    }
+                    return Ok(existing);
+                }
+                let nonce = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(io::Error::other)?
+                    .as_nanos();
+                rename(
+                    &self.service,
+                    &directory,
+                    path,
+                    name,
+                    &format!("{name}.partial-{nonce}"),
+                    false,
+                )?;
+            }
+            let mut output = File::from(
+                openat(
+                    &directory,
+                    name,
+                    OFlag::O_WRONLY
+                        | OFlag::O_CREAT
+                        | OFlag::O_EXCL
+                        | OFlag::O_NOFOLLOW
+                        | OFlag::O_CLOEXEC,
+                    Mode::from_bits_truncate(0o600),
+                )
+                .map_err(|e| io::Error::from_raw_os_error(e as i32))?,
+            );
+            output.write_all(bytes)?;
+            output.set_permissions(std::fs::Permissions::from_mode(if executable {
+                0o700
+            } else {
+                0o600
+            }))?;
+            output.sync_all()?;
+            directory.sync_all()?;
+            let staged = self.probe(&new)?.ok_or(ApplyError::Changed)?;
+            if staged.sha256 != sha256
+                || staged.bytes != bytes.len() as u64
+                || staged.executable != executable
+            {
+                return Err(ApplyError::Changed);
+            }
+            Ok(staged)
+        }
         /// Recover by recorded inode+full hash. Keep old bytes, never unlink a
         /// user file. No-replace moves can briefly leave the destination absent.
         /// They intentionally do not claim POSIX content-CAS against arbitrary writers.
@@ -1165,6 +1256,67 @@ mod native {
             assert_eq!(std::fs::read(&retained[0]).unwrap(), b"interrupted");
         }
         #[test]
+        fn received_stage_checks_payload_before_effect_and_recovers_partial_bytes() {
+            let fixture = Fixture::new();
+            let lease = FsService::new(&fixture.0).unwrap().sync_lease().unwrap();
+            let operation = "d".repeat(64);
+            let expected = format!("{:x}", Sha256::digest(b"complete"));
+            assert!(lease
+                .stage_bytes(
+                    ReceivedStageSpec {
+                        path: "fresh/file",
+                        operation: &operation,
+                        sha256: &expected,
+                        executable: false
+                    },
+                    b"wrong"
+                )
+                .is_err());
+            assert!(!fixture.0.join("fresh").exists());
+            std::fs::create_dir(fixture.0.join("fresh")).unwrap();
+            std::fs::write(
+                fixture.0.join(format!("fresh/.xh-sync-{operation}.new")),
+                b"partial",
+            )
+            .unwrap();
+            let staged = lease
+                .stage_bytes(
+                    ReceivedStageSpec {
+                        path: "fresh/file",
+                        operation: &operation,
+                        sha256: &expected,
+                        executable: true,
+                    },
+                    b"complete",
+                )
+                .unwrap();
+            assert!(!fixture.0.join("fresh/file").exists());
+            assert!(staged.executable);
+            let again = lease
+                .stage_bytes(
+                    ReceivedStageSpec {
+                        path: "fresh/file",
+                        operation: &operation,
+                        sha256: &expected,
+                        executable: true,
+                    },
+                    b"complete",
+                )
+                .unwrap();
+            assert_eq!(again, staged);
+            lease
+                .publish("fresh/file", &operation, None, None, &staged.identity)
+                .unwrap();
+            assert_eq!(
+                std::fs::read(fixture.0.join("fresh/file")).unwrap(),
+                b"complete"
+            );
+            assert_eq!(
+                std::fs::read_dir(fixture.0.join("fresh")).unwrap().count(),
+                2
+            );
+        }
+        #[test]
         fn full_hash_detects_change_outside_model_sampling_and_rejects_hardlinks() {
             use std::io::{Seek, SeekFrom};
             let fixture = Fixture::new();
@@ -1186,6 +1338,13 @@ mod native {
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 impl SyncLease {
+    pub fn stage_bytes(
+        &self,
+        _: ReceivedStageSpec<'_>,
+        _: &[u8],
+    ) -> Result<FileWitness, ApplyError> {
+        Err(ApplyError::Unsupported)
+    }
     pub fn export_bytes(&self, _: &str, _: &str, _: usize) -> Result<Vec<u8>, ApplyError> {
         Err(ApplyError::Unsupported)
     }

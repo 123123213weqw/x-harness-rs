@@ -23,6 +23,9 @@ SOURCE_BOUNDARIES = {
     "crates/xharness-cloud/src/workspace_profile.rs": {
         "BasicHost", "xharness_host::", "xharness_core::", "std::fs", "std::process", "tokio::", "reqwest::",
     },
+    "crates/xharness-host-app/src/workspace_wire.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::", "reqwest::", "nix::", "unsafe {",
+    },
     "crates/xharness-host-app/src/workspace_build.rs": {
         "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::", "reqwest::", "nix::", "unsafe {",
     },

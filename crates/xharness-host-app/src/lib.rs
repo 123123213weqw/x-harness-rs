@@ -45,6 +45,7 @@ pub mod workspace_executor;
 pub mod workspace_export;
 pub mod workspace_inventory;
 mod workspace_memory;
+pub mod workspace_wire;
 use xharness_debug::DebugRecorder;
 use xharness_host::{
     DurableQuestionHub, DurableQuestionProvider, PermissionPreset, SessionToolFactory,
