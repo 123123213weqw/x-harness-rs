@@ -411,10 +411,31 @@ mod native {
         let checkpoint = key
             .strip_prefix("checkpoint-")
             .is_some_and(|g| g.len() == 20 && g.bytes().all(|b| b.is_ascii_digit()));
+        let job = key
+            .strip_prefix("job-")
+            .and_then(|k| {
+                k.strip_suffix("-intent")
+                    .or_else(|| k.strip_suffix("-result"))
+            })
+            .is_some_and(|id| {
+                id.len() == 64
+                    && id
+                        .bytes()
+                        .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+            });
         if !matches!(
             key,
-            "active" | "base" | "prepared" | "registration" | "pair" | "pair-init" | "export-auth"
+            "active"
+                | "base"
+                | "prepared"
+                | "build-active"
+                | "registration"
+                | "pair"
+                | "pair-init"
+                | "export-auth"
+                | "profile"
         ) && !checkpoint
+            && !job
         {
             return Err(ApplyError::Invalid);
         }
@@ -605,6 +626,16 @@ mod native {
         Ok(())
     }
     impl SyncLease {
+        pub fn entry_count(&self, limit: usize) -> Result<usize, ApplyError> {
+            check_root(&self.service, &self.root)?;
+            let entries = crate::directory_stream::list(
+                open_relative(&self.root, &self.service, "")?.into(),
+                limit,
+            )
+            .map_err(|e| ApplyError::Inventory(InventoryError::Directory(Box::new(e))))?;
+            check_root(&self.service, &self.root)?;
+            Ok(entries.len())
+        }
         pub fn root_identity(&self) -> Result<String, ApplyError> {
             fingerprint(&self.service, &self.root)
         }
@@ -630,7 +661,7 @@ mod native {
         /// Atomic replacement is ONLY for private native journal metadata, never
         /// for workspace content. Any error leaves the transaction unacknowledged.
         pub fn write_record(&self, name: &str, bytes: &[u8]) -> Result<(), ApplyError> {
-            if !matches!(name, "active" | "base" | "prepared") {
+            if !matches!(name, "active" | "base" | "prepared" | "build-active") {
                 return Err(ApplyError::Invalid);
             }
             self.write_record_inner(name, bytes, true)
@@ -1169,6 +1200,9 @@ impl SyncLease {
         Err(ApplyError::Unsupported)
     }
 
+    pub fn entry_count(&self, _: usize) -> Result<usize, ApplyError> {
+        Err(ApplyError::Unsupported)
+    }
     pub fn root_identity(&self) -> Result<String, ApplyError> {
         Err(ApplyError::Unsupported)
     }

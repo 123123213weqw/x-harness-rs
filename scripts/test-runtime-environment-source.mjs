@@ -175,3 +175,26 @@ test('production wire root alone installs same-origin abortable catalogue I/O', 
   assert.deepEqual(calls, [{ url: 'http://127.0.0.1:4185/api/environments', signal, cache: 'no-store', credentials: 'same-origin' }])
   assert.match(readFileSync('ui/src/modules/client-connection/index.ts', 'utf8'), /environmentCatalogue: createWebEnvironmentCatalogue\(\)/)
 })
+
+test('code-only remote execution preset is pending intent, never sync or execution authority', () => {
+  const value = { ...structuredClone(catalogue), workspaceProfile: { preset: 'local_code_remote_exec_v1', state: 'pending' } }
+  const parsed = api.parseCatalogue(value, 'http://127.0.0.1:4185')
+  assert.equal(parsed.workspaceProfile.preset, 'local_code_remote_exec_v1')
+  assert.equal(parsed.workspaceProfile.state, 'pending')
+  assert.equal(parsed.workspaceSync, false)
+  for (const bad of [null, true, {}, { preset: 'auto', state: 'pending' }, { preset: 'local_code_remote_exec_v1', state: 'ready' }, { preset: 'local_code_remote_exec_v1', state: 'pending', localFallback: true }]) {
+    assert.equal(api.parseCatalogue({ ...value, workspaceProfile: bad }, 'http://127.0.0.1:4185'), undefined)
+  }
+  assert.match(api.zh.profilePending, /尚未生效/)
+})
+
+test('cloud status renders pending policy and never adds a local popup or an active claim', () => {
+  const current = { ...structuredClone(catalogue), current: 'cloud', workspaceProfile: { preset: 'local_code_remote_exec_v1', state: 'pending' } }
+  const subject = create({ useState: () => [current, () => {}], useSyncExternalStore: () => ({}) })
+  const props = { t: key => api.en[key], catalogueClient: {}, description: { subscribe() {}, getSnapshot() {} } }
+  const rendered = JSON.stringify(subject.GatewayCloudStatus(props))
+  assert.match(rendered, /data-xh-workspace-profile/)
+  assert.ok(rendered.includes(api.en.profilePending))
+  current.current = 'local'
+  assert.equal(subject.GatewayCloudStatus(props), null)
+})

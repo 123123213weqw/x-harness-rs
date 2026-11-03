@@ -8,6 +8,7 @@ pub mod environment;
 pub mod state;
 pub mod store;
 pub mod testing;
+pub mod workspace_profile;
 pub mod workspace_sync;
 
 pub use contract::*;

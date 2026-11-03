@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Add opt-in fixed local-code remote-execution policy with native deny gate and checkpoint-pinned remote build port",
+  "compatibility": "Existing platform launchers and Gateway catalogue stay unchanged unless explicitly configured. Desired preset remains pending, no sync/migration/task route activation. Preserve native admission while appending snapshot guards; validate strict error fences, compiler mutations, readonly source, durable job crash/lost-reply/cancellation and exact artifact reads; all Rust compilation remote only.",
+  "paths": {
+    "crates/xharness-fs/src/workspace_apply.rs": {
+      "before": "30b54e7efe7a58cd3e8c5cbb7c16f72e78fee09bdaac7fe91b45520926958060",
+      "after": "bb4386d73b0ed42111ac35ea9b6c4f0ea55c38bbaf184f6baf445ceb2efb9aa6"
+    },
+    "crates/xharness-platform/src/lib.rs": {
+      "before": "b4cb21fc4c4abfd211e9f268e2135dc1028758d2beb1a8d65bd7467b102a8a92",
+      "after": "bd712aa4ca146b1b58df724502e8ff2674035acf317d53bf88c79f009c35927d"
+    },
+    "crates/xharness-platform/tests/platform.rs": {
+      "before": "a394be10d68fd382650061046ec110e031030edddc184fbe46d1e1587df0e18d",
+      "after": "db61d5acd8a83d92214c204704c0ecaca34911a8d802c02b516c41fe8468ef7a"
+    },
+    "crates/xharness-process/src/lib.rs": {
+      "before": "a2d5aee8a2df61f0e149a7cc7286df187a675b18e5d15ad4dbf62cc0490f79d0",
+      "after": "d783fbb0c939bb3cc0c38ab74a7c160023b8de07a69faa5d2137aa1d0a832b17"
+    },
+    "scripts/regression/check-architecture.py": {
+      "before": "f59da7651fe813a126bce0da67f648d1fd47c9e141eba53393d669c7378b37ea",
+      "after": "9eaf6f0e91f789ed4a01c5e6bfa19edf9019d0d5a917168c4753edca7f026b0f"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}

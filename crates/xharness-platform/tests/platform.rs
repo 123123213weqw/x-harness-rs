@@ -284,3 +284,39 @@ async fn workspace_admission_follows_cached_platform_and_running_process_not_ful
     drop(lease);
     assert!(NativePlatform::new(PlatformConfig::new(&workspace.0).full_access()).is_ok());
 }
+
+#[tokio::test]
+async fn local_code_only_denies_preparation_raw_launcher_and_clones_before_any_process() {
+    use xharness_platform::PlatformError;
+    use xharness_process::ProcessError;
+    let workspace = TempWorkspace::new();
+    assert!(matches!(
+        NativePlatform::new(
+            PlatformConfig::new(&workspace.0)
+                .local_code_only()
+                .full_access()
+        ),
+        Err(PlatformError::UnconfinedLocalCodeOnly)
+    ));
+    let platform =
+        NativePlatform::new(PlatformConfig::new(&workspace.0).local_code_only()).unwrap();
+    let report = platform.capability_report().await;
+    assert_eq!(report.sandbox_backend, "none-local-code-only");
+    assert!(report.filesystem_read.is_available());
+    assert!(report.filesystem_mutation.is_available());
+    assert!(!report.restricted_process.is_available());
+    assert!(!report.terminal_open.is_available());
+    let spec = echo_spec(&workspace.0, "must not execute");
+    assert!(matches!(
+        platform.prepare_spawn(spec.clone()).await,
+        Err(PlatformError::Process(ProcessError::ExecutionDisabled))
+    ));
+    assert!(matches!(
+        platform.clone().spawn(spec.clone()).await,
+        Err(PlatformError::Process(ProcessError::ExecutionDisabled))
+    ));
+    assert!(matches!(
+        platform.process().clone().spawn(spec),
+        Err(ProcessError::ExecutionDisabled)
+    ));
+}

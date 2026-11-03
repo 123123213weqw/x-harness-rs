@@ -92,7 +92,7 @@ function GatewayCloudStatus({ t, description, catalogueClient }) {
     const current = catalogue?.entries.find(e => e.id === catalogue.current);
     if (current?.kind !== 'cloud')
         return null;
-    return (0, jsx_runtime_1.jsxs)("div", { "data-xh-cloud-status": "", role: "status", style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 12, padding: '7px 10px', border: '1px solid currentColor', borderRadius: 8, opacity: 0.8 }, children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconGlobeOutline14, { size: 14, "aria-hidden": "true" }), (0, jsx_runtime_1.jsx)("strong", { children: current.label }), (0, jsx_runtime_1.jsx)("span", { children: connected ? t('connected') : t('disconnected') }), (0, jsx_runtime_1.jsx)("span", { children: t('notSynced') })] });
+    return (0, jsx_runtime_1.jsxs)("div", { "data-xh-cloud-status": "", role: "status", style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 12, padding: '7px 10px', border: '1px solid currentColor', borderRadius: 8, opacity: 0.8 }, children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconGlobeOutline14, { size: 14, "aria-hidden": "true" }), (0, jsx_runtime_1.jsx)("strong", { children: current.label }), (0, jsx_runtime_1.jsx)("span", { children: connected ? t('connected') : t('disconnected') }), (0, jsx_runtime_1.jsx)("span", { children: t('notSynced') }), catalogue?.workspaceProfile !== undefined && (0, jsx_runtime_1.jsxs)("span", { "data-xh-workspace-profile": "pending", children: [t('profileCodeRemote'), " \u00B7 ", t('profilePending')] })] });
 }
 
 },
@@ -210,15 +210,20 @@ function entry(value) {
     }
 }
 function parseCatalogue(value, origin) {
-    if (!object(value) || Object.keys(value).length !== 5 || Object.keys(value).some(key => !['version', 'current', 'entries', 'sessionMigration', 'workspaceSync'].includes(key)) || value.version !== 1 || typeof value.current !== 'string'
+    if (!object(value) || ![5, 6].includes(Object.keys(value).length) || Object.keys(value).some(key => !['version', 'current', 'entries', 'sessionMigration', 'workspaceSync', 'workspaceProfile'].includes(key)) || value.version !== 1 || typeof value.current !== 'string'
         || value.sessionMigration !== false || value.workspaceSync !== false || !Array.isArray(value.entries)
         || !value.entries.length || value.entries.length > 8 || !value.entries.every(entry))
+        return undefined;
+    const profile = value.workspaceProfile;
+    if ('workspaceProfile' in value && (!object(profile) || Object.keys(profile).length !== 2
+        || !Object.hasOwn(profile, 'preset') || !Object.hasOwn(profile, 'state')
+        || profile.preset !== 'local_code_remote_exec_v1' || profile.state !== 'pending'))
         return undefined;
     const entries = value.entries;
     if (new Set(entries.map(e => e.id)).size !== entries.length || new Set(entries.map(e => e.href)).size !== entries.length
         || entries.filter(e => e.kind === 'local').length !== 1 || entries.find(e => e.id === value.current)?.href !== origin + '/')
         return undefined;
-    return { version: 1, current: value.current, entries, sessionMigration: false, workspaceSync: false };
+    return { version: 1, current: value.current, entries, sessionMigration: false, workspaceSync: false, ...(profile === undefined ? {} : { workspaceProfile: { preset: 'local_code_remote_exec_v1', state: 'pending' } }) };
 }
 /** A pick opens another origin. It never rebinds a SessionManager or copies its
  * draft/history/attachment cache. A blocked popup is not a successful switch. */
@@ -238,6 +243,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.zh = exports.en = exports.NS = void 0;
 exports.NS = 'runtime.environment';
 exports.en = {
+    profileCodeRemote: 'Preset: local code · cloud execution',
+    profilePending: 'Not active · write sync and task routing are not connected',
     separate: 'Open another environment in a new tab. This task and draft stay here.',
     popupBlocked: 'Browser blocked the new environment tab. Allow popups and try again.',
     connected: 'Cloud Host connected', disconnected: 'Cloud connection unavailable',
@@ -248,6 +255,8 @@ exports.en = {
     unknown: 'Conversation history has not been confirmed. Its environment cannot be changed.',
 };
 exports.zh = {
+    profileCodeRemote: '策略预设：本地代码 · 云端执行',
+    profilePending: '尚未生效 · 写入同步与任务路由待接入',
     separate: '在新标签页打开另一环境；当前任务和草稿保持不变。',
     popupBlocked: '新环境标签页被浏览器拦截，请允许弹出窗口后重试。',
     connected: '云端 Host 已连接', disconnected: '云端连接不可用',

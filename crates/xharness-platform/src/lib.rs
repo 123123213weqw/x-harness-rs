@@ -97,6 +97,7 @@ pub struct PlatformConfig {
     allowed_cwd_roots: Vec<PathBuf>,
     read_only_roots: Vec<PathBuf>,
     workspace_control: Option<(PathBuf, String)>,
+    local_code_only: bool,
 }
 
 impl PlatformConfig {
@@ -108,7 +109,15 @@ impl PlatformConfig {
             allowed_cwd_roots: Vec::new(),
             read_only_roots: Vec::new(),
             workspace_control: None,
+            local_code_only: false,
         }
+    }
+
+    /// Store/edit code locally, but deny every native process/terminal launch.
+    /// This is not a remote adapter and never falls back when one is unavailable.
+    pub fn local_code_only(mut self) -> Self {
+        self.local_code_only = true;
+        self
     }
 
     /// Native-owner configuration only. Does not provision or repair a control
@@ -173,6 +182,8 @@ impl PlatformConfig {
 
 #[derive(Debug, thiserror::Error)]
 pub enum PlatformError {
+    #[error("local code-only policy rejects full filesystem access")]
+    UnconfinedLocalCodeOnly,
     #[error("controlled workspace requires confined write authority")]
     UnconfinedWorkspaceControl,
     #[error(transparent)]
@@ -189,6 +200,7 @@ pub struct NativePlatform {
     workspace_root: PathBuf,
     filesystem_root: PathBuf,
     access: PlatformAccess,
+    local_code_only: bool,
     filesystem: FsService,
     read_only_filesystems: Vec<FsService>,
     process: ProcessRuntime,
@@ -218,6 +230,9 @@ impl NativePlatform {
         observations: ObservationStore,
         debug: DebugRecorder,
     ) -> Result<Self, PlatformError> {
+        if config.local_code_only && config.access == PlatformAccess::FullAccess {
+            return Err(PlatformError::UnconfinedLocalCodeOnly);
+        }
         let workspace_root =
             std::fs::canonicalize(&config.workspace_root).map_err(|source| FsError::Io {
                 operation: "canonicalize workspace root",
@@ -277,7 +292,9 @@ impl NativePlatform {
             .iter()
             .map(FsService::new)
             .collect::<Result<Vec<_>, _>>()?;
-        let sandbox = if let Some(mode) = config.access.sandbox_mode() {
+        let sandbox = if config.local_code_only {
+            None
+        } else if let Some(mode) = config.access.sandbox_mode() {
             let mut policy = SandboxPolicy::new(&workspace_root, mode).with_network(config.network);
             for root in config.allowed_cwd_roots {
                 policy = policy.allow_cwd_root(root);
@@ -290,9 +307,18 @@ impl NativePlatform {
             workspace_root,
             filesystem_root,
             access: config.access,
+            local_code_only: config.local_code_only,
             filesystem,
             read_only_filesystems,
-            process: ProcessRuntime::with_debug(debug.clone()).with_lifetime_guard(admission),
+            process: {
+                let runtime =
+                    ProcessRuntime::with_debug(debug.clone()).with_lifetime_guard(admission);
+                if config.local_code_only {
+                    runtime.without_execution()
+                } else {
+                    runtime
+                }
+            },
             sandbox,
             readiness: Arc::new(OnceCell::new()),
             debug,
@@ -399,6 +425,24 @@ impl NativePlatform {
     }
 
     async fn probe_capabilities(&self) -> CapabilityReport {
+        if self.local_code_only {
+            let denied = CapabilityState::Unavailable {
+                reason: "local code-only policy requires remote execution; no local fallback"
+                    .into(),
+            };
+            return CapabilityReport {
+                filesystem_read: CapabilityState::Available,
+                filesystem_mutation: if self.access == PlatformAccess::ReadOnly {
+                    denied.clone()
+                } else {
+                    CapabilityState::Available
+                },
+                restricted_process: denied.clone(),
+                terminal_open: denied.clone(),
+                process_network: denied,
+                sandbox_backend: "none-local-code-only".into(),
+            };
+        }
         let filesystem_read = CapabilityState::Available;
         let filesystem_mutation = if self.access == PlatformAccess::ReadOnly {
             CapabilityState::Unavailable {
@@ -496,9 +540,19 @@ impl NativePlatform {
         }
     }
 
+    /// Keep a source snapshot/owner lease alive even if the caller drops a
+    /// running build future. This appends to, never replaces, workspace admission.
+    pub fn retain_execution_guard(mut self, guard: Arc<dyn Send + Sync + std::fmt::Debug>) -> Self {
+        self.process = self.process.with_lifetime_guard(guard);
+        self
+    }
+
     /// Apply the native sandbox without spawning. This keeps policy decisions
     /// inspectable and lets higher layers journal the final argv first.
     pub async fn prepare_spawn(&self, spec: SpawnSpec) -> Result<SpawnSpec, PlatformError> {
+        if self.local_code_only {
+            return Err(ProcessError::ExecutionDisabled.into());
+        }
         match &self.sandbox {
             Some(sandbox) => Ok(sandbox.prepare(spec).await?),
             None => Ok(spec),

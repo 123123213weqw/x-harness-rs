@@ -13,6 +13,8 @@ use std::{
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GatewayConfig {
     pub version: u32,
+    #[serde(default)]
+    pub workspace_profile: Option<xharness_cloud::workspace_profile::WorkspaceProfile>,
     pub launch_token_file: PathBuf,
     pub environments: Vec<EnvironmentConfig>,
 }

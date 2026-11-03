@@ -68,5 +68,6 @@ export function GatewayCloudStatus({ t, description, catalogueClient }: GatewayP
     <IconGlobeOutline14 size={14} aria-hidden="true" /><strong>{current.label}</strong>
     <span>{connected ? t('connected') : t('disconnected')}</span>
     <span>{t('notSynced')}</span>
+    {catalogue?.workspaceProfile !== undefined && <span data-xh-workspace-profile="pending">{t('profileCodeRemote')} · {t('profilePending')}</span>}
   </div>
 }

@@ -1,5 +1,7 @@
 export const NS = 'runtime.environment'
 export const en = {
+  profileCodeRemote: 'Preset: local code · cloud execution',
+  profilePending: 'Not active · write sync and task routing are not connected',
   separate: 'Open another environment in a new tab. This task and draft stay here.',
   popupBlocked: 'Browser blocked the new environment tab. Allow popups and try again.',
   connected: 'Cloud Host connected', disconnected: 'Cloud connection unavailable',
@@ -10,6 +12,8 @@ export const en = {
   unknown: 'Conversation history has not been confirmed. Its environment cannot be changed.',
 }
 export const zh: Record<keyof typeof en, string> = {
+  profileCodeRemote: '策略预设：本地代码 · 云端执行',
+  profilePending: '尚未生效 · 写入同步与任务路由待接入',
   separate: '在新标签页打开另一环境；当前任务和草稿保持不变。',
   popupBlocked: '新环境标签页被浏览器拦截，请允许弹出窗口后重试。',
   connected: '云端 Host 已连接', disconnected: '云端连接不可用',

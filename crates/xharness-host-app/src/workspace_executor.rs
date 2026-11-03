@@ -257,6 +257,42 @@ pub struct CommittedCheckpoint {
 }
 const MAX_CHECKPOINTS: u64 = 128;
 
+fn build_snapshot_limits() -> InventoryLimits {
+    InventoryLimits {
+        files: 256,
+        file_bytes: 16 * 1024 * 1024,
+        total_bytes: 16 * 1024 * 1024,
+        ..InventoryLimits::default()
+    }
+}
+/// Native-created source snapshot capability, never deserialized from metadata.
+/// Exclusive admission stays retained by the remote process supervisor too.
+pub struct PinnedWorkspaceSnapshot {
+    pub(crate) lease: SyncLease,
+    pub(crate) manifest: WorkspaceManifest,
+    pub(crate) checkpoint: xharness_cloud::workspace_profile::BuildCheckpoint,
+    pub(crate) environment: Id,
+    pub(crate) protected_roots: Vec<std::path::PathBuf>,
+}
+impl std::fmt::Debug for PinnedWorkspaceSnapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PinnedWorkspaceSnapshot(..)")
+    }
+}
+impl PinnedWorkspaceSnapshot {
+    pub fn checkpoint(&self) -> &xharness_cloud::workspace_profile::BuildCheckpoint {
+        &self.checkpoint
+    }
+    pub fn validate(&self) -> SyncResult<()> {
+        let capture = capture_workspace_inventory(self.lease.service(), build_snapshot_limits())?;
+        if capture.manifest() != &self.manifest {
+            return Err(ExecutorError::InvalidState);
+        }
+        capture.revalidate(self.lease.service())?;
+        Ok(())
+    }
+}
+
 /// Root authority is supplied by native composition, not deserialized metadata.
 /// The owner must drain managed sessions and independently quiesce other writers.
 /// Nonblocking leases reject busy workspaces; this never kills tasks or switches UI.
@@ -405,6 +441,134 @@ impl<'a> WorkspacePair<'a> {
             changed_files: round.operations.len(),
         })
     }
+    /// Explicit owner port: seal one committed cloud version into a fresh
+    /// private snapshot. Build outputs must go elsewhere, never into this root.
+    pub fn seal_cloud_snapshot(
+        &self,
+        destination: &FsService,
+    ) -> SyncResult<PinnedWorkspaceSnapshot> {
+        let local = Endpoint::open(self.local)?;
+        let cloud = Endpoint::open(self.cloud)?;
+        let binding = self.binding(&local, &cloud)?;
+        for root in [
+            self.local,
+            self.cloud,
+            self.local
+                .sync_control()
+                .ok_or(ExecutorError::Unregistered)?
+                .0,
+            self.cloud
+                .sync_control()
+                .ok_or(ExecutorError::Unregistered)?
+                .0,
+        ] {
+            if destination
+                .workspace_root()
+                .starts_with(root.workspace_root())
+                || root
+                    .workspace_root()
+                    .starts_with(destination.workspace_root())
+            {
+                return Err(ExecutorError::InvalidState);
+            }
+        }
+        let base = load::<Base>(&cloud, "base")?.ok_or(ExecutorError::Unregistered)?;
+        if base.binding != binding
+            || base.generation == 0
+            || load::<Base>(&local, "base")?.as_ref() != Some(&base)
+        {
+            return Err(ExecutorError::InvalidState);
+        }
+        for endpoint in [&local, &cloud] {
+            if endpoint.read_record("active")?.as_deref() != Some(b"idle\n")
+                || load::<Binding>(endpoint, "pair")?.as_ref() != Some(&binding)
+            {
+                return Err(ExecutorError::InvalidState);
+            }
+        }
+        if self
+            .read_archive(&local, &cloud, base.generation, &binding)?
+            .decision
+            .as_ref()
+            != Some(&base)
+        {
+            return Err(ExecutorError::InvalidState);
+        }
+        let capture = capture_workspace_inventory(cloud.service(), build_snapshot_limits())?;
+        let manifest = WorkspaceManifest::from_json(base.manifest.as_bytes())?;
+        if capture.manifest() != &manifest {
+            return Err(ExecutorError::InvalidState);
+        }
+        let snapshot = destination.sync_lease()?;
+        snapshot.validate_private_root()?;
+        if snapshot.entry_count(1)? != 0 {
+            return Err(ExecutorError::InvalidState);
+        }
+        let mut copied = 0u64;
+        // Fixed v1 snapshot bound; no silent truncation or partially published capability.
+        if manifest.files().len() > 256 {
+            return Err(ExecutorError::BatchLimit);
+        }
+        for (path, file) in manifest.files() {
+            copied = copied
+                .checked_add(file.bytes.0)
+                .ok_or(ExecutorError::BatchLimit)?;
+            if copied > 16 * 1024 * 1024 {
+                return Err(ExecutorError::BatchLimit);
+            }
+            let source = cloud.probe(path)?.ok_or(ExecutorError::InvalidState)?;
+            let operation = format!(
+                "{:x}",
+                Sha256::digest(format!(
+                    "build-snapshot:{}:{path}",
+                    snapshot.root_identity()?
+                ))
+            );
+            let staged = snapshot.stage_from(
+                &cloud.files,
+                StageSpec {
+                    path,
+                    operation: &operation,
+                    source_exact: &source.exact,
+                    sha256: file.sha256.as_str(),
+                    bytes: file.bytes.0,
+                    executable: file.executable,
+                },
+            )?;
+            snapshot.publish(path, &operation, None, None, &staged.identity)?;
+        }
+        capture.revalidate(cloud.service())?;
+        let checkpoint = xharness_cloud::workspace_profile::BuildCheckpoint::new(
+            self.pair.clone(),
+            Counter(base.generation),
+            manifest.digest()?,
+        )?;
+        let pinned = PinnedWorkspaceSnapshot {
+            lease: snapshot,
+            manifest,
+            checkpoint,
+            environment: self.cloud_environment.clone(),
+            protected_roots: vec![
+                self.local.workspace_root().to_owned(),
+                self.cloud.workspace_root().to_owned(),
+                self.local
+                    .sync_control()
+                    .ok_or(ExecutorError::Unregistered)?
+                    .0
+                    .workspace_root()
+                    .to_owned(),
+                self.cloud
+                    .sync_control()
+                    .ok_or(ExecutorError::Unregistered)?
+                    .0
+                    .workspace_root()
+                    .to_owned(),
+            ],
+        };
+        pinned.validate()?;
+        Ok(pinned)
+    }
+
     pub fn synchronize(&self) -> SyncResult<SyncReport> {
         self.synchronize_observed(|_| true)
     }

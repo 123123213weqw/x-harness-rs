@@ -414,6 +414,8 @@ impl ProcessOutputObserver {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProcessError {
+    #[error("native process execution is disabled by workspace policy")]
+    ExecutionDisabled,
     #[error("process program must not be empty")]
     EmptyProgram,
     #[error("a Tokio runtime is required to spawn a process")]
@@ -573,7 +575,20 @@ type NativeProcessTree = WindowsArc<Job>;
 #[derive(Clone, Debug, Default)]
 pub struct ProcessRuntime {
     debug: DebugRecorder,
+    execution_disabled: bool,
     lifetime_guard: Option<Arc<dyn Send + Sync + std::fmt::Debug>>,
+}
+
+struct LifetimeGuards(
+    Arc<dyn Send + Sync + std::fmt::Debug>,
+    Arc<dyn Send + Sync + std::fmt::Debug>,
+);
+impl std::fmt::Debug for LifetimeGuards {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Both fields intentionally stay owned until the supervisor is drained.
+        let _retained = (&self.0, &self.1);
+        f.write_str("LifetimeGuards(..)")
+    }
 }
 
 impl ProcessRuntime {
@@ -585,18 +600,31 @@ impl ProcessRuntime {
         Self {
             debug,
             lifetime_guard: None,
+            execution_disabled: false,
         }
     }
 
     /// Retain a native owner's admission guard in every child supervisor. A
     /// generic lifetime port avoids a dependency from process primitives to FS.
     pub fn with_lifetime_guard(mut self, guard: Arc<dyn Send + Sync + std::fmt::Debug>) -> Self {
-        self.lifetime_guard = Some(guard);
+        self.lifetime_guard = Some(match self.lifetime_guard.take() {
+            Some(previous) => Arc::new(LifetimeGuards(previous, guard)),
+            None => guard,
+        });
+        self
+    }
+
+    /// Monotonic native policy gate. Clones and raw launcher consumers retain it.
+    pub fn without_execution(mut self) -> Self {
+        self.execution_disabled = true;
         self
     }
 
     /// Spawn an executable directly, creating a managed native process tree.
     pub fn spawn(&self, spec: SpawnSpec) -> Result<ProcessHandle, ProcessError> {
+        if self.execution_disabled {
+            return Err(ProcessError::ExecutionDisabled);
+        }
         if spec.program.is_empty() {
             return Err(ProcessError::EmptyProgram);
         }
@@ -1530,5 +1558,18 @@ mod capture_cleanup_tests {
     #[tokio::test]
     async fn drain_timeout_after_stderr_completion_reaps_stdout_without_repolling_stderr() {
         asymmetric_drain_timeout("stderr").await;
+    }
+}
+
+#[cfg(test)]
+mod execution_policy_tests {
+    use super::*;
+    #[test]
+    fn disabled_launcher_does_not_need_a_runtime_and_clones_cannot_reenable_it() {
+        let launcher = ProcessRuntime::new().without_execution();
+        assert!(matches!(
+            launcher.clone().spawn(SpawnSpec::new("never-execute", ".")),
+            Err(ProcessError::ExecutionDisabled)
+        ));
     }
 }

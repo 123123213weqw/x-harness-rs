@@ -75,6 +75,7 @@ impl EnvironmentGateway {
             let state = Catalogue {
                 current: environment.id,
                 entries: catalogue.clone(),
+                workspace_profile: config.workspace_profile,
             };
             let extension = Router::new()
                 .route("/api/environments", get(describe))
@@ -134,15 +135,17 @@ impl EnvironmentGateway {
 struct Catalogue {
     current: String,
     entries: Vec<Value>,
+    workspace_profile: Option<xharness_cloud::workspace_profile::WorkspaceProfile>,
 }
 async fn describe(
     State(state): State<Catalogue>,
 ) -> ([(header::HeaderName, &'static str); 1], Json<Value>) {
-    (
-        [(header::CACHE_CONTROL, "no-store")],
-        Json(json!({
-            "version":1,"current":state.current,"entries":state.entries,
-            "sessionMigration":false,"workspaceSync":false,
-        })),
-    )
+    let mut value = json!({"version":1,"current":state.current,"entries":state.entries,
+        "sessionMigration":false,"workspaceSync":false});
+    if let Some(profile) = state.workspace_profile {
+        // Desired preset only, never a claim that cross-machine sync or task
+        // execution has been installed. Old carriers keep the exact v1 shape.
+        value["workspaceProfile"] = json!({"preset":profile,"state":"pending"});
+    }
+    ([(header::CACHE_CONTROL, "no-store")], Json(value))
 }

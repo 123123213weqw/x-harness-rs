@@ -237,6 +237,10 @@ async fn separate_origins_route_real_http_events_and_exports_without_fallback_or
     assert_eq!(value["current"], "cloud");
     assert_eq!(value["workspaceSync"], false);
     assert_eq!(value["sessionMigration"], false);
+    assert!(
+        value.get("workspaceProfile").is_none(),
+        "legacy config must keep its exact catalogue shape"
+    );
     for (address, name) in [(a, "local-peer"), (b, "cloud-peer")] {
         let body = json!({"type":"client-request","rpcId":"same-original-identity","method":"host.describe","payload":{"marker":"unchanged"}});
         let response = http
@@ -447,6 +451,56 @@ async fn carrier_shutdown_closes_live_downlinks_but_never_stops_their_hosts() {
     }
     assert_eq!(local.peer.calls.load(Ordering::SeqCst), 0);
     assert_eq!(cloud.peer.calls.load(Ordering::SeqCst), 0);
+    local.stop().await;
+    cloud.stop().await;
+}
+
+#[test]
+fn native_profile_configuration_is_fixed_and_not_an_activation_claim() {
+    let value = serde_json::json!({"version":1,"launchTokenFile":"/private/launch","workspaceProfile":"local_code_remote_exec_v1","environments":[{"id":"local","label":"Local","kind":"local","listen":"127.0.0.1:41201","upstream":"http://127.0.0.1:41202/","tokenFile":"/private/token"}]});
+    let config: GatewayConfig = serde_json::from_value(value.clone()).unwrap();
+    config.validate().unwrap();
+    assert!(config.workspace_profile.is_some());
+    let mut bad = value;
+    bad["workspaceProfile"] =
+        serde_json::json!({"preset":"local_code_remote_exec_v1","state":"ready"});
+    assert!(serde_json::from_value::<GatewayConfig>(bad).is_err());
+}
+
+#[tokio::test]
+async fn configured_profile_is_only_pending_intent_on_real_authenticated_http() {
+    let d = Directory::new();
+    std::fs::write(d.0.join("index.html"), "fixture-assets").unwrap();
+    let local = Host::start("local-peer").await;
+    let cloud = Host::start("cloud-peer").await;
+    let a = free().await;
+    let b = free().await;
+    let mut config = configuration(&d, &local, &cloud, a, b);
+    config["workspaceProfile"] = "local_code_remote_exec_v1".into();
+    let gateway = EnvironmentGateway::start(serde_json::from_value(config).unwrap(), d.0.clone())
+        .await
+        .unwrap();
+    let value: Value = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .get(format!("http://{b}/api/environments"))
+        .header("x-xharness-environment-token", GATEWAY)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        value["workspaceProfile"],
+        json!({"preset":"local_code_remote_exec_v1","state":"pending"})
+    );
+    assert_eq!(value["workspaceSync"], false);
+    assert_eq!(value["sessionMigration"], false);
+    assert_eq!(local.peer.calls.load(Ordering::SeqCst), 0);
+    assert_eq!(cloud.peer.calls.load(Ordering::SeqCst), 0);
+    gateway.shutdown().await.unwrap();
     local.stop().await;
     cloud.stop().await;
 }
