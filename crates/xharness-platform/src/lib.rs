@@ -96,6 +96,7 @@ pub struct PlatformConfig {
     network: NetworkAccess,
     allowed_cwd_roots: Vec<PathBuf>,
     read_only_roots: Vec<PathBuf>,
+    workspace_control: Option<(PathBuf, String)>,
 }
 
 impl PlatformConfig {
@@ -106,9 +107,20 @@ impl PlatformConfig {
             network: NetworkAccess::Deny,
             allowed_cwd_roots: Vec::new(),
             read_only_roots: Vec::new(),
+            workspace_control: None,
         }
     }
 
+    /// Native-owner configuration only. Does not provision or repair a control
+    /// store and cannot be selected by a browser/model workspace path.
+    pub fn workspace_control(
+        mut self,
+        root: impl Into<PathBuf>,
+        registration: impl Into<String>,
+    ) -> Self {
+        self.workspace_control = Some((root.into(), registration.into()));
+        self
+    }
     pub fn sandbox_mode(mut self, mode: SandboxMode) -> Self {
         self.access = match mode {
             SandboxMode::ReadOnly => PlatformAccess::ReadOnly,
@@ -161,6 +173,8 @@ impl PlatformConfig {
 
 #[derive(Debug, thiserror::Error)]
 pub enum PlatformError {
+    #[error("controlled workspace requires confined write authority")]
+    UnconfinedWorkspaceControl,
     #[error(transparent)]
     Filesystem(#[from] FsError),
     #[error(transparent)]
@@ -218,8 +232,41 @@ impl NativePlatform {
         // Bind admission to the real session workspace, not FullAccess's volume
         // root. Idle cached platforms intentionally keep sync blocked until the
         // native owner retires the session; running supervisors retain the guard.
-        let admission = Arc::new(
+        let admission_service = if let Some((root, registration)) = &config.workspace_control {
+            if config.access == PlatformAccess::FullAccess {
+                return Err(PlatformError::UnconfinedWorkspaceControl);
+            }
+            let control_root = std::fs::canonicalize(root).map_err(|source| FsError::Io {
+                operation: "canonicalize workspace control",
+                path: "native control root".into(),
+                source,
+            })?;
+            for path in config
+                .allowed_cwd_roots
+                .iter()
+                .chain(&config.read_only_roots)
+            {
+                let path = std::fs::canonicalize(path).map_err(|source| FsError::Io {
+                    operation: "canonicalize configured read root",
+                    path: "native read root".into(),
+                    source,
+                })?;
+                if control_root.starts_with(&path) || path.starts_with(&control_root) {
+                    return Err(PlatformError::UnconfinedWorkspaceControl);
+                }
+            }
+            FsService::with_sync_control(
+                &workspace_root,
+                ObservationStore::default(),
+                &control_root,
+                registration,
+            )
+            .map_err(|error| FsError::WorkspaceAdmission(Box::new(error)))?
+        } else {
             FsService::new(&workspace_root)?
+        };
+        let admission = Arc::new(
+            admission_service
                 .workspace_use()
                 .map_err(|error| FsError::WorkspaceAdmission(Box::new(error)))?,
         );

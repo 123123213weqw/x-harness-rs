@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Move opt-in native workspace pair authority outside writable roots and add isolated read-only machine export acceptance",
+  "compatibility": "Existing unbound workspace APIs remain unchanged; controlled pair bootstrap is explicit and versioned with no automatic prototype migration; no product UI, cloud apply, credentials, deletion or revert enablement. Validate native admission/FFI faults, real registration and commit crash cuts, exact-hash export, actual SSH transfer and compiler error fences.",
+  "paths": {
+    "crates/xharness-fs/src/lib.rs": {
+      "before": "b32b77d318552a27a61c24e9ab7406c169bff41f2f69e4b80e54d7ab41d00b60",
+      "after": "81df473c1ea72a365b96d7630b8bee2cfdd36ebcaf210f3e2e7aa69e4b1470c0"
+    },
+    "crates/xharness-fs/src/workspace_apply.rs": {
+      "before": "ab222c9c8d3a07504d29153ed7e3baace8436436a117edda05648553cc511a5a",
+      "after": "30b54e7efe7a58cd3e8c5cbb7c16f72e78fee09bdaac7fe91b45520926958060"
+    },
+    "crates/xharness-fs/src/workspace_lock.rs": {
+      "before": "8f0147b0a70546cc763e13903056a3bd6196d103235f9e66800869a3190841fe",
+      "after": "75e0bd307070d3a9e9447b266bb25c1d28bf0d9275fd6e35fd7e3eeb95da8536"
+    },
+    "crates/xharness-platform/src/lib.rs": {
+      "before": "dff3ca4679adfc9b2c9361c90c1ca1b3ac1782220ca68bebce408f5dcef92bf8",
+      "after": "b4cb21fc4c4abfd211e9f268e2135dc1028758d2beb1a8d65bd7467b102a8a92"
+    },
+    "scripts/regression/check-architecture.py": {
+      "before": "4cba1b0ac95b932c59e69330657e04890c4c674ed73ea39b562d31751ef51a3e",
+      "after": "f59da7651fe813a126bce0da67f648d1fd47c9e141eba53393d669c7378b37ea"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}

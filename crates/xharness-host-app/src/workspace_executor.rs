@@ -49,6 +49,8 @@ pub enum ExecutorError {
     DeletionDisabled,
     BatchLimit,
     Interrupted,
+    Unregistered,
+    CheckpointLimit,
 }
 impl std::fmt::Display for ExecutorError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -63,6 +65,8 @@ impl std::fmt::Display for ExecutorError {
             Self::DeletionDisabled => "workspace sync deletion is disabled; no changes applied",
             Self::BatchLimit => "workspace sync batch exceeds native admission limits",
             Self::Interrupted => "workspace sync interrupted; durable recovery is required",
+            Self::Unregistered => "workspace pair requires explicit owner registration",
+            Self::CheckpointLimit => "workspace checkpoint retention budget requires owner review",
         })
     }
 }
@@ -111,6 +115,10 @@ struct Binding {
     local_root: String,
     cloud_root: String,
     policy: String,
+    local_control: String,
+    cloud_control: String,
+    local_registration: String,
+    cloud_registration: String,
 }
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -167,6 +175,16 @@ pub enum Checkpoint {
     CloudBase,
     BothBases,
     CloudReleased,
+    Archived,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RegistrationCheckpoint {
+    Intent,
+    LocalBase,
+    BothBases,
+    LocalPair,
+    BothPairs,
+    CloudReleased,
 }
 #[derive(Debug)]
 pub struct SyncReport {
@@ -175,6 +193,69 @@ pub struct SyncReport {
     pub recovered: bool,
     pub common_base_sha256: String,
 }
+
+/// Only the records port uses the private root; file IO stays under its own
+/// workspace capability. Control leases also exclude bound managed task users.
+struct Endpoint {
+    files: SyncLease,
+    control: SyncLease,
+}
+impl Endpoint {
+    fn open(service: &FsService) -> SyncResult<Self> {
+        let (control, registration) = service.sync_control().ok_or(ExecutorError::Unregistered)?;
+        let control = control.sync_lease()?;
+        control.validate_private_root()?;
+        let files = service.sync_lease()?;
+        files.validate_control_binding(&control, registration)?;
+        Ok(Self { files, control })
+    }
+    fn service(&self) -> &FsService {
+        self.files.service()
+    }
+    fn root_identity(&self) -> std::result::Result<String, ApplyError> {
+        self.files.root_identity()
+    }
+    fn read_record(&self, key: &str) -> std::result::Result<Option<Vec<u8>>, ApplyError> {
+        self.control.read_record(key)
+    }
+    fn write_record(&self, key: &str, bytes: &[u8]) -> std::result::Result<(), ApplyError> {
+        self.control.write_record(key, bytes)
+    }
+    fn probe(&self, path: &str) -> std::result::Result<Option<FileWitness>, ApplyError> {
+        self.files.probe(path)
+    }
+    fn stage_from(
+        &self,
+        source: &Endpoint,
+        spec: StageSpec<'_>,
+    ) -> std::result::Result<FileWitness, ApplyError> {
+        self.files.stage_from(&source.files, spec)
+    }
+    fn publish(
+        &self,
+        path: &str,
+        operation: &str,
+        before: Option<&Witness>,
+        staged: &str,
+    ) -> std::result::Result<FileWitness, ApplyError> {
+        self.files.publish(
+            path,
+            operation,
+            before.map(|v| v.exact.as_str()),
+            before.map(|v| v.identity.as_str()),
+            staged,
+        )
+    }
+}
+#[derive(Debug)]
+pub struct CommittedCheckpoint {
+    pub generation: u64,
+    pub round_id: String,
+    pub common_base_sha256: String,
+    pub previous_base_sha256: String,
+    pub changed_files: usize,
+}
+const MAX_CHECKPOINTS: u64 = 128;
 
 /// Root authority is supplied by native composition, not deserialized metadata.
 /// The owner must drain managed sessions and independently quiesce other writers.
@@ -200,12 +281,128 @@ impl<'a> WorkspacePair<'a> {
         {
             return Err(ExecutorError::InvalidState);
         }
+        let (local_control, _) = local.sync_control().ok_or(ExecutorError::Unregistered)?;
+        let (cloud_control, _) = cloud.sync_control().ok_or(ExecutorError::Unregistered)?;
+        let roots = [
+            local.workspace_root(),
+            cloud.workspace_root(),
+            local_control.workspace_root(),
+            cloud_control.workspace_root(),
+        ];
+        for (index, root) in roots.iter().enumerate() {
+            if roots
+                .iter()
+                .skip(index + 1)
+                .any(|other| root.starts_with(other) || other.starts_with(root))
+            {
+                return Err(ExecutorError::InvalidState);
+            }
+        }
         Ok(Self {
             local,
             cloud,
             pair,
             local_environment,
             cloud_environment,
+        })
+    }
+    /// Explicit owner-only creation of a new pair, never called by synchronize.
+    /// Replay can finish a partial bootstrap but cannot reset a registered base.
+    pub fn register_new_pair(&self) -> SyncResult<()> {
+        self.register_new_pair_observed(|_| true)
+    }
+    pub fn register_new_pair_observed(
+        &self,
+        mut observer: impl FnMut(RegistrationCheckpoint) -> bool,
+    ) -> SyncResult<()> {
+        let local = Endpoint::open(self.local)?;
+        let cloud = Endpoint::open(self.cloud)?;
+        let binding = self.binding(&local, &cloud)?;
+        let registration = serde_json::to_vec(&binding)?;
+        let old_pairs = [
+            load::<Binding>(&local, "pair")?,
+            load::<Binding>(&cloud, "pair")?,
+        ];
+        for pair in old_pairs.iter().flatten() {
+            if pair != &binding {
+                return Err(ExecutorError::InvalidState);
+            }
+        }
+        let empty = Base {
+            binding: binding.clone(),
+            generation: 0,
+            manifest: manifest_json(&WorkspaceManifest::new([])?)?,
+        };
+        let bases = [load::<Base>(&local, "base")?, load::<Base>(&cloud, "base")?];
+        if old_pairs.iter().all(Option::is_some) {
+            // This is already a registered pair, including when a caller lost
+            // its initialization reply. Missing/nonzero/unequal bases never reset.
+            if bases.iter().any(|b| b.as_ref() != Some(&empty)) {
+                return Err(ExecutorError::InvalidState);
+            }
+            for endpoint in [&local, &cloud] {
+                let active = endpoint.read_record("active")?;
+                if !matches!(active.as_deref(), Some(b"idle\n" | b"unpaired\n"))
+                    || load::<Binding>(endpoint, "pair-init")?.as_ref() != Some(&binding)
+                {
+                    return Err(ExecutorError::InvalidState);
+                }
+            }
+            cloud.write_record("active", b"idle\n")?;
+            local.write_record("active", b"idle\n")?;
+            return Ok(());
+        }
+        for (index, endpoint) in [&local, &cloud].iter().enumerate() {
+            if endpoint.read_record("active")?.as_deref() != Some(b"unpaired\n") {
+                return Err(ExecutorError::InvalidState);
+            }
+            if let Some(base) = &bases[index] {
+                if base != &empty {
+                    return Err(ExecutorError::InvalidState);
+                }
+            } else if old_pairs.iter().any(Option::is_some) {
+                return Err(ExecutorError::InvalidState);
+            }
+            endpoint
+                .control
+                .put_record_once("pair-init", &registration)?;
+        }
+        checkpoint(&mut observer, RegistrationCheckpoint::Intent)?;
+        store(&local, "base", &empty)?;
+        checkpoint(&mut observer, RegistrationCheckpoint::LocalBase)?;
+        store(&cloud, "base", &empty)?;
+        checkpoint(&mut observer, RegistrationCheckpoint::BothBases)?;
+        local.control.put_record_once("pair", &registration)?;
+        checkpoint(&mut observer, RegistrationCheckpoint::LocalPair)?;
+        cloud.control.put_record_once("pair", &registration)?;
+        checkpoint(&mut observer, RegistrationCheckpoint::BothPairs)?;
+        cloud.write_record("active", b"idle\n")?;
+        checkpoint(&mut observer, RegistrationCheckpoint::CloudReleased)?;
+        local.write_record("active", b"idle\n")?;
+        Ok(())
+    }
+    /// Two-end immutable committed metadata, not permission to revert content.
+    pub fn committed_checkpoint(&self, generation: u64) -> SyncResult<CommittedCheckpoint> {
+        if generation == 0 || generation > MAX_CHECKPOINTS {
+            return Err(ExecutorError::InvalidState);
+        }
+        let local = Endpoint::open(self.local)?;
+        let cloud = Endpoint::open(self.cloud)?;
+        let round =
+            self.read_archive(&local, &cloud, generation, &self.binding(&local, &cloud)?)?;
+        let decision = round.decision.as_ref().ok_or(ExecutorError::InvalidState)?;
+        Ok(CommittedCheckpoint {
+            generation,
+            round_id: round.id.clone(),
+            common_base_sha256: WorkspaceManifest::from_json(decision.manifest.as_bytes())?
+                .digest()?
+                .as_str()
+                .into(),
+            previous_base_sha256: WorkspaceManifest::from_json(round.old_base.manifest.as_bytes())?
+                .digest()?
+                .as_str()
+                .into(),
+            changed_files: round.operations.len(),
         })
     }
     pub fn synchronize(&self) -> SyncResult<SyncReport> {
@@ -215,11 +412,16 @@ impl<'a> WorkspacePair<'a> {
         &self,
         mut observer: impl FnMut(Checkpoint) -> bool,
     ) -> SyncResult<SyncReport> {
-        let local = self.local.sync_lease()?;
-        let cloud = self.cloud.sync_lease()?;
+        let local = Endpoint::open(self.local)?;
+        let cloud = Endpoint::open(self.cloud)?;
         let binding = self.binding(&local, &cloud)?;
         if binding.local_root == binding.cloud_root {
             return Err(ExecutorError::InvalidState);
+        }
+        for endpoint in [&local, &cloud] {
+            if load::<Binding>(endpoint, "pair")?.as_ref() != Some(&binding) {
+                return Err(ExecutorError::Unregistered);
+            }
         }
         let active = local.read_record("active")?;
         let recovered = active.as_ref().is_some_and(|a| a != b"idle\n");
@@ -247,9 +449,7 @@ impl<'a> WorkspacePair<'a> {
         if round.decision.is_none() {
             for endpoint in [&local, &cloud] {
                 let base = load::<Base>(endpoint, "base")?;
-                if !(base.as_ref() == Some(&round.old_base)
-                    || (base.is_none() && round.old_base.generation == 0))
-                {
+                if !(base.as_ref() == Some(&round.old_base)) {
                     return Err(ExecutorError::InvalidState);
                 }
             }
@@ -300,13 +500,7 @@ impl<'a> WorkspacePair<'a> {
                     checkpoint(&mut observer, Checkpoint::Stage)?;
                     staged.identity
                 };
-                destination.publish(
-                    &op.path,
-                    &op.id,
-                    op.before.as_ref().map(|v| v.exact.as_str()),
-                    op.before.as_ref().map(|v| v.identity.as_str()),
-                    &staged,
-                )?;
+                destination.publish(&op.path, &op.id, op.before.as_ref(), &staged)?;
                 checkpoint(&mut observer, Checkpoint::Publish)?;
             }
             let local_inventory =
@@ -345,6 +539,11 @@ impl<'a> WorkspacePair<'a> {
         checkpoint(&mut observer, Checkpoint::BothBases)?;
         // Both bases are now durable. Releasing endpoints is not a distributed
         // atomic namespace switch; a crash here only needs idempotent finalization.
+        let archive = serde_json::to_vec(&round)?;
+        let archive_key = format!("checkpoint-{:020}", decision.generation);
+        local.control.put_record_once(&archive_key, &archive)?;
+        cloud.control.put_record_once(&archive_key, &archive)?;
+        checkpoint(&mut observer, Checkpoint::Archived)?;
         cloud.write_record("active", b"idle\n")?;
         checkpoint(&mut observer, Checkpoint::CloudReleased)?;
         local.write_record("active", b"idle\n")?;
@@ -358,15 +557,63 @@ impl<'a> WorkspacePair<'a> {
                 .into(),
         })
     }
-    fn binding(&self, local: &SyncLease, cloud: &SyncLease) -> SyncResult<Binding> {
+    fn read_archive(
+        &self,
+        local: &Endpoint,
+        cloud: &Endpoint,
+        generation: u64,
+        binding: &Binding,
+    ) -> SyncResult<Round> {
+        let key = format!("checkpoint-{generation:020}");
+        let l = local
+            .read_record(&key)?
+            .ok_or(ExecutorError::InvalidState)?;
+        let c = cloud
+            .read_record(&key)?
+            .ok_or(ExecutorError::InvalidState)?;
+        if l != c {
+            return Err(ExecutorError::InvalidState);
+        }
+        let round: Round = serde_json::from_slice(&l)?;
+        self.validate_round(binding, &round)?;
+        let decision = round.decision.as_ref().ok_or(ExecutorError::InvalidState)?;
+        if decision.generation != generation
+            || decision.manifest != round.proposed
+            || Some(generation) != round.old_base.generation.checked_add(1)
+        {
+            return Err(ExecutorError::InvalidState);
+        }
+        for endpoint in [local, cloud] {
+            let base = load::<Base>(endpoint, "base")?.ok_or(ExecutorError::InvalidState)?;
+            if base.binding != round.binding || base.generation < generation {
+                return Err(ExecutorError::InvalidState);
+            }
+        }
+        Ok(round)
+    }
+    fn binding(&self, local: &Endpoint, cloud: &Endpoint) -> SyncResult<Binding> {
         Ok(Binding {
-            version: 1,
+            version: 2,
             pair: self.pair.as_str().into(),
             local_environment: self.local_environment.as_str().into(),
             cloud_environment: self.cloud_environment.as_str().into(),
             local_root: local.root_identity()?,
             cloud_root: cloud.root_identity()?,
             policy: serde_json::to_string(&policy_ref()?)?,
+            local_control: local.control.root_identity()?,
+            cloud_control: cloud.control.root_identity()?,
+            local_registration: self
+                .local
+                .sync_control()
+                .ok_or(ExecutorError::Unregistered)?
+                .1
+                .into(),
+            cloud_registration: self
+                .cloud
+                .sync_control()
+                .ok_or(ExecutorError::Unregistered)?
+                .1
+                .into(),
         })
     }
     fn scope(&self, generation: u64) -> SyncResult<WorkspaceSyncScope> {
@@ -378,18 +625,22 @@ impl<'a> WorkspacePair<'a> {
             policy_ref()?,
         )?)
     }
-    fn plan(&self, local: &SyncLease, cloud: &SyncLease, binding: Binding) -> SyncResult<Round> {
+    fn plan(&self, local: &Endpoint, cloud: &Endpoint, binding: Binding) -> SyncResult<Round> {
         let local_base = load::<Base>(local, "base")?;
         let cloud_base = load::<Base>(cloud, "base")?;
         let old_base = match (local_base, cloud_base) {
-            (None, None) => Base {
-                binding: binding.clone(),
-                generation: 0,
-                manifest: manifest_json(&WorkspaceManifest::new([])?)?,
-            },
             (Some(l), Some(c)) if l == c && l.binding == binding => l,
             _ => return Err(ExecutorError::InvalidState),
         };
+        if old_base.generation > 0 {
+            let previous = self.read_archive(local, cloud, old_base.generation, &binding)?;
+            if previous.decision.as_ref() != Some(&old_base) {
+                return Err(ExecutorError::InvalidState);
+            }
+        }
+        if old_base.generation >= MAX_CHECKPOINTS {
+            return Err(ExecutorError::CheckpointLimit);
+        }
         let base = WorkspaceManifest::from_json(old_base.manifest.as_bytes())?;
         let l = capture_workspace_inventory(local.service(), InventoryLimits::default())?;
         let c = capture_workspace_inventory(cloud.service(), InventoryLimits::default())?;
@@ -495,8 +746,8 @@ impl<'a> WorkspacePair<'a> {
     }
     fn validate_commit(
         &self,
-        local: &SyncLease,
-        cloud: &SyncLease,
+        local: &Endpoint,
+        cloud: &Endpoint,
         round: &Round,
         decision: &Base,
     ) -> SyncResult<()> {
@@ -511,10 +762,7 @@ impl<'a> WorkspacePair<'a> {
                 return Err(ExecutorError::InvalidState);
             }
             let base = load::<Base>(lease, "base")?;
-            if !(base.is_none() && round.old_base.generation == 0)
-                && base.as_ref() != Some(&round.old_base)
-                && base.as_ref() != Some(decision)
-            {
+            if base.as_ref() != Some(&round.old_base) && base.as_ref() != Some(decision) {
                 return Err(ExecutorError::InvalidState);
             }
         }
@@ -530,17 +778,17 @@ fn matches_file(witness: Option<&FileWitness>, expected: Option<&SyncFile>) -> b
         _ => false,
     }
 }
-fn load<T: serde::de::DeserializeOwned>(lease: &SyncLease, key: &str) -> SyncResult<Option<T>> {
+fn load<T: serde::de::DeserializeOwned>(lease: &Endpoint, key: &str) -> SyncResult<Option<T>> {
     lease
         .read_record(key)?
         .map(|b| serde_json::from_slice(&b).map_err(Into::into))
         .transpose()
 }
-fn store(lease: &SyncLease, key: &str, value: &impl Serialize) -> SyncResult<()> {
+fn store(lease: &Endpoint, key: &str, value: &impl Serialize) -> SyncResult<()> {
     lease.write_record(key, &serde_json::to_vec(value)?)?;
     Ok(())
 }
-fn checkpoint(observer: &mut impl FnMut(Checkpoint) -> bool, point: Checkpoint) -> SyncResult<()> {
+fn checkpoint<T>(observer: &mut impl FnMut(T) -> bool, point: T) -> SyncResult<()> {
     if observer(point) {
         Ok(())
     } else {

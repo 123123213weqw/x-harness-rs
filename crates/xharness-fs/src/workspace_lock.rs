@@ -39,3 +39,9 @@ pub(crate) fn lock(file: &File, exclusive: bool) -> io::Result<()> {
         }
     }
 }
+
+/// Scalar POSIX identity query, isolated with the other native calls.
+pub(crate) fn effective_uid() -> u32 {
+    // SAFETY: geteuid takes no pointers and returns the calling process UID.
+    unsafe { libc::geteuid() }
+}

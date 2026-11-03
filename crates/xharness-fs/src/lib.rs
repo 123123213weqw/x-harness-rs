@@ -580,6 +580,7 @@ struct ServiceInner {
     targets: StdMutex<TargetRegistry>,
     observations: ObservationStore,
     _workspace_use: Option<Arc<workspace_apply::WorkspaceUse>>,
+    sync_control: Option<(FsService, String)>,
 }
 
 #[derive(Default)]
@@ -673,6 +674,7 @@ impl FsService {
                 targets: StdMutex::new(TargetRegistry::default()),
                 observations,
                 _workspace_use: admission,
+                sync_control: None,
             }),
         })
     }

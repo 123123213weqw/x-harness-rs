@@ -1,12 +1,16 @@
 #![cfg(any(target_os = "linux", target_os = "macos"))]
+use std::os::unix::fs::PermissionsExt;
 use std::{
     fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
 use xharness_cloud::Id;
+use xharness_fs::ObservationStore;
 use xharness_fs::{workspace_apply::ApplyError, FsService};
-use xharness_host_app::workspace_executor::{Checkpoint, ExecutorError, WorkspacePair};
+use xharness_host_app::workspace_executor::{
+    Checkpoint, ExecutorError, RegistrationCheckpoint, WorkspacePair,
+};
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 // These tests deliberately start real child processes. CLOEXEC takes effect at
@@ -22,7 +26,16 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
-        let isolation = PROCESS_ISOLATION.lock().unwrap();
+        let f = Self::unpaired();
+        f.pair().register_new_pair().unwrap();
+        f
+    }
+    fn unpaired() -> Self {
+        // Independent fixture state is never shared through this scheduling lock.
+        // Keep later tests diagnostic even when an earlier assertion poisoned it.
+        let isolation = PROCESS_ISOLATION
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let root = std::env::temp_dir().join(format!(
             "xh-executor-{}-{}-{}",
             std::process::id(),
@@ -34,9 +47,23 @@ impl Fixture {
         ));
         fs::create_dir_all(root.join("local")).unwrap();
         fs::create_dir_all(root.join("cloud")).unwrap();
+        for side in ["local", "cloud"] {
+            let control = root.join(format!("control-{side}"));
+            fs::create_dir(&control).unwrap();
+            fs::set_permissions(&control, fs::Permissions::from_mode(0o700)).unwrap();
+            let nonce = if side == "local" {
+                "a".repeat(64)
+            } else {
+                "b".repeat(64)
+            };
+            FsService::new(root.join(side))
+                .unwrap()
+                .provision_sync_control(&FsService::new(&control).unwrap(), &nonce)
+                .unwrap();
+        }
         Self {
-            local: FsService::new(root.join("local")).unwrap(),
-            cloud: FsService::new(root.join("cloud")).unwrap(),
+            local: open_controlled(&root, "local"),
+            cloud: open_controlled(&root, "cloud"),
             root,
             _isolation: isolation,
         }
@@ -51,12 +78,39 @@ impl Fixture {
         )
         .unwrap()
     }
+    fn lc(&self) -> PathBuf {
+        self.root.join("control-local")
+    }
+    fn cc(&self) -> PathBuf {
+        self.root.join("control-cloud")
+    }
+    fn generation(&self, cloud: bool) -> u64 {
+        let path = if cloud { self.cc() } else { self.lc() };
+        serde_json::from_slice::<serde_json::Value>(&fs::read(path.join(".xh-sync-base")).unwrap())
+            .unwrap()["generation"]
+            .as_u64()
+            .unwrap()
+    }
     fn l(&self) -> &Path {
         self.local.workspace_root()
     }
     fn c(&self) -> &Path {
         self.cloud.workspace_root()
     }
+}
+fn open_controlled(root: &Path, side: &str) -> FsService {
+    let nonce = if side == "local" {
+        "a".repeat(64)
+    } else {
+        "b".repeat(64)
+    };
+    FsService::with_sync_control(
+        root.join(side),
+        ObservationStore::default(),
+        root.join(format!("control-{side}")),
+        &nonce,
+    )
+    .unwrap()
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -68,7 +122,6 @@ impl Drop for Fixture {
 
 #[test]
 fn two_way_full_hash_binary_unicode_nested_paths_and_retained_preimages() {
-    use std::os::unix::fs::PermissionsExt;
     let f = Fixture::new();
     fs::create_dir_all(f.l().join("中文/sub")).unwrap();
     fs::write(f.l().join("中文/sub/local.bin"), b"local\0\xff").unwrap();
@@ -119,6 +172,7 @@ fn every_durable_boundary_restarts_without_duplicate_effects_or_premature_base()
         Checkpoint::Decision,
         Checkpoint::CloudBase,
         Checkpoint::BothBases,
+        Checkpoint::Archived,
         Checkpoint::CloudReleased,
     ] {
         let f = Fixture::new();
@@ -134,13 +188,16 @@ fn every_durable_boundary_restarts_without_duplicate_effects_or_premature_base()
         }
         if !matches!(
             cut,
-            Checkpoint::CloudBase | Checkpoint::BothBases | Checkpoint::CloudReleased
+            Checkpoint::CloudBase
+                | Checkpoint::BothBases
+                | Checkpoint::Archived
+                | Checkpoint::CloudReleased
         ) {
-            assert!(!f.c().join(".xh-sync-base").exists());
+            assert_eq!(f.generation(true), 0);
         }
         // New services model process restart: witnesses are not service-ID bound.
-        let local = FsService::new(f.l()).unwrap();
-        let cloud = FsService::new(f.c()).unwrap();
+        let local = open_controlled(&f.root, "local");
+        let cloud = open_controlled(&f.root, "cloud");
         let pair = WorkspacePair::new(
             &local,
             &cloud,
@@ -160,8 +217,8 @@ fn every_durable_boundary_restarts_without_duplicate_effects_or_premature_base()
         assert_eq!(fs::read(f.l().join("cloud")).unwrap(), b"C");
         assert_eq!(fs::read(f.c().join("cloud")).unwrap(), b"C");
         assert_eq!(
-            fs::read(f.l().join(".xh-sync-base")).unwrap(),
-            fs::read(f.c().join(".xh-sync-base")).unwrap()
+            fs::read(f.lc().join(".xh-sync-base")).unwrap(),
+            fs::read(f.cc().join(".xh-sync-base")).unwrap()
         );
         assert!(local.workspace_use().is_ok());
         assert!(cloud.workspace_use().is_ok());
@@ -175,13 +232,13 @@ fn conflicts_and_any_deletion_reject_entire_round_before_intent() {
     f.pair().synchronize().unwrap();
     fs::remove_file(f.l().join("file")).unwrap();
     fs::write(f.c().join("new"), "not-yet").unwrap();
-    let before = fs::read(f.l().join(".xh-sync-base")).unwrap();
+    let before = fs::read(f.lc().join(".xh-sync-base")).unwrap();
     assert!(matches!(
         f.pair().synchronize(),
         Err(ExecutorError::DeletionDisabled)
     ));
     assert!(!f.l().join("new").exists());
-    assert_eq!(before, fs::read(f.l().join(".xh-sync-base")).unwrap());
+    assert_eq!(before, fs::read(f.lc().join(".xh-sync-base")).unwrap());
     assert!(f.local.workspace_use().is_ok());
     fs::write(f.l().join("file"), "left").unwrap();
     fs::write(f.c().join("file"), "right").unwrap();
@@ -218,27 +275,31 @@ fn changed_source_or_extra_file_cannot_commit_common_base() {
     ));
     fs::write(f.c().join("foreign"), "edit").unwrap();
     assert!(f.pair().synchronize().is_err());
-    assert!(!f.l().join(".xh-sync-base").exists());
-    assert!(!f.c().join(".xh-sync-base").exists());
+    assert_eq!(f.generation(false), 0);
+    assert_eq!(f.generation(true), 0);
 }
 
 #[test]
 fn independent_services_admit_one_writer_and_pending_journal_survives_drop() {
     let f = Fixture::new();
-    let other = FsService::new(f.l()).unwrap();
+    let other = open_controlled(&f.root, "local");
     let use_guard = other.workspace_use().unwrap();
     assert!(matches!(f.local.sync_lease(), Err(ApplyError::Busy)));
     drop(use_guard);
     let lease = f.local.sync_lease().unwrap();
     assert!(matches!(other.workspace_use(), Err(ApplyError::Busy)));
     assert!(matches!(other.sync_lease(), Err(ApplyError::Busy)));
-    lease
+    let private = f.local.sync_control().unwrap().0.sync_lease().unwrap();
+    private
         .write_record("active", b"pending:owner-recovery\n")
         .unwrap();
+    drop(private);
     drop(lease);
     assert!(matches!(other.workspace_use(), Err(ApplyError::Busy)));
     let recovery = other.sync_lease().unwrap();
-    recovery.write_record("active", b"idle\n").unwrap();
+    let private = other.sync_control().unwrap().0.sync_lease().unwrap();
+    private.write_record("active", b"idle\n").unwrap();
+    drop(private);
     drop(recovery);
     assert!(f.local.workspace_use().is_ok());
 }
@@ -261,7 +322,7 @@ fn wrong_pair_or_swapped_native_roots_cannot_resume() {
     .unwrap();
     assert!(matches!(
         other.synchronize(),
-        Err(ExecutorError::InvalidState)
+        Err(ExecutorError::Unregistered)
     ));
     let swapped = WorkspacePair::new(
         &f.cloud,
@@ -321,8 +382,8 @@ fn native_crash_child() {
         return;
     };
     let root = PathBuf::from(root);
-    let local = FsService::new(root.join("local")).unwrap();
-    let cloud = FsService::new(root.join("cloud")).unwrap();
+    let local = open_controlled(&root, "local");
+    let cloud = open_controlled(&root, "cloud");
     let pair = WorkspacePair::new(
         &local,
         &cloud,
@@ -331,6 +392,15 @@ fn native_crash_child() {
         Id::new("cloud").unwrap(),
     )
     .unwrap();
+    if let Ok(cut) = std::env::var("XHARNESS_REGISTRATION_CRASH_AT") {
+        let result = pair.register_new_pair_observed(|point| {
+            if format!("{point:?}") == cut {
+                std::process::exit(86);
+            }
+            true
+        });
+        panic!("expected registration process exit, got {result:?}");
+    }
     let cut = std::env::var("XHARNESS_EXECUTOR_CRASH_AT").unwrap();
     let result = pair.synchronize_observed(|point| {
         if format!("{point:?}") == cut {
@@ -342,7 +412,7 @@ fn native_crash_child() {
 }
 
 #[test]
-fn real_process_exit_at_all_eight_boundaries_recovers_from_disk() {
+fn real_process_exit_at_all_nine_boundaries_recovers_from_disk() {
     for cut in [
         Checkpoint::Intent,
         Checkpoint::Stage,
@@ -351,6 +421,7 @@ fn real_process_exit_at_all_eight_boundaries_recovers_from_disk() {
         Checkpoint::Decision,
         Checkpoint::CloudBase,
         Checkpoint::BothBases,
+        Checkpoint::Archived,
         Checkpoint::CloudReleased,
     ] {
         let f = Fixture::new();
@@ -378,8 +449,8 @@ fn real_process_exit_at_all_eight_boundaries_recovers_from_disk() {
         assert!(report.recovered, "{cut:?}");
         assert_eq!(report.generation, 1, "{cut:?}");
         assert_eq!(
-            fs::read(f.l().join(".xh-sync-base")).unwrap(),
-            fs::read(f.c().join(".xh-sync-base")).unwrap()
+            fs::read(f.lc().join(".xh-sync-base")).unwrap(),
+            fs::read(f.cc().join(".xh-sync-base")).unwrap()
         );
         assert_eq!(fs::read(f.c().join("local")).unwrap(), b"L");
         assert_eq!(fs::read(f.l().join("cloud")).unwrap(), b"C");
@@ -407,7 +478,7 @@ fn nested_or_identical_native_roots_are_rejected_before_any_journal() {
             Err(ExecutorError::InvalidState)
         ));
     }
-    assert!(!f.l().join(".xh-sync-active").exists());
+    assert_eq!(fs::read(f.lc().join(".xh-sync-active")).unwrap(), b"idle\n");
 }
 
 #[test]
@@ -438,11 +509,10 @@ fn durable_decision_recovery_finalizes_metadata_without_replaying_content() {
 
 #[test]
 fn malformed_journal_never_becomes_empty_state_and_batch_limit_has_no_effects() {
-    use std::os::unix::fs::PermissionsExt;
     let f = Fixture::new();
-    fs::write(f.l().join(".xh-sync-active"), b"{broken").unwrap();
+    fs::write(f.lc().join(".xh-sync-active"), b"{broken").unwrap();
     fs::set_permissions(
-        f.l().join(".xh-sync-active"),
+        f.lc().join(".xh-sync-active"),
         fs::Permissions::from_mode(0o600),
     )
     .unwrap();
@@ -450,8 +520,8 @@ fn malformed_journal_never_becomes_empty_state_and_batch_limit_has_no_effects() 
         f.pair().synchronize(),
         Err(ExecutorError::Encoding(_))
     ));
-    assert!(!f.c().join(".xh-sync-active").exists());
-    fs::write(f.l().join(".xh-sync-active"), b"idle\n").unwrap();
+    assert_eq!(fs::read(f.cc().join(".xh-sync-active")).unwrap(), b"idle\n");
+    fs::write(f.lc().join(".xh-sync-active"), b"idle\n").unwrap();
     for i in 0..129 {
         fs::write(f.l().join(format!("file-{i}")), b"data").unwrap();
     }
@@ -460,7 +530,7 @@ fn malformed_journal_never_becomes_empty_state_and_batch_limit_has_no_effects() 
         Err(ExecutorError::BatchLimit)
     ));
     assert!(!f.c().join("file-0").exists());
-    assert!(!f.l().join(".xh-sync-base").exists());
+    assert_eq!(f.generation(false), 0);
     assert!(f.local.workspace_use().is_ok());
 }
 
@@ -473,5 +543,234 @@ fn destination_empty_directory_alias_is_rejected_before_any_effect() {
     assert!(f.pair().synchronize().is_err());
     assert!(!f.c().join("folder/file").exists());
     assert!(!f.c().join("FOLDER/file").exists());
-    assert!(!f.l().join(".xh-sync-active").exists());
+    assert_eq!(fs::read(f.lc().join(".xh-sync-active")).unwrap(), b"idle\n");
+}
+
+#[test]
+fn missing_private_bases_are_not_interpreted_as_a_new_pair() {
+    let f = Fixture::new();
+    fs::write(f.l().join("file"), "data").unwrap();
+    f.pair().synchronize().unwrap();
+    fs::remove_file(f.lc().join(".xh-sync-base")).unwrap();
+    fs::remove_file(f.cc().join(".xh-sync-base")).unwrap();
+    assert!(matches!(
+        f.pair().synchronize(),
+        Err(ExecutorError::InvalidState)
+    ));
+    assert!(matches!(
+        f.pair().register_new_pair(),
+        Err(ExecutorError::InvalidState)
+    ));
+    assert!(!f.lc().join(".xh-sync-base").exists());
+    assert_eq!(fs::read(f.c().join("file")).unwrap(), b"data");
+}
+
+#[test]
+fn explicit_registration_and_private_root_are_required_for_first_use() {
+    let f = Fixture::unpaired();
+    assert!(matches!(f.local.workspace_use(), Err(ApplyError::Busy)));
+    assert!(matches!(
+        f.pair().synchronize(),
+        Err(ExecutorError::Unregistered)
+    ));
+    f.pair().register_new_pair().unwrap();
+    f.pair().register_new_pair().unwrap();
+    assert!(f.local.workspace_use().is_ok());
+    let wrong =
+        FsService::with_sync_control(f.l(), ObservationStore::default(), f.lc(), &"c".repeat(64));
+    assert!(matches!(wrong, Err(ApplyError::Unregistered)));
+    let raw = FsService::new(f.l()).unwrap();
+    assert!(matches!(raw.workspace_use(), Err(ApplyError::Busy)));
+    assert!(matches!(
+        WorkspacePair::new(
+            &raw,
+            &f.cloud,
+            Id::new("pair").unwrap(),
+            Id::new("local").unwrap(),
+            Id::new("cloud").unwrap()
+        ),
+        Err(ExecutorError::Unregistered)
+    ));
+    fs::set_permissions(f.lc(), fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(f.local.workspace_use().is_err());
+    assert!(f.pair().synchronize().is_err());
+}
+
+#[test]
+fn removing_or_forging_worktree_hints_cannot_unlock_private_recovery() {
+    let f = Fixture::new();
+    fs::write(f.l().join("file"), "data").unwrap();
+    assert!(f
+        .pair()
+        .synchronize_observed(|p| p != Checkpoint::Intent)
+        .is_err());
+    fs::remove_file(f.l().join(".xh-sync-active")).unwrap();
+    fs::write(f.c().join(".xh-sync-active"), b"idle\n").unwrap();
+    assert!(matches!(f.local.workspace_use(), Err(ApplyError::Busy)));
+    assert!(matches!(f.cloud.workspace_use(), Err(ApplyError::Busy)));
+    let report = f.pair().synchronize().unwrap();
+    assert!(report.recovered);
+    assert_eq!(fs::read(f.c().join("file")).unwrap(), b"data");
+    assert!(f.local.workspace_use().is_ok());
+}
+
+#[test]
+fn private_checkpoint_archives_are_identical_immutable_and_inspectable() {
+    let f = Fixture::new();
+    fs::write(f.l().join("file"), "first").unwrap();
+    let one = f.pair().synchronize().unwrap();
+    fs::write(f.c().join("file"), "second").unwrap();
+    let two = f.pair().synchronize().unwrap();
+    for generation in [1, 2] {
+        let key = format!("checkpoint-{generation:020}");
+        let path = format!(".xh-sync-{key}");
+        let bytes = fs::read(f.lc().join(&path)).unwrap();
+        assert_eq!(bytes, fs::read(f.cc().join(&path)).unwrap());
+        assert!(!f.l().join(&path).exists());
+        assert!(!f.c().join(&path).exists());
+        let lease = f.local.sync_control().unwrap().0.sync_lease().unwrap();
+        assert!(matches!(
+            lease.put_record_once(&key, b"different"),
+            Err(ApplyError::Changed)
+        ));
+        assert!(matches!(
+            lease.write_record(&key, b"different"),
+            Err(ApplyError::Invalid)
+        ));
+        lease.put_record_once(&key, &bytes).unwrap();
+    }
+    let first = f.pair().committed_checkpoint(1).unwrap();
+    let second = f.pair().committed_checkpoint(2).unwrap();
+    assert_eq!(first.common_base_sha256, one.common_base_sha256);
+    assert_eq!(second.common_base_sha256, two.common_base_sha256);
+    assert_eq!(second.previous_base_sha256, first.common_base_sha256);
+    assert_eq!(first.changed_files, 1);
+    assert_ne!(first.round_id, second.round_id);
+    assert!(f.pair().committed_checkpoint(0).is_err());
+    assert!(f.pair().committed_checkpoint(3).is_err());
+}
+
+#[test]
+fn registration_cannot_be_rebound_or_recreated_after_metadata_loss() {
+    let f = Fixture::new();
+    let saved = fs::read(f.lc().join(".xh-sync-registration")).unwrap();
+    fs::remove_file(f.lc().join(".xh-sync-registration")).unwrap();
+    assert!(matches!(
+        FsService::with_sync_control(f.l(), ObservationStore::default(), f.lc(), &"a".repeat(64)),
+        Err(ApplyError::Unregistered)
+    ));
+    assert!(f.local.workspace_use().is_err());
+    assert!(FsService::new(f.l())
+        .unwrap()
+        .provision_sync_control(f.local.sync_control().unwrap().0, &"a".repeat(64))
+        .is_err());
+    fs::write(f.lc().join(".xh-sync-registration"), saved).unwrap();
+    fs::set_permissions(
+        f.lc().join(".xh-sync-registration"),
+        fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    assert!(open_controlled(&f.root, "local").workspace_use().is_ok());
+    let moved = f.root.join("moved-control");
+    fs::rename(f.lc(), &moved).unwrap();
+    fs::create_dir(f.lc()).unwrap();
+    fs::set_permissions(f.lc(), fs::Permissions::from_mode(0o700)).unwrap();
+    for e in fs::read_dir(moved).unwrap() {
+        let e = e.unwrap();
+        fs::copy(e.path(), f.lc().join(e.file_name())).unwrap();
+    }
+    assert!(f.local.workspace_use().is_err());
+    assert!(FsService::with_sync_control(
+        f.l(),
+        ObservationStore::default(),
+        f.lc(),
+        &"a".repeat(64)
+    )
+    .is_err());
+}
+
+#[test]
+fn current_base_requires_identical_committed_archive_before_next_round() {
+    let f = Fixture::new();
+    fs::write(f.l().join("file"), b"one").unwrap();
+    f.pair().synchronize().unwrap();
+    fs::write(f.l().join("file"), b"two").unwrap();
+    fs::remove_file(f.cc().join(".xh-sync-checkpoint-00000000000000000001")).unwrap();
+    assert!(f.pair().synchronize().is_err());
+    assert_eq!(f.generation(false), 1);
+    assert_eq!(fs::read(f.c().join("file")).unwrap(), b"one");
+}
+
+#[test]
+fn controlled_platform_keeps_private_admission_and_refuses_full_access() {
+    use xharness_platform::{NativePlatform, PlatformConfig, PlatformError};
+    let f = Fixture::new();
+    let config = PlatformConfig::new(f.l()).workspace_control(f.lc(), "a".repeat(64));
+    assert!(matches!(
+        NativePlatform::new(config.clone().full_access()),
+        Err(PlatformError::UnconfinedWorkspaceControl)
+    ));
+    let platform = NativePlatform::new(config.clone()).unwrap();
+    // A second confined session may open shared admission normally.
+    let other = NativePlatform::new(config).unwrap();
+    assert!(f.pair().synchronize().is_err());
+    let files = platform.filesystem().clone();
+    drop(platform);
+    drop(other);
+    assert!(f.pair().synchronize().is_err());
+    drop(files);
+    assert_eq!(f.pair().synchronize().unwrap().generation, 1);
+}
+
+#[test]
+fn new_pair_registration_recovers_after_real_process_exit_at_six_boundaries() {
+    for cut in [
+        RegistrationCheckpoint::Intent,
+        RegistrationCheckpoint::LocalBase,
+        RegistrationCheckpoint::BothBases,
+        RegistrationCheckpoint::LocalPair,
+        RegistrationCheckpoint::BothPairs,
+        RegistrationCheckpoint::CloudReleased,
+    ] {
+        let f = Fixture::unpaired();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "native_crash_child",
+                "--test-threads=1",
+                "--nocapture",
+            ])
+            .env("XHARNESS_EXECUTOR_CRASH_FIXTURE", &f.root)
+            .env("XHARNESS_REGISTRATION_CRASH_AT", format!("{cut:?}"))
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(86),
+            "{cut:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        f.pair().register_new_pair().unwrap();
+        assert_eq!(f.generation(false), 0);
+        assert_eq!(f.generation(true), 0);
+        assert!(f.local.workspace_use().is_ok());
+        assert_eq!(f.pair().synchronize().unwrap().generation, 1);
+    }
+}
+
+#[test]
+fn checkpoint_retention_limit_blocks_before_a_new_intent_without_gc() {
+    let f = Fixture::new();
+    for generation in 1..=128 {
+        assert_eq!(f.pair().synchronize().unwrap().generation, generation);
+    }
+    let before = fs::read(f.lc().join(".xh-sync-base")).unwrap();
+    assert!(matches!(
+        f.pair().synchronize(),
+        Err(ExecutorError::CheckpointLimit)
+    ));
+    assert_eq!(before, fs::read(f.lc().join(".xh-sync-base")).unwrap());
+    assert!(f.pair().committed_checkpoint(1).is_ok());
+    assert!(f.pair().committed_checkpoint(128).is_ok());
+    assert!(f.local.workspace_use().is_ok());
 }

@@ -27,6 +27,8 @@ pub const MAX_FILE_BYTES: u64 = 512 * 1024 * 1024;
 pub enum ApplyError {
     #[error("workspace sync is unsupported on this platform")]
     Unsupported,
+    #[error("workspace control registration is missing or does not match")]
+    Unregistered,
     #[error("workspace is busy or has an unresolved sync transaction")]
     Busy,
     #[error("invalid native sync path, record or operation identity")]
@@ -64,6 +66,8 @@ impl fmt::Debug for FileWitness {
 pub struct WorkspaceUse {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     _lock: std::fs::File,
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    _control_lock: Option<std::fs::File>,
 }
 impl fmt::Debug for WorkspaceUse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -81,6 +85,8 @@ pub struct StageSpec<'a> {
 pub struct SyncLease {
     service: FsService,
     #[cfg(any(target_os = "linux", target_os = "macos"))]
+    _control_lock: Option<std::fs::File>,
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     root: std::fs::File,
 }
 impl SyncLease {
@@ -93,16 +99,105 @@ impl FsService {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
             let root = native::locked_root(self, false)?;
+            if let Some((control, registration)) = &self.inner.sync_control {
+                let control_root = native::locked_root(control, false)?;
+                native::verify_control(self, &root, control, &control_root, registration)?;
+                if native::read_record(control, &control_root, "active")?.as_deref()
+                    != Some(b"idle\n")
+                {
+                    return Err(ApplyError::Busy);
+                }
+                if native::read_record(control, &control_root, "pair")?.is_none()
+                    || native::read_record(control, &control_root, "base")?.is_none()
+                {
+                    return Err(ApplyError::Unregistered);
+                }
+                return Ok(WorkspaceUse {
+                    _lock: root,
+                    _control_lock: Some(control_root),
+                });
+            }
             if let Some(record) = native::read_record(self, &root, "active")? {
                 if record != b"idle\n" {
                     return Err(ApplyError::Busy);
                 }
             }
-            Ok(WorkspaceUse { _lock: root })
+            Ok(WorkspaceUse {
+                _lock: root,
+                _control_lock: None,
+            })
         }
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         {
             Ok(WorkspaceUse {})
+        }
+    }
+    /// Open an owner-configured external control root. No deserializer or missing
+    /// file can provision it. The expected registration comes from native owner
+    /// configuration, never the workspace or an RPC request.
+    pub fn with_sync_control(
+        workspace_root: impl AsRef<std::path::Path>,
+        observations: crate::ObservationStore,
+        control_root: impl AsRef<std::path::Path>,
+        registration: &str,
+    ) -> Result<Self, ApplyError> {
+        let mut service = Self::with_observations(workspace_root, observations)?;
+        let control = Self::new(control_root)?;
+        native_or_unsupported_bind(&service, &control, registration)?;
+        let inner = std::sync::Arc::get_mut(&mut service.inner).ok_or(ApplyError::Invalid)?;
+        inner.sync_control = Some((control, registration.into()));
+        Ok(service)
+    }
+    pub fn sync_control(&self) -> Option<(&FsService, &str)> {
+        self.inner
+            .sync_control
+            .as_ref()
+            .map(|(service, registration)| (service, registration.as_str()))
+    }
+    /// Explicit native provisioning, separate from open/resume. Requires a new
+    /// empty private root, or the same incomplete provisioning identity.
+    pub fn provision_sync_control(
+        &self,
+        control: &FsService,
+        registration: &str,
+    ) -> Result<(), ApplyError> {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            native::provision(self, control, registration)
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        {
+            let _ = (control, registration);
+            Err(ApplyError::Unsupported)
+        }
+    }
+    /// Read-only transport owners require registered, idle external authority
+    /// and retain both exclusive leases throughout capture/whole-file export.
+    pub fn export_lease(&self) -> Result<SyncLease, ApplyError> {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            let (control, registration) = self.sync_control().ok_or(ApplyError::Unregistered)?;
+            let control_root = native::locked_root(control, true)?;
+            let root = native::locked_root(self, true)?;
+            native::verify_control(self, &root, control, &control_root, registration)?;
+            if native::read_record(control, &control_root, "active")?.as_deref() != Some(b"idle\n")
+            {
+                return Err(ApplyError::Busy);
+            }
+            if native::read_record(control, &control_root, "pair")?.is_none()
+                || native::read_record(control, &control_root, "base")?.is_none()
+            {
+                return Err(ApplyError::Unregistered);
+            }
+            Ok(SyncLease {
+                service: self.clone(),
+                root,
+                _control_lock: Some(control_root),
+            })
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        {
+            Err(ApplyError::Unsupported)
         }
     }
     /// Nonblocking exclusive lease, including recovery of a durable busy marker.
@@ -113,12 +208,37 @@ impl FsService {
             Ok(SyncLease {
                 service: self.clone(),
                 root: native::locked_root(self, true)?,
+                _control_lock: None,
             })
         }
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         {
             Err(ApplyError::Unsupported)
         }
+    }
+}
+
+fn native_or_unsupported_bind(
+    service: &FsService,
+    control: &FsService,
+    registration: &str,
+) -> Result<(), ApplyError> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        let control_root = native::locked_root(control, false)?;
+        let workspace_root = native::locked_root(service, false)?;
+        native::verify_control(
+            service,
+            &workspace_root,
+            control,
+            &control_root,
+            registration,
+        )
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (service, control, registration);
+        Err(ApplyError::Unsupported)
     }
 }
 
@@ -157,6 +277,124 @@ mod native {
         check_root(service, &file)?;
         Ok(file)
     }
+    fn fingerprint(service: &FsService, root: &File) -> Result<String, ApplyError> {
+        check_root(service, root)?;
+        let meta = root.metadata()?;
+        Ok(format!(
+            "{:x}",
+            Sha256::digest(format!(
+                "xh-sync-root-v1:{}:{}:{}",
+                meta.dev(),
+                meta.ino(),
+                service.inner.root.display()
+            ))
+        ))
+    }
+    fn private_root(root: &File) -> Result<(), ApplyError> {
+        let metadata = root.metadata()?;
+        if !metadata.is_dir()
+            || metadata.mode() & 0o077 != 0
+            || metadata.uid() != workspace_lock::effective_uid()
+        {
+            return Err(ApplyError::Invalid);
+        }
+        Ok(())
+    }
+    fn registration_bytes(
+        service: &FsService,
+        root: &File,
+        control: &FsService,
+        control_root: &File,
+        registration: &str,
+    ) -> Result<Vec<u8>, ApplyError> {
+        if registration.len() != 64
+            || !registration
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+            || service.inner.root.starts_with(&control.inner.root)
+            || control.inner.root.starts_with(&service.inner.root)
+            || control.inner.sync_control.is_some()
+        {
+            return Err(ApplyError::Invalid);
+        }
+        private_root(control_root)?;
+        Ok(format!(
+            "xh-workspace-control/v1\n{}\n{}\n{registration}\n",
+            fingerprint(service, root)?,
+            fingerprint(control, control_root)?
+        )
+        .into_bytes())
+    }
+    pub(super) fn verify_control(
+        service: &FsService,
+        root: &File,
+        control: &FsService,
+        control_root: &File,
+        registration: &str,
+    ) -> Result<(), ApplyError> {
+        let expected = registration_bytes(service, root, control, control_root, registration)?;
+        if read_record(control, control_root, "registration")?.as_deref()
+            != Some(expected.as_slice())
+        {
+            return Err(ApplyError::Unregistered);
+        }
+        Ok(())
+    }
+    pub(super) fn provision(
+        service: &FsService,
+        control: &FsService,
+        registration: &str,
+    ) -> Result<(), ApplyError> {
+        let control_lease = control.sync_lease()?;
+        let workspace = service.sync_lease()?;
+        let expected = registration_bytes(
+            service,
+            &workspace.root,
+            control,
+            &control_lease.root,
+            registration,
+        )?;
+        if control_lease.read_record("registration")?.is_some() {
+            verify_control(
+                service,
+                &workspace.root,
+                control,
+                &control_lease.root,
+                registration,
+            )?;
+        } else {
+            // No automatic import of an old prototype's worktree journals.
+            if workspace.read_record("base")?.is_some()
+                || workspace.read_record("prepared")?.is_some()
+                || workspace.read_record("active")?.is_some()
+            {
+                return Err(ApplyError::Invalid);
+            }
+            let names = crate::directory_stream::list(control_lease.root.try_clone()?.into(), 8)
+                .map_err(|error| {
+                    ApplyError::Inventory(InventoryError::Directory(Box::new(error)))
+                })?;
+            // Only our incomplete unpaired marker can precede the registration.
+            if names.iter().any(|name| name != ".xh-sync-active") {
+                return Err(ApplyError::Invalid);
+            }
+            if let Some(active) = control_lease.read_record("active")? {
+                if active != b"unpaired\n" {
+                    return Err(ApplyError::Invalid);
+                }
+            }
+            control_lease.write_record("active", b"unpaired\n")?;
+            control_lease.put_record_once("registration", &expected)?;
+        }
+        if let Some(active) = workspace.read_record("active")? {
+            if active != b"controlled\n" {
+                return Err(ApplyError::Invalid);
+            }
+        }
+        // Fail-closed compatibility hint only, never the authoritative fence.
+        workspace.write_record("active", b"controlled\n")?;
+        Ok(())
+    }
     fn valid(path: &str) -> Result<(), ApplyError> {
         if path.is_empty()
             || path.len() > 4096
@@ -170,7 +408,14 @@ mod native {
         Ok(())
     }
     fn key(key: &str) -> Result<String, ApplyError> {
-        if !matches!(key, "active" | "base" | "prepared") {
+        let checkpoint = key
+            .strip_prefix("checkpoint-")
+            .is_some_and(|g| g.len() == 20 && g.bytes().all(|b| b.is_ascii_digit()));
+        if !matches!(
+            key,
+            "active" | "base" | "prepared" | "registration" | "pair" | "pair-init" | "export-auth"
+        ) && !checkpoint
+        {
             return Err(ApplyError::Invalid);
         }
         Ok(format!(".xh-sync-{key}"))
@@ -323,6 +568,7 @@ mod native {
         if !meta.is_file()
             || meta.nlink() != 1
             || meta.mode() & 0o077 != 0
+            || meta.uid() != workspace_lock::effective_uid()
             || meta.len() > MAX_RECORD_BYTES as u64
         {
             return Err(ApplyError::Invalid);
@@ -360,17 +606,23 @@ mod native {
     }
     impl SyncLease {
         pub fn root_identity(&self) -> Result<String, ApplyError> {
-            check_root(&self.service, &self.root)?;
-            let meta = self.root.metadata()?;
-            Ok(format!(
-                "{:x}",
-                Sha256::digest(format!(
-                    "xh-sync-root-v1:{}:{}:{}",
-                    meta.dev(),
-                    meta.ino(),
-                    self.service.inner.root.display()
-                ))
-            ))
+            fingerprint(&self.service, &self.root)
+        }
+        pub fn validate_control_binding(
+            &self,
+            control: &SyncLease,
+            registration: &str,
+        ) -> Result<(), ApplyError> {
+            verify_control(
+                &self.service,
+                &self.root,
+                &control.service,
+                &control.root,
+                registration,
+            )
+        }
+        pub fn validate_private_root(&self) -> Result<(), ApplyError> {
+            private_root(&self.root)
         }
         pub fn read_record(&self, name: &str) -> Result<Option<Vec<u8>>, ApplyError> {
             read_record(&self.service, &self.root, name)
@@ -378,6 +630,27 @@ mod native {
         /// Atomic replacement is ONLY for private native journal metadata, never
         /// for workspace content. Any error leaves the transaction unacknowledged.
         pub fn write_record(&self, name: &str, bytes: &[u8]) -> Result<(), ApplyError> {
+            if !matches!(name, "active" | "base" | "prepared") {
+                return Err(ApplyError::Invalid);
+            }
+            self.write_record_inner(name, bytes, true)
+        }
+        pub fn put_record_once(&self, name: &str, bytes: &[u8]) -> Result<(), ApplyError> {
+            if let Some(existing) = self.read_record(name)? {
+                return if existing == bytes {
+                    Ok(())
+                } else {
+                    Err(ApplyError::Changed)
+                };
+            }
+            self.write_record_inner(name, bytes, false)
+        }
+        fn write_record_inner(
+            &self,
+            name: &str,
+            bytes: &[u8],
+            replace: bool,
+        ) -> Result<(), ApplyError> {
             if bytes.len() > MAX_RECORD_BYTES {
                 return Err(ApplyError::Limit);
             }
@@ -404,7 +677,7 @@ mod native {
             );
             file.write_all(bytes)?;
             file.sync_all()?;
-            rename(&self.service, &self.root, &name, &temp, &name, true)
+            rename(&self.service, &self.root, &name, &temp, &name, replace)
         }
         pub fn probe(&self, path: &str) -> Result<Option<FileWitness>, ApplyError> {
             let Some(mut file) = optional(&self.service, &self.root, path)? else {
@@ -417,6 +690,42 @@ mod native {
                 return Err(ApplyError::Changed);
             }
             Ok(Some(result))
+        }
+        /// Bounded whole-file export under an existing owner lease. The caller
+        /// receives bytes only after exact native/full-hash revalidation.
+        pub fn export_bytes(
+            &self,
+            path: &str,
+            exact: &str,
+            limit: usize,
+        ) -> Result<Vec<u8>, ApplyError> {
+            if limit as u64 > MAX_FILE_BYTES {
+                return Err(ApplyError::Limit);
+            }
+            let before = self.probe(path)?.ok_or(ApplyError::Changed)?;
+            if before.exact != exact {
+                return Err(ApplyError::Changed);
+            }
+            if before.bytes > limit as u64 {
+                return Err(ApplyError::Limit);
+            }
+            let mut file = optional(&self.service, &self.root, path)?.ok_or(ApplyError::Changed)?;
+            let mut bytes = Vec::new();
+            bytes
+                .try_reserve_exact(before.bytes as usize)
+                .map_err(|error| {
+                    ApplyError::Io(io::Error::new(io::ErrorKind::OutOfMemory, error))
+                })?;
+            Read::by_ref(&mut file)
+                .take(limit as u64 + 1)
+                .read_to_end(&mut bytes)?;
+            if bytes.len() as u64 != before.bytes
+                || format!("{:x}", Sha256::digest(&bytes)) != before.sha256
+                || self.probe(path)?.as_ref() != Some(&before)
+            {
+                return Err(ApplyError::Changed);
+            }
+            Ok(bytes)
         }
         fn names(path: &str, operation: &str) -> Result<(String, String, String), ApplyError> {
             valid(path)?;
@@ -846,6 +1155,20 @@ mod native {
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 impl SyncLease {
+    pub fn export_bytes(&self, _: &str, _: &str, _: usize) -> Result<Vec<u8>, ApplyError> {
+        Err(ApplyError::Unsupported)
+    }
+
+    pub fn validate_control_binding(&self, _: &SyncLease, _: &str) -> Result<(), ApplyError> {
+        Err(ApplyError::Unsupported)
+    }
+    pub fn validate_private_root(&self) -> Result<(), ApplyError> {
+        Err(ApplyError::Unsupported)
+    }
+    pub fn put_record_once(&self, _: &str, _: &[u8]) -> Result<(), ApplyError> {
+        Err(ApplyError::Unsupported)
+    }
+
     pub fn root_identity(&self) -> Result<String, ApplyError> {
         Err(ApplyError::Unsupported)
     }

@@ -5,6 +5,8 @@
 //! use two downlink-only WebSockets. The server owns transport validation only;
 //! business behavior is supplied by [`xharness_api::ApiBackend`].
 
+pub mod workspace_identity;
+
 use std::{
     future::Future,
     path::PathBuf,
