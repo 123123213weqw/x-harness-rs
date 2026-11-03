@@ -23,6 +23,8 @@
 //! detected immediately before publication on a best-effort basis; Linux does
 //! not provide a content-version compare-and-rename primitive.
 
+pub mod capture;
+
 use std::{
     collections::HashMap,
     ffi::OsString,
