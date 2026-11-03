@@ -1,0 +1,49 @@
+name: Idle session handoff native acceptance
+on:
+  push:
+    branches: [codex/idle-session-handoff-v1]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: session-handoff-native-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  macos-peer:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Verify native Apple Silicon build host
+        run: test "$(uname -s)-$(uname -m)" = "Darwin-arm64"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.0'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: false
+          workspaces: |
+            . -> target
+            apps/desktop/src-tauri -> target
+      - run: cargo fmt --all -- --check
+      - name: Build isolated owner participant, never the installed app
+        run: cargo build --locked -p xharness-host-app --example workspace_sync_peer --example session_handoff_peer
+      - name: Native filesystem and distributed participant regressions
+        run: cargo test --locked -p xharness-session-jsonl && cargo test --locked -p xharness-host-app --test session_handoff --test workspace_wire
+      - name: Real participant processes, rsync, controller loss and crash-before-reply
+        run: node scripts/session-handoff/test-native.mjs "$PWD/target/debug/examples/workspace_sync_peer" "$PWD/target/debug/examples/session_handoff_peer" native-handoff-receipt.json
+      - name: Strict affected business error and native gates
+        run: cargo clippy --locked -p xharness-session-jsonl --all-targets -p xharness-host-app --example workspace_sync_peer --example session_handoff_peer --test session_handoff --test workspace_wire -- -D warnings
+      - uses: actions/upload-artifact@v7
+        with:
+          name: session-handoff-peer-macos-arm64
+          path: |
+            target/debug/examples/workspace_sync_peer
+            target/debug/examples/session_handoff_peer
+            native-handoff-receipt.json
+          if-no-files-found: error
+          retention-days: 3

@@ -35,6 +35,7 @@ use xharness_session::{
 mod audit;
 mod blobs;
 mod catalog_scan;
+pub mod handoff;
 mod harness_snapshot;
 mod history_index;
 mod recovery_checkpoint;
@@ -119,6 +120,8 @@ struct HeaderRecord {
     record: String,
     format: String,
     format_version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    handoff: Option<u8>,
     header: SessionHeader,
 }
 
@@ -691,6 +694,7 @@ impl JsonlSessionStore {
         run_blocking(move || {
             let _guard = guard;
             let _file_lock = acquire_file_lock(&path)?;
+            handoff::require_writable(&path)?;
             let result = compress_cold_file(&path, &owned_id);
             // A directory-sync failure can occur after the atomic replace.
             // Clear the cache on both success and error; the next load always
@@ -722,6 +726,7 @@ impl JsonlSessionStore {
         run_blocking(move || {
             let _guard = guard;
             let _file_lock = acquire_file_lock(&path)?;
+            handoff::require_writable(&path)?;
             read_header_file(&path, &requested_id)
         })
         .await
@@ -1176,6 +1181,7 @@ impl Store for JsonlSessionStore {
         run_blocking(move || {
             let _guard = guard;
             let _file_lock = acquire_file_lock(&path)?;
+            handoff::require_writable(&path)?;
             load_file_cached(&path, &owned_id, &cache)
                 .map(|loaded| loaded.map(|state| state.session))
         })
@@ -1190,6 +1196,7 @@ impl Store for JsonlSessionStore {
         run_blocking(move || {
             let _guard = guard;
             let _file_lock = acquire_file_lock(&path)?;
+            handoff::require_writable(&path)?;
             for file in [&path, &catalog_path(&path)] {
                 match fs::remove_file(file) {
                     Ok(()) => sync_parent_directory(file)?,
@@ -1227,6 +1234,7 @@ impl Store for JsonlSessionStore {
         run_blocking(move || {
             let _guard = guard;
             let _file_lock = acquire_file_lock(&path)?;
+            handoff::require_writable(&path)?;
             // Appends own the per-path process lock, so they can move the
             // cached snapshot out instead of cloning a potentially huge
             // Session before every stream checkpoint. A failed append may
@@ -2282,6 +2290,12 @@ fn validate_header_record(
     requested_id: &str,
     record: &HeaderRecord,
 ) -> Result<(), StoreError> {
+    if let Some(version) = record.handoff {
+        if version != 1 {
+            return Err(backend_message("unsupported session handoff header"));
+        }
+        handoff::require_managed(&path.with_file_name(format!("{requested_id}{FILE_SUFFIX}")))?;
+    }
     if record.record != HEADER_RECORD {
         return Err(corrupt(
             path,

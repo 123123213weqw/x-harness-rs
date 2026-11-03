@@ -13,6 +13,7 @@ impl JsonlSessionStore {
         run_blocking(move || {
             let _guard = guard;
             let _file_lock = acquire_file_lock(&path)?;
+            handoff::require_writable(&path)?;
             match fs::symlink_metadata(&path) {
                 Ok(_) => return Err(StoreError::AlreadyExists { session_id }),
                 Err(error) if error.kind() == ErrorKind::NotFound => {}
@@ -22,6 +23,7 @@ impl JsonlSessionStore {
                 record: HEADER_RECORD.to_owned(),
                 format: FILE_FORMAT.to_owned(),
                 format_version: FILE_FORMAT_VERSION,
+                handoff: None,
                 header: session.header().clone(),
             };
             let header_bytes = encode_line(&header, &path)?;

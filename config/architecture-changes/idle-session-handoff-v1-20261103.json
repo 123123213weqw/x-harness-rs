@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Add opt-in idle session ownership handoff bound to a committed native code checkpoint",
+  "compatibility": "Existing unmanaged journals retain identical headers. Migrated journals deliberately reject legacy writers through a strict extra header field; native writes and restoration honor durable fences. No running task transfer, global credentials migration, UI activation or dependency change.",
+  "paths": {
+    "crates/xharness-session-jsonl/src/handoff.rs": {
+      "before": null,
+      "after": "187b60497803093b47c24d32bc7256cce67662f8e30dadc75ebb4c669bcc8699"
+    },
+    "crates/xharness-session-jsonl/src/lib.rs": {
+      "before": "3808dd7105746055269e59bbdec0fdee4ab6dac7ef0f36408451ac7a6ea6b4f7",
+      "after": "fbe087270acfe97b8fb7cef1163e5b787af099212f6c3ed601ceac50ff49154a"
+    },
+    "crates/xharness-session-jsonl/src/seeded.rs": {
+      "before": "3e07291ee1f1632d21f682b284a3f3286b56981fb15dc1313bc5a431f97a98b0",
+      "after": "949702ade792a56f4a3b1cbd28f61d39ec0bd17bff3f78ab7b52b24c7ca177aa"
+    },
+    "scripts/regression/check-architecture.py": {
+      "before": "9b65f820b4d7ea81f2319d1ee34b58e494c9e68a57c98bdf8d9ad628adf40b98",
+      "after": "30147c62b2d967ba54d38325f4cea98b2cb2ad75eddfa6f5af45dc96a1408b30"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "persistence",
+    "windows"
+  ]
+}

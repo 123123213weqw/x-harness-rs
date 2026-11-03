@@ -23,6 +23,7 @@ mod plugin_service;
 mod read_media;
 pub mod remote_admin;
 pub mod remote_control;
+pub mod session_handoff;
 pub mod tool_allowlist;
 pub mod web_search;
 pub use plugin_service::{open_product_plugin_manager, NativePluginBackend};

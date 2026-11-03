@@ -32,7 +32,9 @@ export function readConfig(file) {
 }
 export const peerArgs = (e, role, mode = 'serve') => [mode, e.workspace, e.control, e.spool, e.registration, role];
 export class Peer {
-  constructor(command, args, options = {}) {
+  constructor(command, args, options = {}, maxFrame = MAX_FRAME) {
+    assert.ok(Number.isSafeInteger(maxFrame) && maxFrame >= MAX_FRAME && maxFrame <= 24 * 1024 * 1024 + 65536);
+    this.maxFrame = maxFrame;
     this.child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], ...options });
     this.buffer = Buffer.alloc(0); this.pending = null; this.ended = false;
     this.exit = new Promise(resolve => {
@@ -43,7 +45,7 @@ export class Peer {
     this.child.stdin.on('error', () => this.fail(new Error('native peer input closed')));
     this.child.stdout.on('data', b => {
       this.buffer = Buffer.concat([this.buffer, b]);
-      if (this.buffer.length > MAX_FRAME) { this.fail(new Error('native peer frame limit')); this.child.kill('SIGTERM'); return; }
+      if (this.buffer.length > this.maxFrame) { this.fail(new Error('native peer frame limit')); this.child.kill('SIGTERM'); return; }
       const end = this.buffer.indexOf(10);
       if (end < 0) return;
       const frame = this.buffer.subarray(0, end); this.buffer = this.buffer.subarray(end + 1);
@@ -56,7 +58,7 @@ export class Peer {
   fail(e) { if (this.pending) { clearTimeout(this.pending.timer); this.pending.reject(e); this.pending = null; } }
   call(request) {
     assert.ok(!this.pending && !this.ended, 'one outstanding native request per participant');
-    const bytes = Buffer.from(JSON.stringify(request) + '\n'); assert.ok(bytes.length <= MAX_FRAME);
+    const bytes = Buffer.from(JSON.stringify(request) + '\n'); assert.ok(bytes.length <= this.maxFrame);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { this.fail(new Error('native request timeout; retain journal')); this.child.kill('SIGTERM'); }, 30000);
       this.pending = { resolve, reject, timer }; this.child.stdin.write(bytes);
