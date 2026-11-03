@@ -468,6 +468,15 @@ jobs:
           path: dist/directory-inventory-guard/
           if-no-files-found: warn
           retention-days: 14
+      - name: Prove workspace admission native errno and descriptor cleanup
+        run: python3 -B scripts/regression/test-workspace-admission-guard.py --evidence-dir dist/workspace-admission-guard
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: workspace-admission-guard
+          path: dist/workspace-admission-guard/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Rust terminal DTOs generate the shipped TypeScript codec and satisfy UI lifecycle
         env:
           XHARNESS_SESSION_TERMINAL_EXPORT: ${{ runner.temp }}/session-terminal-contract

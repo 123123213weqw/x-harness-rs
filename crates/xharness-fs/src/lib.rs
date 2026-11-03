@@ -27,6 +27,9 @@ pub mod capture;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod directory_stream;
 pub mod inventory;
+pub mod workspace_apply;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod workspace_lock;
 
 use std::{
     collections::HashMap,
@@ -512,6 +515,10 @@ pub struct WriteOutcome {
 
 #[derive(Debug, thiserror::Error)]
 pub enum FsError {
+    #[error("workspace mutation is blocked by sync admission or pending recovery")]
+    WorkspaceBusy,
+    #[error("workspace mutation admission failed")]
+    WorkspaceAdmission(#[source] Box<workspace_apply::ApplyError>),
     #[error("session id must not be empty or contain NUL")]
     InvalidSessionId,
     #[error("invalid workspace path {display:?}: {reason}")]
@@ -572,6 +579,7 @@ struct ServiceInner {
     next_target_id: AtomicU64,
     targets: StdMutex<TargetRegistry>,
     observations: ObservationStore,
+    _workspace_use: Option<Arc<workspace_apply::WorkspaceUse>>,
 }
 
 #[derive(Default)]
@@ -606,7 +614,25 @@ impl FsService {
         workspace_root: impl AsRef<Path>,
         observations: ObservationStore,
     ) -> Result<Self, FsError> {
-        let requested = workspace_root.as_ref();
+        Self::with_workspace_lifetime(workspace_root.as_ref(), observations, None)
+    }
+
+    /// Keep a native owner's workspace admission in every filesystem clone and
+    /// blocking worker, including FullAccess services rooted above that workspace.
+    pub fn with_admission(
+        filesystem_root: impl AsRef<Path>,
+        observations: ObservationStore,
+        admission: Arc<workspace_apply::WorkspaceUse>,
+    ) -> Result<Self, FsError> {
+        Self::with_workspace_lifetime(filesystem_root.as_ref(), observations, Some(admission))
+    }
+
+    fn with_workspace_lifetime(
+        workspace_root: &Path,
+        observations: ObservationStore,
+        admission: Option<Arc<workspace_apply::WorkspaceUse>>,
+    ) -> Result<Self, FsError> {
+        let requested = workspace_root;
         let root = fs::canonicalize(requested)
             .map_err(|source| io_error("canonicalize workspace root", requested, source))?;
         if !fs::metadata(&root)
@@ -646,6 +672,7 @@ impl FsService {
                 next_target_id: AtomicU64::new(1),
                 targets: StdMutex::new(TargetRegistry::default()),
                 observations,
+                _workspace_use: admission,
             }),
         })
     }
@@ -935,7 +962,19 @@ impl FsService {
         let observations = self.inner.observations.clone();
         let session_id = session_id.to_owned();
         let key = target.key.clone();
+        let admission_service = self.clone();
         run_blocking(move || {
+            if record.relative.components().any(|p| {
+                p.as_os_str()
+                    .to_string_lossy()
+                    .to_ascii_lowercase()
+                    .starts_with(".xh-sync-")
+            }) {
+                return Err(FsError::WorkspaceBusy);
+            }
+            let _admission = admission_service
+                .workspace_use()
+                .map_err(|error| FsError::WorkspaceAdmission(Box::new(error)))?;
             let _guard = guard;
             let physical = physical_target(&root, root_fd.as_ref(), &record)?;
             let current = current_version(&root, &physical)?;
@@ -981,7 +1020,19 @@ impl FsService {
         let observations = self.inner.observations.clone();
         let session_id = session_id.to_owned();
         let key = target.key.clone();
+        let admission_service = self.clone();
         run_blocking(move || {
+            if record.relative.components().any(|p| {
+                p.as_os_str()
+                    .to_string_lossy()
+                    .to_ascii_lowercase()
+                    .starts_with(".xh-sync-")
+            }) {
+                return Err(FsError::WorkspaceBusy);
+            }
+            let _admission = admission_service
+                .workspace_use()
+                .map_err(|error| FsError::WorkspaceAdmission(Box::new(error)))?;
             let _guard = guard;
             let physical = physical_target(&root, root_fd.as_ref(), &record)?;
             let current = current_version(&root, &physical)?.ok_or_else(|| FsError::NotFound {

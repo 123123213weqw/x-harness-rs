@@ -215,7 +215,16 @@ impl NativePlatform {
         } else {
             workspace_root.clone()
         };
-        let filesystem = FsService::with_observations(&filesystem_root, observations)?;
+        // Bind admission to the real session workspace, not FullAccess's volume
+        // root. Idle cached platforms intentionally keep sync blocked until the
+        // native owner retires the session; running supervisors retain the guard.
+        let admission = Arc::new(
+            FsService::new(&workspace_root)?
+                .workspace_use()
+                .map_err(|error| FsError::WorkspaceAdmission(Box::new(error)))?,
+        );
+        let filesystem =
+            FsService::with_admission(&filesystem_root, observations, admission.clone())?;
         let read_only_filesystems = config
             .read_only_roots
             .iter()
@@ -236,7 +245,7 @@ impl NativePlatform {
             access: config.access,
             filesystem,
             read_only_filesystems,
-            process: ProcessRuntime::with_debug(debug.clone()),
+            process: ProcessRuntime::with_debug(debug.clone()).with_lifetime_guard(admission),
             sandbox,
             readiness: Arc::new(OnceCell::new()),
             debug,

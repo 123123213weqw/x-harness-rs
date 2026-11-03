@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Add opt-in native sync admission, retained no-clobber full-hash publication, bounded durable recovery journal and bidirectional base commit; retain admission through filesystem clones and process supervisors and enroll native/business seams.",
+  "compatibility": "No package/version/lock or wire/UI changes. Adds reserved .xh-sync- namespace with explicit capture policy v2. Native platform sessions hold cooperative admission until retired; incomplete supervisors quarantine admission. Deletes remain disabled. Linux/macOS native coverage required; Windows sync unsupported. No RPC/cloud transport/session handoff enabled.",
+  "paths": {
+    ".github/workflows/ci.yml": {
+      "before": "7d6e6e4ce47b2651687a2d7b0c2e49237028496f2151176a0414ca56cd427877",
+      "after": "2dc63f4d677c867946db9a635d5fbc1566c14ecdd77d0b310f2b057dd4d58a47"
+    },
+    "crates/xharness-fs/src/inventory.rs": {
+      "before": "becfb5e6010571412c769c658880d28610c0b67a13c5f48fa7c76c6187ae7e78",
+      "after": "e355b1432281f6be438c42db52b610bebaa1a5700cd4afa937eef7d8a7a09fa2"
+    },
+    "crates/xharness-fs/src/lib.rs": {
+      "before": "7b1c3662156bc61ba67afcb7cbc69d4e3b9b47c181c5f709b479b39c303e904c",
+      "after": "b32b77d318552a27a61c24e9ab7406c169bff41f2f69e4b80e54d7ab41d00b60"
+    },
+    "crates/xharness-fs/src/workspace_apply.rs": {
+      "before": null,
+      "after": "ab222c9c8d3a07504d29153ed7e3baace8436436a117edda05648553cc511a5a"
+    },
+    "crates/xharness-fs/src/workspace_lock.rs": {
+      "before": null,
+      "after": "8f0147b0a70546cc763e13903056a3bd6196d103235f9e66800869a3190841fe"
+    },
+    "crates/xharness-fs/tests/workspace_admission.rs": {
+      "before": null,
+      "after": "c287111b68c67c0cc02dd25ffdc189817baaef661817b1b643eeb77719e85375"
+    },
+    "crates/xharness-platform/src/lib.rs": {
+      "before": "968ea779cffd5844f12f708d7c5f20207a19019bb2ad2752306670a373ec9351",
+      "after": "dff3ca4679adfc9b2c9361c90c1ca1b3ac1782220ca68bebce408f5dcef92bf8"
+    },
+    "crates/xharness-platform/tests/platform.rs": {
+      "before": "32db8f6c1a0b802db3fc464b2dea7594a57c7359e0009f1b8380813440f30556",
+      "after": "a394be10d68fd382650061046ec110e031030edddc184fbe46d1e1587df0e18d"
+    },
+    "crates/xharness-process/src/lib.rs": {
+      "before": "04ee90670c41ace6959f5093916b6321799692d2726db5bf78dac47f7ddaccb2",
+      "after": "a2d5aee8a2df61f0e149a7cc7286df187a675b18e5d15ad4dbf62cc0490f79d0"
+    },
+    "crates/xharness-process/tests/process.rs": {
+      "before": "b973299b72e640225e0daed8d4398caf5b20a00dd53494f667b3c03af26e5982",
+      "after": "b8f2d3d76720c0774a6eb4536e0e22fd45b21788a708a2322047c873c62aaccc"
+    },
+    "scripts/regression/check-architecture.py": {
+      "before": "e33de0287114c7fed567c159d5cd8cbd74a7c3356c34d3c31f0132a75cb730c0",
+      "after": "4cba1b0ac95b932c59e69330657e04890c4c674ed73ea39b562d31751ef51a3e"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}

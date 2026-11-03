@@ -633,3 +633,29 @@ async fn full_debug_preserves_spawn_raw_chunks_and_completion() {
         .any(|event| { event.event == "output.chunk" && event.payload["content"] == "err" }));
     assert!(events.iter().any(|event| event.event == "completed"));
 }
+
+#[test]
+fn owner_lifetime_is_quarantined_when_unpolled_supervisor_is_aborted() {
+    #[derive(Debug)]
+    struct Guard;
+    let guard = Arc::new(Guard);
+    let weak = Arc::downgrade(&guard);
+    let dir = TestDir::new();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let handle = {
+        let _entered = runtime.enter();
+        ProcessRuntime::new()
+            .with_lifetime_guard(guard)
+            .spawn(SpawnSpec::new("/bin/sleep", dir.path()).arg("30"))
+            .unwrap()
+    };
+    let pid = handle.pid();
+    drop(handle);
+    drop(runtime);
+    wait_until_dead_sync(pid);
+    // Conservative quarantine is intentional: abort is not a tree-drain proof.
+    assert!(weak.upgrade().is_some());
+}

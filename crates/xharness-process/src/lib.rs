@@ -450,6 +450,18 @@ pub enum ProcessError {
     CaptureDrainTimedOut { grace_ms: u128 },
 }
 
+// Cover the interval from OS spawn to supervisor ownership, including early
+// PID/Job/pipe setup failure. Incomplete ownership must not release admission.
+struct PendingLifetime(Option<Arc<dyn Send + Sync + std::fmt::Debug>>);
+impl Drop for PendingLifetime {
+    fn drop(&mut self) {
+        if let Some(guard) = self.0.take() {
+            std::mem::forget(guard);
+            eprintln!("workspace admission quarantined after incomplete process setup");
+        }
+    }
+}
+
 /// Last-resort process-tree cleanup, armed before the supervisor is scheduled.
 /// Own the Child as well as its group: after Tokio shutdown there may be no
 /// runtime left to drain Tokio's orphan queue, so kill-on-drop alone can leave
@@ -459,14 +471,20 @@ struct ProcessTreeGuard {
     tree: NativeProcessTree,
     child: Option<Child>,
     armed: bool,
+    lifetime_guard: Option<Arc<dyn Send + Sync + std::fmt::Debug>>,
 }
 
 impl ProcessTreeGuard {
-    fn new(tree: NativeProcessTree, child: Child) -> Self {
+    fn new(
+        tree: NativeProcessTree,
+        child: Child,
+        lifetime_guard: Option<Arc<dyn Send + Sync + std::fmt::Debug>>,
+    ) -> Self {
         Self {
             tree,
             child: Some(child),
             armed: true,
+            lifetime_guard,
         }
     }
 
@@ -491,6 +509,13 @@ impl ProcessTreeGuard {
 impl Drop for ProcessTreeGuard {
     fn drop(&mut self) {
         if self.armed {
+            // An aborted/failed supervisor cannot certify workspace quiescence.
+            // Keep admission quarantined until owner restart rather than release
+            // it while cleanup or escaped-descendant status remains uncertain.
+            if let Some(guard) = self.lifetime_guard.take() {
+                std::mem::forget(guard);
+                eprintln!("workspace admission quarantined after incomplete process supervision");
+            }
             let _ = hard_kill_tree(&self.tree);
             #[cfg(unix)]
             if let Some(mut child) = self.child.take() {
@@ -548,6 +573,7 @@ type NativeProcessTree = WindowsArc<Job>;
 #[derive(Clone, Debug, Default)]
 pub struct ProcessRuntime {
     debug: DebugRecorder,
+    lifetime_guard: Option<Arc<dyn Send + Sync + std::fmt::Debug>>,
 }
 
 impl ProcessRuntime {
@@ -556,7 +582,17 @@ impl ProcessRuntime {
     }
 
     pub fn with_debug(debug: DebugRecorder) -> Self {
-        Self { debug }
+        Self {
+            debug,
+            lifetime_guard: None,
+        }
+    }
+
+    /// Retain a native owner's admission guard in every child supervisor. A
+    /// generic lifetime port avoids a dependency from process primitives to FS.
+    pub fn with_lifetime_guard(mut self, guard: Arc<dyn Send + Sync + std::fmt::Debug>) -> Self {
+        self.lifetime_guard = Some(guard);
+        self
     }
 
     /// Spawn an executable directly, creating a managed native process tree.
@@ -638,6 +674,7 @@ impl ProcessRuntime {
                 return Err(ProcessError::Spawn { program, source });
             }
         };
+        let mut pending_lifetime = PendingLifetime(self.lifetime_guard.clone());
         let pid = match child.id() {
             Some(pid) => pid,
             None => {
@@ -681,7 +718,8 @@ impl ProcessRuntime {
         let (result_tx, result_rx) = oneshot::channel();
         let debug = self.debug.clone();
         let supervisor_output = Arc::clone(&live_output);
-        let process_tree_guard = ProcessTreeGuard::new(process_tree, child);
+        let process_tree_guard =
+            ProcessTreeGuard::new(process_tree, child, pending_lifetime.0.take());
         runtime.spawn(async move {
             let result = supervise(
                 process_tree_guard,

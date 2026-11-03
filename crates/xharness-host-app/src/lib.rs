@@ -40,6 +40,7 @@ use async_trait::async_trait;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use xharness_coding_tools::CodingToolBundle;
+pub mod workspace_executor;
 pub mod workspace_inventory;
 mod workspace_memory;
 use xharness_debug::DebugRecorder;

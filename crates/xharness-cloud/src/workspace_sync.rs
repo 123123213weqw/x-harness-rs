@@ -162,6 +162,7 @@ pub fn classify_capture_path(path: &str) -> CloudResult<CapturePathClass> {
                 | "cookies.json"
         ) || lower == ".env"
             || lower.starts_with(".env.")
+            || lower.starts_with(".xh-sync-")
             || [".pem", ".key", ".p12", ".pfx"]
                 .iter()
                 .any(|s| lower.ends_with(s))

@@ -260,3 +260,27 @@ async fn full_access_readiness_is_explicit_and_does_not_construct_a_sandbox() {
     assert_eq!(first.sandbox_backend, "none-full-access");
     assert!(platform.sandbox().is_none());
 }
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[tokio::test]
+async fn workspace_admission_follows_cached_platform_and_running_process_not_full_access_root() {
+    use xharness_fs::{workspace_apply::ApplyError, FsService};
+    let workspace = TempWorkspace::new();
+    let service = FsService::new(&workspace.0).unwrap();
+    let platform = NativePlatform::new(PlatformConfig::new(&workspace.0).full_access()).unwrap();
+    assert!(matches!(service.sync_lease(), Err(ApplyError::Busy)));
+    let handle = platform
+        .process()
+        .spawn(SpawnSpec::new("/bin/sh", &workspace.0).args(["-c", "sleep 0.2"]))
+        .unwrap();
+    let filesystem_clone = platform.filesystem().clone();
+    drop(platform);
+    assert!(matches!(service.sync_lease(), Err(ApplyError::Busy)));
+    handle.wait().await.unwrap();
+    assert!(matches!(service.sync_lease(), Err(ApplyError::Busy)));
+    drop(filesystem_clone);
+    let lease = service.sync_lease().unwrap();
+    assert!(NativePlatform::new(PlatformConfig::new(&workspace.0).full_access()).is_err());
+    drop(lease);
+    assert!(NativePlatform::new(PlatformConfig::new(&workspace.0).full_access()).is_ok());
+}

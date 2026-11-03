@@ -139,6 +139,15 @@ impl fmt::Debug for InventoryFile {
     }
 }
 
+/// Exact bounded scanner accounting, useful for native apply preflight.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InventoryUsage {
+    pub entries: usize,
+    pub metadata_bytes: usize,
+    pub files: usize,
+    pub directories: usize,
+}
+
 pub struct WorkspaceInventory {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     snapshot: unix::Snapshot,
@@ -148,6 +157,45 @@ pub struct WorkspaceInventory {
     limits: InventoryLimits,
 }
 impl WorkspaceInventory {
+    pub fn usage(&self) -> InventoryUsage {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            let paths = self
+                .snapshot
+                .files
+                .iter()
+                .map(|f| f.path.as_str())
+                .chain(
+                    self.snapshot
+                        .directories
+                        .iter()
+                        .map(|(p, _)| p.as_str())
+                        .filter(|p| !p.is_empty()),
+                )
+                .chain(self.snapshot.excluded.iter().map(String::as_str));
+            let mut entries = 0;
+            let mut metadata_bytes = 256;
+            for path in paths {
+                entries += 1;
+                metadata_bytes += path.len() + 256;
+            }
+            InventoryUsage {
+                entries,
+                metadata_bytes,
+                files: self.snapshot.files.len(),
+                directories: self.snapshot.directories.len(),
+            }
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        {
+            InventoryUsage {
+                entries: 0,
+                metadata_bytes: 0,
+                files: 0,
+                directories: 0,
+            }
+        }
+    }
     pub fn files(&self) -> &[InventoryFile] {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
@@ -236,7 +284,7 @@ impl FsService {
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-mod unix {
+pub(crate) mod unix {
     use super::*;
     use crate::{
         canonical_fd_path,
@@ -289,7 +337,7 @@ mod unix {
             _ => InventoryError::Io(io::Error::from_raw_os_error(error as i32)),
         }
     }
-    fn root(service: &FsService) -> Result<File, InventoryError> {
+    pub(crate) fn root(service: &FsService) -> Result<File, InventoryError> {
         let file = File::from(
             openat(
                 service.inner.root_fd.as_ref(),
@@ -302,7 +350,7 @@ mod unix {
         check_root(service, &file)?;
         Ok(file)
     }
-    fn check_root(service: &FsService, file: &File) -> Result<(), InventoryError> {
+    pub(crate) fn check_root(service: &FsService, file: &File) -> Result<(), InventoryError> {
         if canonical_fd_path(file, "verify inventory root", &service.inner.root)
             .map_err(InventoryError::Filesystem)?
             != service.inner.root
@@ -311,7 +359,11 @@ mod unix {
         }
         Ok(())
     }
-    fn open_relative(root: &File, service: &FsService, path: &str) -> Result<File, InventoryError> {
+    pub(crate) fn open_relative(
+        root: &File,
+        service: &FsService,
+        path: &str,
+    ) -> Result<File, InventoryError> {
         let flags = OFlag::O_RDONLY | OFlag::O_CLOEXEC | OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK;
         let relative = if path.is_empty() {
             Path::new(".")

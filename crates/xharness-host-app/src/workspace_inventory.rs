@@ -34,7 +34,7 @@ use xharness_fs::{
 
 const POLICY_ID: &str = "personal-workspace-capture";
 // Exact table versions and exclusion/portable-path rules are part of policy.
-const POLICY_VERSION: &str = "v1-unicode16-fold-unicode17-nfd";
+const POLICY_VERSION: &str = "v2-sync-reserved-unicode16-fold-unicode17-nfd";
 struct PersonalPolicy;
 impl InventoryPolicy for PersonalPolicy {
     fn identity(&self) -> [u8; 32] {
@@ -89,6 +89,9 @@ pub struct CapturedWorkspaceInventory {
     manifest: WorkspaceManifest,
 }
 impl CapturedWorkspaceInventory {
+    pub fn usage(&self) -> xharness_fs::inventory::InventoryUsage {
+        self.native.usage()
+    }
     pub fn manifest(&self) -> &WorkspaceManifest {
         &self.manifest
     }
