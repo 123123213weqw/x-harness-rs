@@ -459,6 +459,15 @@ jobs:
           XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
           XHARNESS_PRODUCED_FILES_WIRE: ${{ runner.temp }}/produced-files-wire.json
         run: cargo test --locked --workspace --all-targets
+      - name: Prove native directory failure paths and descriptor cleanup
+        run: python3 -B scripts/regression/test-directory-inventory-guard.py --evidence-dir dist/directory-inventory-guard
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: directory-inventory-guard
+          path: dist/directory-inventory-guard/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Rust terminal DTOs generate the shipped TypeScript codec and satisfy UI lifecycle
         env:
           XHARNESS_SESSION_TERMINAL_EXPORT: ${{ runner.temp }}/session-terminal-contract

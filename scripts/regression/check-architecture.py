@@ -20,6 +20,18 @@ HOST_POLICY = ROOT / "config" / "architecture-host-modules.json"
 # this list deliberately small: it guards only processors that have completed
 # the staged extraction and therefore must not regain transport/Host coupling.
 SOURCE_BOUNDARIES = {
+    "crates/xharness-fs/src/directory_stream.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        "xharness_cloud::", "reqwest::", "std::process", "nix::dir",
+    },
+    "crates/xharness-fs/src/inventory.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        "xharness_cloud::", "reqwest::", "std::process", "nix::dir",
+    },
+    "crates/xharness-host-app/src/workspace_inventory.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        "tokio::", "reqwest::", "std::process", "nix::", "unsafe {",
+    },
     "crates/xharness-fs/src/capture.rs": {
         "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
         "xharness_cloud::", "reqwest::", "std::process",

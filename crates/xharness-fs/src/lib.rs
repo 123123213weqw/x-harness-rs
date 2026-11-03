@@ -24,6 +24,9 @@
 //! not provide a content-version compare-and-rename primitive.
 
 pub mod capture;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod directory_stream;
+pub mod inventory;
 
 use std::{
     collections::HashMap,
