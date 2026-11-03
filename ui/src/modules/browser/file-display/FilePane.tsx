@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useRef,useState} from 'react'
+import {useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react'
 import type {ReactNode} from 'react'
 import {MarkdownText,CodeBlock,writeClipboard} from '@xharness/dsh-client-ui-primitives'
 import {GitDiffScopeSchema} from '../../shared/generated/file-display'
@@ -7,11 +7,12 @@ import type {DisplayInspection} from '../../shared/file-inspection'
 import type {DisplayFile,GitDiffScope} from '../../shared/generated/file-display'
 import type {WorkspaceItemOwner} from '../../layout/workspace-pane'
 import {DiffPreview} from './DiffPreview'
-import {FileDisplayClient,ResourceBudget,localResource,imageObjectUrl,pdfObjectUrl,codeLanguage,isHtmlPath,staticHtmlDocument} from './client'
+import {FileDisplayClient,ResourceBudget,localResource,imageObjectUrl,imageResource,pdfObjectUrl,codeLanguage,isHtmlPath,staticHtmlDocument} from './client'
 export function openDisplayFile(path:string,sessionId:string,relativeTo?:string,gitDiff?:GitDiffScope):void{
   window.dispatchEvent(new CustomEvent('xharness:workspace-open',{detail:{kind:'file',source:path,sessionId,...gitDiff===undefined?{}:{gitDiff},...gitDiff===undefined?{}:{title:label('差异 · ','Diff · ')+gitDiff},...relativeTo===undefined?{}:{relativeTo}}}))
 }
-type ImageState={kind:'image';path:string;url:string;width:number;height:number}
+import {ImagePreview} from './ImagePreview'
+type ImageState={kind:'image';path:string;width:number;height:number;blob:Blob;canSuspend:boolean}
 type PdfState={kind:'pdf';path:string;url:string}
 type InfoState={kind:'info';path:string;metadata?:DisplayInspection|undefined}
 type FileState=Exclude<DisplayFile,{kind:'image'|'pdf'}>|ImageState|PdfState|InfoState
@@ -51,12 +52,21 @@ function MarkdownFile({file,sessionId,client}:{file:Extract<DisplayFile,{kind:'m
 }
 export function FilePane({item,open,sessionId,client}:WorkspaceItemOwner&{client:FileDisplayClient}){
   const owner=item.sessionId??sessionId
+  const body=useRef<HTMLDivElement>(null),imageReady=useRef(false)
+  const imageScroll=useRef({left:0,top:0})
+  const restoreImageScroll=useCallback(()=>{
+    const element=body.current
+    if(element)element.scrollTo(imageScroll.current.left,imageScroll.current.top)
+    imageReady.current=true
+  },[])
+  useLayoutEffect(()=>{imageReady.current=false},[open,owner,item.source,item.relativeTo,item.gitDiff])
   const actionGeneration=useRef(0)
   const [actionError,setActionError]=useState(''),[nativeBusy,setNativeBusy]=useState(false),[copied,setCopied]=useState(false)
   useEffect(()=>{if(!copied)return;const timer=window.setTimeout(()=>setCopied(false),1800);return()=>window.clearTimeout(timer)},[copied])
   const [file,setFile]=useState<FileState>(),[error,setError]=useState(''),[revision,setRevision]=useState(0),[source,setSource]=useState(false),[zoom,setZoom]=useState(0)
   useEffect(()=>{
     actionGeneration.current++;setNativeBusy(false)
+    imageScroll.current={left:0,top:0};imageReady.current=false
     setFile(undefined);setError('');setActionError('');setCopied(false);setZoom(0);setSource(false)
     if(!owner)return
     const controller=new AbortController();let objectUrl:string|undefined
@@ -69,7 +79,12 @@ export function FilePane({item,open,sessionId,client}:WorkspaceItemOwner&{client
       return client.read(owner,item.source,controller.signal,item.relativeTo,item.gitDiff)
     })().then(result=>{
       if(controller.signal.aborted||!result)return
-      if(result.kind==='image'){objectUrl=imageObjectUrl(result).url;setFile({kind:'image',path:result.path,url:objectUrl,width:result.width,height:result.height})}
+      if(result.kind==='image'){
+        // Keep only bounded compressed bytes in a retained tab. Reopening must
+        // not require a healthy Host or a still-existing workspace file.
+        const resource=imageResource(result)
+        setFile({kind:'image',path:result.path,width:result.width,height:result.height,...resource})
+      }
       else if(result.kind==='pdf'){objectUrl=pdfObjectUrl(result);setFile({kind:'pdf',path:result.path,url:objectUrl})}
       else setFile(result)
     }).catch((e:unknown)=>{if(!controller.signal.aborted)setError(e instanceof Error?e.message:String(e))})
@@ -96,12 +111,12 @@ export function FilePane({item,open,sessionId,client}:WorkspaceItemOwner&{client
       {file?.kind==='image'&&<><button type="button" onClick={()=>setZoom(value=>Math.max(25,(value||100)-25))} aria-label={label('缩小','Zoom out')}>−</button><button type="button" onClick={()=>setZoom(0)}>{zoom?`${zoom}%`:label('适应','Fit')}</button><button type="button" onClick={()=>setZoom(value=>Math.min(400,(value||100)+25))} aria-label={label('放大','Zoom in')}>+</button></>}
     </header>
     {actionError&&<p className="xhfile-action-error" role="alert">{actionError}</p>}
-    <div className="xhfile-body" data-diff={file?.kind==='diff'||undefined} data-document={file?.kind==='pdf'||html!==undefined&&!source||undefined} key={revision}>
+    <div ref={body} onScroll={()=>{const element=body.current;if(open&&file?.kind==='image'&&imageReady.current&&element)imageScroll.current={left:element.scrollLeft,top:element.scrollTop}}} className="xhfile-body" data-diff={file?.kind==='diff'||undefined} data-document={file?.kind==='pdf'||html!==undefined&&!source||undefined} key={revision}>
       {!owner?<p role="alert">{label('请选择一个会话后打开文件','Select a conversation before opening files')}</p>
         :error?<div role="alert"><p>{label('此文件暂时无法内置预览，可以在文件夹中查看或使用默认应用打开。','This file cannot be previewed here. Show it in its folder or open with the default app.')}</p><details><summary>{label('详情','Details')}</summary><p>{error}</p></details><button type="button" onClick={()=>setRevision(value=>value+1)}>{label('重试','Retry')}</button></div>
         :!file?<p role="status">{label('加载文件…','Loading file…')}</p>
         :file.kind==='info'?<div className="xhfile-info"><p>{file.metadata?.preview==='tooLarge'?label('文件超过内置预览大小限制。','Too large for built-in preview.'):label('此格式暂不支持内置预览。','This format has no built-in preview.')}</p><p>{file.metadata?formatFileSize(file.metadata.bytes):''}</p><p>{label('可以使用顶部的打开选项，或复制路径。','Use the opening options above, or copy the path.')}</p></div>
-        :file.kind==='image'?<div className="xhfile-image"><img src={file.url} alt={file.path.split(/[\\/]/).at(-1)} style={zoom?{width:`${file.width*zoom/100}px`,maxWidth:'none'}:undefined} decoding="async"/><small>{file.width} × {file.height}</small></div>
+        :file.kind==='image'?open||!file.canSuspend?<ImagePreview key={revision} image={file} zoom={zoom} ready={restoreImageScroll} zh={zh()}/>:null
         :file.kind==='pdf'?<><p className="xhfile-preview-note">{label('PDF 预览 · 如无法显示，请使用默认应用打开','PDF preview · If unavailable, use the default app')}</p><iframe className="xhfile-document" title={label('PDF 预览','PDF preview')} src={file.url} referrerPolicy="no-referrer"/></>
         :file.kind==='diff'?<DiffPreview file={file}/>
         :file.kind==='markdown'&&!source?<MarkdownFile file={file} sessionId={owner} client={client}/>

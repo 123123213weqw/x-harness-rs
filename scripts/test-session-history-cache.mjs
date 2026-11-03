@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { frozenRuntime, runtimeTestSource, conversationBrowserTestSource, sourceMode, runFrozenSourceDifferential } from './runtime-source-test-harness.mjs';
 import { installOwnedViewPlatform } from './fixtures/owned-view-platform-browser.mjs';
 import { patchSessionHistoryCache } from './patch-session-history-cache.mjs';
+import { compile } from './conversation-test-harness.mjs';
 const root = fileURLToPath(new URL('../',import.meta.url)), dist=resolve(root,'ui/dist');
 const shipped=readFileSync(resolve(dist,'plugins/@xharness/dsh-client-runtime/client.js'));
 new Script(shipped.toString());
@@ -31,9 +32,11 @@ try {
   if(name==='dsh-client-ui-conversation')source=conversationBrowserTestSource();
   await page.addScriptTag({content:source});
  }
+ await page.addScriptTag({content:compile().test});
  const checks=await page.evaluate(async()=>{
   const cache={};function load(id){if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;return cache[name]??(cache[name]=registrations[name].factory(load))}
   const {SessionManager}=load('@xharness/dsh-client-runtime/client');window.SessionManager=SessionManager;
+  const {SessionInputShell}=load('@xharness/dsh-client-ui-conversation/test');
   const definitions=[],views=[];let fallback;
   load('@xharness/dsh-client-ui-conversation/client').registerConversationNodes({conversationEvents:{register:d=>definitions.push(d),registerFallback:d=>{fallback=d}},conversationViews:{register:d=>views.push(d)}});
   const conversation={events:{entries:()=>definitions,fallbackEntry:()=>fallback},views:{entries:()=>views}};
@@ -72,6 +75,12 @@ try {
   const a=select('a');await a.open();await a.loadOlder();await a.loadOlder();
   ok(a.baseSeq===51&&a.getSnapshot().chat.order.length===150,'loaded three pages with real Chat projection');
   a.actx={draft:'keep me',attachments:['file-ref'],expanded:['tool-1']};
+  // Real InputMachine/facade, not a string sentinel pretending to be a draft.
+  let accidentalSubmit=0;
+  const inputShell=new SessionInputShell({actx:a.actx,queue:{getSnapshot:()=>a.getSnapshot().queue,subscribe:fn=>a.subscribe(fn)},defaultSink:async()=>{accidentalSubmit++;return {kind:'accepted'}},commandImages:{serialize:async()=>[],release:()=>{},unsupportedNotice:()=>''}});
+  inputShell.setDraft('draft before edits');inputShell.setDraft('draft after edits');inputShell.addImages(['draft-image-ref']);
+  const draftBefore=JSON.stringify(inputShell.snapshot);
+
   const assembler=a.conversation, oldEvents=new WeakRef(a.events);window.oldEvents=oldEvents;window.oldEvent=new WeakRef(a.events[0]);
   a.projections.apply('title','keep title',1);
   const b=select('b');await b.open();manager.xhHistoryCache.limits.maxInactiveSessions=0;
@@ -79,6 +88,10 @@ try {
   ok(a.openState==='cold'&&a.events.length===0&&a.views.length===0,'raw history evicted');
   ok(a.conversation===assembler&&assembler.inputs.size===0&&a.getSnapshot().nodes.length===0,'assembler and cached snapshot cleared, identity stable');
   ok(a.actx.draft==='keep me'&&a.actx.attachments[0]==='file-ref'&&a.projections.get('title')==='keep title','scope and projection state retained');
+  ok(JSON.stringify(inputShell.snapshot)===draftBefore&&!inputShell.disposed&&accidentalSubmit===0,'real draft and image IDs survive UI-window eviction without submit/dispose');
+  inputShell.undo();ok(inputShell.snapshot.draft!=='draft after edits','draft undo stack survives eviction');inputShell.redo();
+  ok(inputShell.snapshot.draft==='draft after edits'&&inputShell.snapshot.imageIds.join(',')==='draft-image-ref','draft redo restores text and image references');
+
   const before=calls.length;select('a');await a.open();
   ok(a.baseSeq===51&&a.events.length===150&&calls.length===before+3,'restore full previous range for saved scroll anchors');
   ok(a.views[0].text==='view 51'&&a.events.at(-1).data.text==='body 200','restored wire data exact');
@@ -146,12 +159,22 @@ try {
   // Same for initial history; model/context/host histories never touched by eviction.
   const z=select('z');let openRelease;z.history=()=>new Promise(r=>{openRelease=r});const stale=z.open();await tick();z.openGeneration++;z.openState='cold';openRelease({result:{ok:true,value:pageOf()}});await stale;ok(z.events.length===0,'stale open ignored');
   manager.drop('z');ok(!manager.xhHistoryCache.entries.has('z')&&z.xhHistoryOwner===undefined,'scope drop cleans manager entry');
-  window.makeMemoryFixture=async(enabled)=>{
+  window.revisitExperiment=async(limit)=>{
+    let reads=0,offline=false;
+    const api={sessions:{history:async()=>{reads++;return offline?{result:{ok:false,error:{message:'synthetic offline'}}}:{result:{ok:true,value:pageOf()}}}}};
+    const m=new SessionManager(api,remote,undefined,undefined,conversation);
+    const visit=async id=>{if(!m.summaries.some(s=>s.sessionId===id))m.summaries.push({sessionId:id,running:false,blank:false});m.select(id);const s=m.get(id);m.xhHistoryCache.limits.maxInactiveSessions=limit;await s.open();await tick();return s};
+    for(let pass=0;pass<3;pass++)for(const id of ['a','b','c','d'])await visit(id);
+    const warmReads=reads;offline=true;const first=await visit('a');
+    return {limit,visits:12,warmReads,offlineState:first.openState,offlineReadAttempted:reads>warmReads};
+  };
+  window.makeMemoryFixture=async(enabled,maxInactiveSessions)=>{
     window.memoryManager=null;await tick();
     const m=new SessionManager(api,remote,undefined,undefined,conversation);window.memoryManager=m;
     for(let n=0;n<32;n++){
       const id='memory-'+n;m.summaries.push({sessionId:id,running:false,blank:false,updatedAt:0});m.select(id);const s=m.get(id);
       if(!enabled)m.xhHistoryCache.limits={maxInactiveSessions:1000,maxInactiveBytes:1e12};
+      else if(maxInactiveSessions!==undefined)m.xhHistoryCache.limits.maxInactiveSessions=maxInactiveSessions;
       // Independently allocated wire-like strings. No fixture array retains them.
       const entries=Array.from({length:160},(_,i)=>({event:{seq:i+1,time:i,type:'fixture/text',data:{text:Array.from({length:2048},(_,j)=>String.fromCharCode(33+(n+i+j)%90)).join('')}},view:{summary:'tool '+i}}));
       s.installWindow(entries,false);s.openState='open';s.getSnapshot();await tick();
@@ -175,10 +198,23 @@ try {
  async function heap(){if(!cdp)return null;await cdp.send('HeapProfiler.collectGarbage');return (await cdp.send('Runtime.getHeapUsage')).usedSize;}
  const baselineStats=await page.evaluate(()=>makeMemoryFixture(false));const baseline=await heap();
  const boundedStats=await page.evaluate(()=>makeMemoryFixture(true));const bounded=await heap();
+ const revisitPolicies=[];for(const limit of [6,2,0])revisitPolicies.push(await page.evaluate(limit=>revisitExperiment(limit),limit));
+ assert.deepEqual(revisitPolicies.map(row=>row.warmReads),[4,12,12]);
+ assert.deepEqual(revisitPolicies.map(row=>row.offlineState),['open','error','error']);
+ const experimentPolicies=[];
+ for(const limit of [2,0]){
+  const stats=await page.evaluate(limit=>makeMemoryFixture(true,limit),limit),heapBytes=await heap();
+  assert.equal(stats.inactiveSessions,limit);assert.equal(stats.protectedSessions,1);
+  experimentPolicies.push({maxInactiveSessions:limit,stats,heapBytes});
+ }
+ // A fresh owner still has production defaults: the experiment never mutates
+ // the module-level default, the Host, or another session manager.
+ assert.equal(await page.evaluate(()=>{const m=new SessionManager({},{});m.get('default-check');return m.xhHistoryCache.limits.maxInactiveSessions}),6);
+
  assert.equal(baselineStats.inactiveSessions,31);assert.equal(boundedStats.inactiveSessions,6);
  if(cdp){assert.ok(bounded<baseline*.7,JSON.stringify({baseline,bounded}));assert.equal(await page.evaluate(()=>oldEvents.deref()===undefined&&oldEvent.deref()===undefined),true,'evicted raw history and event objects are GC-reclaimable');}
  assert.deepEqual(errors.filter(e=>!e.includes('owned feature fixture: stop Host boot')),[]);
- console.log(JSON.stringify({engine,implementation:sourceMode?'source':'legacy',checks,atomicHistory:'real compaction mapping failure retains ChatView; retry succeeds with history RPC only',baselineHeapBytes:baseline,boundedHeapBytes:bounded,baselineStats,boundedStats,note:'32 synthetic sessions x 160 events; payload estimates are not process RSS'}));
+ console.log(JSON.stringify({engine,implementation:sourceMode?'source':'legacy',checks,atomicHistory:'real compaction mapping failure retains ChatView; retry succeeds with history RPC only',baselineHeapBytes:baseline,boundedHeapBytes:bounded,baselineStats,boundedStats,experimentPolicies,revisitPolicies,realInputDraftUndoAndAttachmentRefsPreserved:true,productionDefaultsUnchanged:true,note:'32 synthetic sessions x 160 events; payload estimates are not process RSS'}));
 }finally{await browser.close()}
 
 runFrozenSourceDifferential('frozen history LRU|prompt edit admission|transport death settles');

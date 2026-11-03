@@ -33,11 +33,31 @@ export function localResource(raw:string):string|undefined{
   if(/^[a-z][a-z\d+.-]*:/i.test(raw)&&!(/^[a-z]:[\\/]/i.test(raw)))return undefined
   try{return decodeURIComponent(raw.split(/[?#]/)[0]??'')}catch{return undefined}
 }
-export function imageObjectUrl(file:Extract<DisplayFile,{kind:'image'}>):{url:string;bytes:number}{
+/** Retain compressed bytes separately from a visible decoder/URL lease. Unknown
+ * or animated formats keep their existing mounted lifetime to preserve playback. */
+export function imageResource(file:Extract<DisplayFile,{kind:'image'}>):{blob:Blob;canSuspend:boolean}{
   const binary=atob(file.dataBase64)
   if(binary.length===0||binary.length>MAX_IMAGE_BYTES)throw new Error('Invalid image byte length')
   const bytes=Uint8Array.from(binary,c=>c.charCodeAt(0))
-  return {url:URL.createObjectURL(new Blob([bytes],{type:file.mediaType})),bytes:bytes.length}
+  const canSuspend=file.mediaType==='image/jpeg'?bytes[0]===255&&bytes[1]===216&&bytes[2]===255:file.mediaType==='image/png'&&stillPng(bytes)
+  return {blob:new Blob([bytes],{type:file.mediaType}),canSuspend}
+}
+function stillPng(bytes:Uint8Array):boolean{
+  if([137,80,78,71,13,10,26,10].some((value,index)=>bytes[index]!==value))return false
+  const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength)
+  for(let offset=8;offset+12<=bytes.length;){
+    const length=view.getUint32(offset),end=offset+length+12
+    if(end>bytes.length)return false
+    const kind=String.fromCharCode(...bytes.subarray(offset+4,offset+8))
+    if(kind==='acTL')return false
+    if(kind==='IEND')return length===0&&end===bytes.length
+    offset=end
+  }
+  return false
+}
+export function imageObjectUrl(file:Extract<DisplayFile,{kind:'image'}>):{url:string;bytes:number}{
+  const {blob}=imageResource(file)
+  return {url:URL.createObjectURL(blob),bytes:blob.size}
 }
 /** A single Markdown preview owns a bounded resource budget; no global cache. */
 export class ResourceBudget {

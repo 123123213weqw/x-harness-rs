@@ -143,3 +143,41 @@ test('metadata cache bounds concurrency/entries, cancellation and session/revisi
  const missing=new api.FileInspectionCache({call:async(_c,_e,args)=>args.path==='bad'?{ok:false,error:{message:'file not found'}}:{ok:true,value:{path:'good',bytes:0,preview:'text'}}})
  assert.equal(await missing.read('s','bad',0,false,new AbortController().signal),undefined);assert.equal((await missing.read('s','good',0,false,new AbortController().signal)).bytes,0)
 })
+
+// Admission prototype only: a shared decoded-pixel lease must be proven before
+// changing the historical chat loader or denying existing visible resources.
+const {DecodedImageBudget,thumbnailSize,syntheticPng}=await import('./fixtures/ui-memory-policies.mjs')
+test('static raster leases retain bounded compressed bytes; animated/unknown images stay mounted',async()=>{
+ const png=syntheticPng(32,24),image={kind:'image',path:'/fixture.png',mediaType:'image/png',dataBase64:png.toString('base64'),width:32,height:24}
+ const resource=api.imageResource(image)
+ assert.equal(resource.canSuspend,true);assert.equal(resource.blob.size,png.length)
+ assert.deepEqual(Buffer.from(await resource.blob.arrayBuffer()),png)
+ // An acTL chunk (even malformed) is enough to conservatively preserve playback.
+ const animated=Buffer.concat([png.subarray(0,33),Buffer.from([0,0,0,0,97,99,84,76,0,0,0,0]),png.subarray(33)])
+ for(const data of [animated,png.subarray(0,-1),Buffer.from('not a PNG')])assert.equal(api.imageResource({...image,dataBase64:data.toString('base64')}).canSuspend,false)
+ for(const mediaType of ['image/gif','image/webp','image/unknown'])assert.equal(api.imageResource({...image,mediaType}).canSuspend,false)
+ assert.equal(api.imageResource({...image,mediaType:'image/jpeg',dataBase64:Buffer.from([255,216,255,224]).toString('base64')}).canSuspend,true)
+ assert.equal(api.imageResource({...image,mediaType:'image/jpeg'}).canSuspend,false)
+ assert.throws(()=>api.imageResource({...image,dataBase64:''}),/length/)
+ assert.throws(()=>api.imageResource({...image,dataBase64:Buffer.alloc(8*1024*1024+1).toString('base64')}),/length/)
+})
+test('experiment: decoded pixels are reserved before async loads and never evict a visible lease',()=>{
+ const budget=new DecodedImageBudget(128*1024*1024),leases=[]
+ for(let i=0;i<2;i++){const lease=budget.reserve(4096,4096);assert.ok(lease);leases.push(lease)}
+ assert.equal(budget.reserve(1,1),null);assert.equal(budget.stats.used,128*1024*1024)
+ let released=0;leases[0].publish(()=>released++);leases[0].release();leases[0].release();assert.equal(released,1)
+ assert.ok(budget.reserve(1024,1024));assert.equal(budget.stats.used,68*1024*1024)
+ leases[1].release();assert.equal(budget.stats.used,4*1024*1024)
+})
+test('experiment: stale publication, failed cleanup and malformed dimensions cannot leak accounting',()=>{
+ const budget=new DecodedImageBudget(64*1024*1024),lease=budget.reserve(10,10);lease.release();let cleaned=0
+ assert.equal(lease.publish(()=>cleaned++),false);assert.equal(cleaned,1);assert.equal(budget.stats.used,0)
+ assert.throws(()=>lease.publish(()=>{}),/already/)
+ const throwing=budget.reserve(10,10);throwing.publish(()=>{throw Error('cleanup failed')});assert.throws(()=>throwing.release(),/cleanup failed/);assert.equal(budget.stats.used,0);assert.equal(budget.stats.leases,0)
+ for(const pair of [[0,1],[-1,1],[1.5,1],[NaN,1],[Infinity,1],[Number.MAX_SAFE_INTEGER,100]])assert.throws(()=>budget.reserve(...pair),/dimensions/)
+ assert.equal(budget.reserve(5000,5000),null)
+})
+test('experiment: real thumbnail dimensions preserve aspect ratio, narrow/tall extremes and no upscaling',()=>{
+ for(const [w,h,out] of [[3200,2000,{width:480,height:300}],[2000,3200,{width:300,height:480}],[80,60,{width:80,height:60}],[1,10000,{width:1,height:480}],[10000,1,{width:480,height:1}]])assert.deepEqual(thumbnailSize(w,h),out)
+ for(const pair of [[0,1],[1,0],[Infinity,1],[-1,2]])assert.throws(()=>thumbnailSize(...pair))
+})

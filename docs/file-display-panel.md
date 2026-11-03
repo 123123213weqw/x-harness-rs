@@ -79,10 +79,21 @@ historical tool/session payloads change.
 - Each Markdown preview admits at most eight local images, with aggregate source
   bytes limited to 16 MiB and estimated decoded RGBA bytes limited to 64 MiB.
   References beyond the budget offer an explicit separate-file preview.
-- Collapse, close, switch, refresh, source toggle and unmount abort outstanding
-  reads and revoke owned Blob URLs. File contents are not retained in the global
-  session cache or localStorage. File tabs are transient, like tool-details tabs;
-  the existing persisted browser-tab contract is unchanged.
+- Close, refresh, source toggle and unmount release the corresponding owned
+  resources. Retained static PNG/JPEG file tabs unmount their raster and revoke
+  its Blob URL on hide, keeping bounded compressed bytes plus zoom/scroll. A
+  revisit creates a fresh URL from those bytes, without a second Host read, so
+  offline/deleted/changed source files do not silently change an already-open
+  preview. Only explicit refresh rereads the source; errors remain retryable.
+- APNG, GIF, WebP, unknown/malformed raster headers, Markdown resources and PDF
+  keep their prior retained lifetime. Rebuilding an animated decoder/native PDF
+  viewer can lose playback/page/zoom/selection state. Existing four-page/idle
+  eviction still applies. Hidden initial static-image reads may finish into
+  compressed bytes, never a mounted raster/URL. Closing aborts the read, and a
+  late response cannot resurrect it.
+- File contents are not retained in the global session cache or localStorage.
+  File tabs are transient, like tool-details tabs; the existing persisted
+  browser-tab contract is unchanged.
 
 ## Acceptance
 
@@ -188,3 +199,40 @@ reviewed edges to `xharness-process` and `xharness-sandbox` reuse the existing
 managed supervisor and read-only policy type; they do not move process/native
 logic into Core, Session, API or UI. The architecture allowlist records only
 these concrete edges and continues rejecting unreviewed dependencies.
+
+
+## Memory experiments (2026-11-03)
+
+All fixtures are synthetic and isolated from the running application and user
+sessions. Only the conservative **static file raster visibility lease** above
+changes production behavior. No Rust, wire, model request, background task,
+installed App, dependency, or default history-cache limit changes are involved.
+
+| Experiment | Result / corner cases | Default decision |
+| --- | --- | --- |
+| True-size thumbnails | Three 3200×2000/portrait images plus a 32×24 control: nominal decoded RGBA 76,803,072 → 1,731,072 bytes. The synthetic transport serves physically smaller, aspect-preserving images (480px longest side, for 240 CSS px at 2×), not a CSS resize of originals. Only a clicked original crosses the transport; cancelling a pending original cannot reopen the lightbox. | Prototype only. Durable attachment thumbnails need an authorized Host variant, old-Host fallback, EXIF/orientation/color/animation and DPI/zoom validation. Workspace file-inspection thumbnails are not a substitute for historical attachment ownership. |
+| Shared decoded-image admission | Prototype reserves `width × height × 4` before asynchronous loads, accounts simultaneous reservations, rejects unsafe dimensions, refuses oversized work without evicting an existing visible lease, and releases exactly once even on stale completion/cleanup failure. | Prototype only, not a hard native-memory cap. Decoder scratch space, animation frames and GPU surfaces can exceed RGBA accounting. A production denial needs visible fallback/retry and distinct draft/lightbox/thumbnail ownership; do not silently drop sent attachments or change model context. |
+| Hidden heavy previews | Real FilePane and URL cleanup tested with zoom, horizontal/vertical scroll, repeated hide/show, StrictMode effect replay, slow hidden/closed reads, file deletion/offline revisit and explicit refresh failure/retry. PDF and animated decoder DOM identity must stay identical across hide/show. | Enable static PNG/JPEG suspension only. Preserve compressed bytes (≤8 MiB per image under the existing retained-page bound), not just a path. PDF/animation unloading deferred until playback/reader state can be round-tripped. |
+| Inactive sessions | Real SessionManager/assembler experiments compare default six inactive windows against two/zero. Raw event windows become GC-reclaimable; the real InputMachine facade keeps draft text, undo/redo and attachment IDs. Existing running, question, approval, queue, in-flight request/command, epoch and bookmark protections remain covered. | Keep six/64 MiB defaults. Smaller limits force more rereads and make an evicted chat unavailable offline; a current/running/pending session is not disposable UI data. No Host cancellation/compaction/replay is used for eviction. |
+
+In the 32-session × 160-event × 2,048-character synthetic fixture, Chromium's
+post-GC JS heap measured about 19.16 MiB with an effectively unbounded inactive
+cache, 10.54 MiB at the existing six-window limit, 9.25 MiB at two, and 8.58 MiB
+at zero. These include fixed fixture/runtime overhead. WebKit runs the same
+residency/state assertions but does not report a Chromium heap metric. In a
+separate four-chat / twelve-visit fixture, lowering six to two increased history
+reads from four to twelve; an offline revisit then failed for the evicted chat
+while the default policy still displayed its cached history. This is the reason
+not to change the default merely because the smaller heap is measurable.
+
+The native WebKit allocator may cache decoded data after a DOM node and Blob URL
+are released. RGBA input accounting, tracked URL lifetime, payload estimates and
+Chromium post-GC JS heap are **not** macOS physical footprint and do not prove
+that the installed application's long-running memory issue is resolved. Native
+soak verification is still needed before any release/install decision.
+
+The existing CI entrypoints `test-file-display-source.mjs`,
+`test-file-display-browser.mjs` (Chromium/WebKit) and
+`test-session-history-cache.mjs` (Chromium/WebKit) run the experiments. Fixture
+helpers under `scripts/fixtures/ui-memory-*` are never imported by product code
+or shipped in the assembled UI.

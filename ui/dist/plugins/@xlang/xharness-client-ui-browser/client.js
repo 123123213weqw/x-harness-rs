@@ -910,6 +910,7 @@ const client_1 = require("./client");
 function openDisplayFile(path, sessionId, relativeTo, gitDiff) {
     window.dispatchEvent(new CustomEvent('xharness:workspace-open', { detail: { kind: 'file', source: path, sessionId, ...gitDiff === undefined ? {} : { gitDiff }, ...gitDiff === undefined ? {} : { title: label('差异 · ', 'Diff · ') + gitDiff }, ...relativeTo === undefined ? {} : { relativeTo } } }));
 }
+const ImagePreview_1 = require("./ImagePreview");
 const zh = () => document.documentElement.lang.toLowerCase().startsWith('zh');
 const label = (cn, en) => zh() ? cn : en;
 function LocalImage({ path, alt, base, sessionId, client, budget }) {
@@ -965,6 +966,15 @@ function MarkdownFile({ file, sessionId, client }) {
 }
 function FilePane({ item, open, sessionId, client }) {
     const owner = item.sessionId ?? sessionId;
+    const body = (0, react_1.useRef)(null), imageReady = (0, react_1.useRef)(false);
+    const imageScroll = (0, react_1.useRef)({ left: 0, top: 0 });
+    const restoreImageScroll = (0, react_1.useCallback)(() => {
+        const element = body.current;
+        if (element)
+            element.scrollTo(imageScroll.current.left, imageScroll.current.top);
+        imageReady.current = true;
+    }, []);
+    (0, react_1.useLayoutEffect)(() => { imageReady.current = false; }, [open, owner, item.source, item.relativeTo, item.gitDiff]);
     const actionGeneration = (0, react_1.useRef)(0);
     const [actionError, setActionError] = (0, react_1.useState)(''), [nativeBusy, setNativeBusy] = (0, react_1.useState)(false), [copied, setCopied] = (0, react_1.useState)(false);
     (0, react_1.useEffect)(() => { if (!copied)
@@ -973,6 +983,8 @@ function FilePane({ item, open, sessionId, client }) {
     (0, react_1.useEffect)(() => {
         actionGeneration.current++;
         setNativeBusy(false);
+        imageScroll.current = { left: 0, top: 0 };
+        imageReady.current = false;
         setFile(undefined);
         setError('');
         setActionError('');
@@ -996,8 +1008,10 @@ function FilePane({ item, open, sessionId, client }) {
             if (controller.signal.aborted || !result)
                 return;
             if (result.kind === 'image') {
-                objectUrl = (0, client_1.imageObjectUrl)(result).url;
-                setFile({ kind: 'image', path: result.path, url: objectUrl, width: result.width, height: result.height });
+                // Keep only bounded compressed bytes in a retained tab. Reopening must
+                // not require a healthy Host or a still-existing workspace file.
+                const resource = (0, client_1.imageResource)(result);
+                setFile({ kind: 'image', path: result.path, width: result.width, height: result.height, ...resource });
             }
             else if (result.kind === 'pdf') {
                 objectUrl = (0, client_1.pdfObjectUrl)(result);
@@ -1032,11 +1046,12 @@ function FilePane({ item, open, sessionId, client }) {
         }
     };
     return (0, jsx_runtime_1.jsxs)("section", { className: "xhfile-pane", "data-file-page-state": open ? 'visible' : 'retained', "aria-label": label('文件预览', 'File preview'), children: [(0, jsx_runtime_1.jsxs)("header", { className: "xhfile-toolbar", children: [(0, jsx_runtime_1.jsx)("span", { className: "xhfile-path", title: path, children: path }), !item.gitDiff && client.canReveal(path) && (0, jsx_runtime_1.jsx)("button", { type: "button", disabled: nativeBusy, onClick: () => { void nativeAction('reveal'); }, children: label('在文件夹中显示', 'Show in folder') }), !item.gitDiff && client.canOpenExternal(path) && (0, jsx_runtime_1.jsx)("button", { type: "button", disabled: nativeBusy, onClick: () => { void nativeAction('open'); }, children: label('默认应用打开', 'Open with default app') }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => { void (0, dsh_client_ui_primitives_1.writeClipboard)(path).then(ok => { setCopied(ok); setActionError(ok ? '' : label('路径复制失败', 'Could not copy path')); }); }, children: copied ? label('路径已复制', 'Path copied') : label('复制路径', 'Copy path') }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setRevision(value => value + 1), "aria-label": label('刷新文件', 'Refresh file'), children: "\u21BB" }), item.gitDiff && (0, jsx_runtime_1.jsxs)("select", { "aria-label": label('差异范围', 'Diff scope'), value: item.gitDiff, onChange: event => { const scope = file_display_1.GitDiffScopeSchema.safeParse(event.target.value); if (scope.success && owner)
-                            openDisplayFile(item.source, owner, undefined, scope.data); }, children: [(0, jsx_runtime_1.jsx)("option", { value: "working", children: label('未暂存', 'Unstaged') }), (0, jsx_runtime_1.jsx)("option", { value: "staged", children: label('已暂存', 'Staged') }), (0, jsx_runtime_1.jsx)("option", { value: "head", children: label('相对 HEAD', 'Against HEAD') })] }), (file?.kind === 'markdown' || html !== undefined) && (0, jsx_runtime_1.jsx)("button", { type: "button", "aria-pressed": source, onClick: () => setSource(value => !value), children: source ? label('预览', 'Preview') : label('源码', 'Source') }), file?.kind === 'image' && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(value => Math.max(25, (value || 100) - 25)), "aria-label": label('缩小', 'Zoom out'), children: "\u2212" }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(0), children: zoom ? `${zoom}%` : label('适应', 'Fit') }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(value => Math.min(400, (value || 100) + 25)), "aria-label": label('放大', 'Zoom in'), children: "+" })] })] }), actionError && (0, jsx_runtime_1.jsx)("p", { className: "xhfile-action-error", role: "alert", children: actionError }), (0, jsx_runtime_1.jsx)("div", { className: "xhfile-body", "data-diff": file?.kind === 'diff' || undefined, "data-document": file?.kind === 'pdf' || html !== undefined && !source || undefined, children: !owner ? (0, jsx_runtime_1.jsx)("p", { role: "alert", children: label('请选择一个会话后打开文件', 'Select a conversation before opening files') })
+                            openDisplayFile(item.source, owner, undefined, scope.data); }, children: [(0, jsx_runtime_1.jsx)("option", { value: "working", children: label('未暂存', 'Unstaged') }), (0, jsx_runtime_1.jsx)("option", { value: "staged", children: label('已暂存', 'Staged') }), (0, jsx_runtime_1.jsx)("option", { value: "head", children: label('相对 HEAD', 'Against HEAD') })] }), (file?.kind === 'markdown' || html !== undefined) && (0, jsx_runtime_1.jsx)("button", { type: "button", "aria-pressed": source, onClick: () => setSource(value => !value), children: source ? label('预览', 'Preview') : label('源码', 'Source') }), file?.kind === 'image' && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(value => Math.max(25, (value || 100) - 25)), "aria-label": label('缩小', 'Zoom out'), children: "\u2212" }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(0), children: zoom ? `${zoom}%` : label('适应', 'Fit') }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(value => Math.min(400, (value || 100) + 25)), "aria-label": label('放大', 'Zoom in'), children: "+" })] })] }), actionError && (0, jsx_runtime_1.jsx)("p", { className: "xhfile-action-error", role: "alert", children: actionError }), (0, jsx_runtime_1.jsx)("div", { ref: body, onScroll: () => { const element = body.current; if (open && file?.kind === 'image' && imageReady.current && element)
+                    imageScroll.current = { left: element.scrollLeft, top: element.scrollTop }; }, className: "xhfile-body", "data-diff": file?.kind === 'diff' || undefined, "data-document": file?.kind === 'pdf' || html !== undefined && !source || undefined, children: !owner ? (0, jsx_runtime_1.jsx)("p", { role: "alert", children: label('请选择一个会话后打开文件', 'Select a conversation before opening files') })
                     : error ? (0, jsx_runtime_1.jsxs)("div", { role: "alert", children: [(0, jsx_runtime_1.jsx)("p", { children: label('此文件暂时无法内置预览，可以在文件夹中查看或使用默认应用打开。', 'This file cannot be previewed here. Show it in its folder or open with the default app.') }), (0, jsx_runtime_1.jsxs)("details", { children: [(0, jsx_runtime_1.jsx)("summary", { children: label('详情', 'Details') }), (0, jsx_runtime_1.jsx)("p", { children: error })] }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setRevision(value => value + 1), children: label('重试', 'Retry') })] })
                         : !file ? (0, jsx_runtime_1.jsx)("p", { role: "status", children: label('加载文件…', 'Loading file…') })
                             : file.kind === 'info' ? (0, jsx_runtime_1.jsxs)("div", { className: "xhfile-info", children: [(0, jsx_runtime_1.jsx)("p", { children: file.metadata?.preview === 'tooLarge' ? label('文件超过内置预览大小限制。', 'Too large for built-in preview.') : label('此格式暂不支持内置预览。', 'This format has no built-in preview.') }), (0, jsx_runtime_1.jsx)("p", { children: file.metadata ? (0, file_types_1.formatFileSize)(file.metadata.bytes) : '' }), (0, jsx_runtime_1.jsx)("p", { children: label('可以使用顶部的打开选项，或复制路径。', 'Use the opening options above, or copy the path.') })] })
-                                : file.kind === 'image' ? (0, jsx_runtime_1.jsxs)("div", { className: "xhfile-image", children: [(0, jsx_runtime_1.jsx)("img", { src: file.url, alt: file.path.split(/[\\/]/).at(-1), style: zoom ? { width: `${file.width * zoom / 100}px`, maxWidth: 'none' } : undefined, decoding: "async" }), (0, jsx_runtime_1.jsxs)("small", { children: [file.width, " \u00D7 ", file.height] })] })
+                                : file.kind === 'image' ? open || !file.canSuspend ? (0, jsx_runtime_1.jsx)(ImagePreview_1.ImagePreview, { image: file, zoom: zoom, ready: restoreImageScroll, zh: zh() }, revision) : null
                                     : file.kind === 'pdf' ? (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("p", { className: "xhfile-preview-note", children: label('PDF 预览 · 如无法显示，请使用默认应用打开', 'PDF preview · If unavailable, use the default app') }), (0, jsx_runtime_1.jsx)("iframe", { className: "xhfile-document", title: label('PDF 预览', 'PDF preview'), src: file.url, referrerPolicy: "no-referrer" })] })
                                         : file.kind === 'diff' ? (0, jsx_runtime_1.jsx)(DiffPreview_1.DiffPreview, { file: file })
                                             : file.kind === 'markdown' && !source ? (0, jsx_runtime_1.jsx)(MarkdownFile, { file: file, sessionId: owner, client: client })
@@ -1458,6 +1473,7 @@ function diffRows(patch) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.isHtmlPath = exports.codeLanguage = exports.ResourceBudget = exports.FileDisplayClient = exports.MAX_TEXT_BYTES = exports.MAX_IMAGE_BYTES = void 0;
 exports.localResource = localResource;
+exports.imageResource = imageResource;
 exports.imageObjectUrl = imageObjectUrl;
 exports.pdfObjectUrl = pdfObjectUrl;
 exports.staticHtmlDocument = staticHtmlDocument;
@@ -1513,12 +1529,36 @@ function localResource(raw) {
         return undefined;
     }
 }
-function imageObjectUrl(file) {
+/** Retain compressed bytes separately from a visible decoder/URL lease. Unknown
+ * or animated formats keep their existing mounted lifetime to preserve playback. */
+function imageResource(file) {
     const binary = atob(file.dataBase64);
     if (binary.length === 0 || binary.length > exports.MAX_IMAGE_BYTES)
         throw new Error('Invalid image byte length');
     const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-    return { url: URL.createObjectURL(new Blob([bytes], { type: file.mediaType })), bytes: bytes.length };
+    const canSuspend = file.mediaType === 'image/jpeg' ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255 : file.mediaType === 'image/png' && stillPng(bytes);
+    return { blob: new Blob([bytes], { type: file.mediaType }), canSuspend };
+}
+function stillPng(bytes) {
+    if ([137, 80, 78, 71, 13, 10, 26, 10].some((value, index) => bytes[index] !== value))
+        return false;
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    for (let offset = 8; offset + 12 <= bytes.length;) {
+        const length = view.getUint32(offset), end = offset + length + 12;
+        if (end > bytes.length)
+            return false;
+        const kind = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8));
+        if (kind === 'acTL')
+            return false;
+        if (kind === 'IEND')
+            return length === 0 && end === bytes.length;
+        offset = end;
+    }
+    return false;
+}
+function imageObjectUrl(file) {
+    const { blob } = imageResource(file);
+    return { url: URL.createObjectURL(blob), bytes: blob.size };
 }
 /** A single Markdown preview owns a bounded resource budget; no global cache. */
 class ResourceBudget {
@@ -1735,6 +1775,40 @@ function abbreviateHomePath(path, home) {
     if (path.startsWith(`${root}/`))
         return `~${path.slice(root.length)}`;
     return path;
+}
+
+},
+"src/modules/browser/file-display/ImagePreview.js": function(module, exports, require) {
+// source: src/modules/browser/file-display/ImagePreview.tsx
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ImagePreview = ImagePreview;
+const jsx_runtime_1 = require("react/jsx-runtime");
+const react_1 = require("react");
+/** Only the visible static raster owns a URL and mounted decoder. Compressed
+ * bytes stay with its bounded retained tab so offline revisit stays identical. */
+function ImagePreview({ image, zoom, ready, zh }) {
+    const [url, setUrl] = (0, react_1.useState)(), [error, setError] = (0, react_1.useState)(''), [attempt, setAttempt] = (0, react_1.useState)(0);
+    (0, react_1.useEffect)(() => {
+        let url;
+        setUrl(undefined);
+        setError('');
+        try {
+            url = URL.createObjectURL(image.blob);
+            setUrl(url);
+        }
+        catch (error) {
+            setError(error instanceof Error ? error.message : String(error));
+        }
+        return () => { if (url)
+            URL.revokeObjectURL(url); };
+    }, [image.blob, attempt]);
+    if (error)
+        return (0, jsx_runtime_1.jsxs)("div", { role: "alert", children: [(0, jsx_runtime_1.jsxs)("p", { children: [zh ? '无法加载图片预览' : 'Could not load image preview', ": ", error] }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setAttempt(value => value + 1), children: zh ? '重试' : 'Retry' })] });
+    if (!url)
+        return null;
+    return (0, jsx_runtime_1.jsxs)("div", { className: "xhfile-image", children: [(0, jsx_runtime_1.jsx)("img", { src: url, alt: image.path.split(/[\\/]/).at(-1), style: zoom ? { width: `${image.width * zoom / 100}px`, maxWidth: 'none' } : undefined, decoding: "async", onLoad: ready }), (0, jsx_runtime_1.jsxs)("small", { children: [image.width, " \u00D7 ", image.height] })] });
 }
 
 },
@@ -2035,7 +2109,7 @@ function HeadlessPreview(props) {
 
 }
 };
-const __dependencies = {"src/modules/browser/index.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/workspace-dock":"src/modules/shared/workspace-dock.js","./Browser.css":"src/modules/browser/Browser.css","./file-display/FilePane.css":"src/modules/browser/file-display/FilePane.css","./file-display/FilePane":"src/modules/browser/file-display/FilePane.js","./file-display/client":"src/modules/browser/file-display/client.js","../shared/generated/file-display":"src/modules/shared/generated/file-display.js","./model-activity":"src/modules/browser/model-activity.js","./component-picker":"src/modules/browser/component-picker.js","./headless-preview":"src/modules/browser/headless-preview.js"},"src/modules/shared/runtime-types.js":{},"src/modules/shared/workspace-dock.js":{},"src/modules/browser/Browser.css":{},"src/modules/browser/file-display/FilePane.css":{},"src/modules/browser/file-display/FilePane.js":{"../../shared/generated/file-display":"src/modules/shared/generated/file-display.js","../../shared/file-types":"src/modules/shared/file-types.js","./DiffPreview":"src/modules/browser/file-display/DiffPreview.js","./client":"src/modules/browser/file-display/client.js"},"src/modules/shared/generated/file-display.js":{},"src/modules/shared/file-types.js":{},"src/modules/browser/file-display/DiffPreview.js":{"./diff":"src/modules/browser/file-display/diff.js"},"src/modules/browser/file-display/diff.js":{"../../shared/diff/hunks":"src/modules/shared/diff/hunks.js"},"src/modules/shared/diff/hunks.js":{},"src/modules/browser/file-display/client.js":{"../../shared/file-inspection":"src/modules/shared/file-inspection.js","../../client-runtime/workspaces/path":"src/modules/client-runtime/workspaces/path.js","../../shared/file-types":"src/modules/shared/file-types.js","../../shared/generated/file-display":"src/modules/shared/generated/file-display.js"},"src/modules/shared/file-inspection.js":{"./generated/file-display":"src/modules/shared/generated/file-display.js"},"src/modules/client-runtime/workspaces/path.js":{},"src/modules/browser/model-activity.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/browser/component-picker.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/composer-files":"src/modules/shared/composer-files.js"},"src/modules/shared/composer-files.js":{"./runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/browser/headless-preview.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"}};
+const __dependencies = {"src/modules/browser/index.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/workspace-dock":"src/modules/shared/workspace-dock.js","./Browser.css":"src/modules/browser/Browser.css","./file-display/FilePane.css":"src/modules/browser/file-display/FilePane.css","./file-display/FilePane":"src/modules/browser/file-display/FilePane.js","./file-display/client":"src/modules/browser/file-display/client.js","../shared/generated/file-display":"src/modules/shared/generated/file-display.js","./model-activity":"src/modules/browser/model-activity.js","./component-picker":"src/modules/browser/component-picker.js","./headless-preview":"src/modules/browser/headless-preview.js"},"src/modules/shared/runtime-types.js":{},"src/modules/shared/workspace-dock.js":{},"src/modules/browser/Browser.css":{},"src/modules/browser/file-display/FilePane.css":{},"src/modules/browser/file-display/FilePane.js":{"../../shared/generated/file-display":"src/modules/shared/generated/file-display.js","../../shared/file-types":"src/modules/shared/file-types.js","./DiffPreview":"src/modules/browser/file-display/DiffPreview.js","./client":"src/modules/browser/file-display/client.js","./ImagePreview":"src/modules/browser/file-display/ImagePreview.js"},"src/modules/shared/generated/file-display.js":{},"src/modules/shared/file-types.js":{},"src/modules/browser/file-display/DiffPreview.js":{"./diff":"src/modules/browser/file-display/diff.js"},"src/modules/browser/file-display/diff.js":{"../../shared/diff/hunks":"src/modules/shared/diff/hunks.js"},"src/modules/shared/diff/hunks.js":{},"src/modules/browser/file-display/client.js":{"../../shared/file-inspection":"src/modules/shared/file-inspection.js","../../client-runtime/workspaces/path":"src/modules/client-runtime/workspaces/path.js","../../shared/file-types":"src/modules/shared/file-types.js","../../shared/generated/file-display":"src/modules/shared/generated/file-display.js"},"src/modules/shared/file-inspection.js":{"./generated/file-display":"src/modules/shared/generated/file-display.js"},"src/modules/client-runtime/workspaces/path.js":{},"src/modules/browser/file-display/ImagePreview.js":{},"src/modules/browser/model-activity.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/browser/component-picker.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/composer-files":"src/modules/shared/composer-files.js"},"src/modules/shared/composer-files.js":{"./runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/browser/headless-preview.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;
