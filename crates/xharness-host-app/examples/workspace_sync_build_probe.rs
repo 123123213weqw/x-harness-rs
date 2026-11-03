@@ -31,7 +31,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let files =
         FsService::with_sync_control(&args[0], ObservationStore::default(), &args[1], &args[3])?;
     let participant = Participant::open(&files, &FsService::new(&args[2])?, Role::Cloud)?;
-    let snapshot = Arc::new(participant.seal_cloud_snapshot(&FsService::new(&args[4])?)?);
+    let destination = FsService::new(&args[4])?;
+    let snapshot_root = destination.workspace_root().to_path_buf();
+    let snapshot = Arc::new(participant.seal_cloud_snapshot(&destination)?);
     let runner = RemoteBuildRunner::provision(
         FsService::new(&args[6])?,
         FsService::new(&args[5])?,
@@ -50,7 +52,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("native toolchain missing")?
         .to_path_buf();
     let command=NativeBuildCommand {
-        spec:SpawnSpec::new("/bin/sh",PathBuf::from(&args[4])).args(["-c","mkdir -p \"${OUT%/*}\" && test ! -e .env && \"$RUSTC\" --edition=2021 main.rs -o \"$OUT\" && \"$OUT\""])
+        spec:SpawnSpec::new("/bin/sh",snapshot_root).args(["-c","mkdir -p \"${OUT%/*}\" && test ! -e .env && \"$RUSTC\" --edition=2021 main.rs -o \"$OUT\" && \"$OUT\""])
             .env("PATH","/usr/bin:/bin").env("OUT",PathBuf::from(&args[5]).join(&artifact).display().to_string()).env("RUSTC",rustc.display().to_string()).timeout(Duration::from_secs(30)),
         read_only_roots:vec![toolchain],artifacts:vec![artifact.clone()],
     };

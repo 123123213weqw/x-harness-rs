@@ -36,3 +36,11 @@ test('coordinator rejects binding drift and peer pending state before any transf
     assert.deepEqual(calls,['status','status']);
   }
 });
+
+test('equal base labels cannot hide divergent committed archives',async()=>{
+  const calls=[];
+  const base={generation:1,manifest:'same-content'};
+  const make=(role,round)=>({call:async request=>{calls.push(request.operation);return {role,binding:{pair:'a'},base,round:null,phase:null,receipt:{phase:'complete',round,plan:'plan',generation:1,manifest:'same-content'},decision:{}};}});
+  await assert.rejects(synchronize(make('local','first'),make('cloud','different'),()=>assert.fail('must not transfer')));
+  assert.deepEqual(calls,['status','status']);
+});

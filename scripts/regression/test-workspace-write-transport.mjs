@@ -81,6 +81,8 @@ try {
  unlinkSync(join(config.local.workspace,'remote.txt'));await assert.rejects(runSync());assert.equal(ssh(`cat ${quote(config.cloud.workspace+'/remote.txt')}`),'cloud-return');
  receipt.checks.push('deletion_not_propagated');
  receipt.passed=true;
+} catch {
+ receipt.failure="cross_machine_acceptance_failed";
 } finally {
  // Verify only this fixture's exact executable/argv before any fixture cleanup.
  try {

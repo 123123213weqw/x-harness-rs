@@ -10,6 +10,12 @@ export async function synchronize(local, cloud, transfer, observe = async () => 
   let round = l.round;
   if (!round) {
     assert.equal(c.round, null, 'peer has an unresolved round: do not bootstrap/reset'); equal(l.base, c.base);
+    assert.equal(l.phase, null); assert.equal(c.phase, null);
+    if (l.base.generation > 0) {
+      assert.equal(l.receipt?.phase, 'complete'); assert.equal(c.receipt?.phase, 'complete');
+      for (const field of ['round', 'plan', 'generation', 'manifest']) equal(l.receipt[field], c.receipt[field]);
+      equal(l.decision, c.decision);
+    }
     const peer = await cloud.call({ operation: 'snapshot' });
     round = await local.call({ operation: 'plan', peer });
     await observe('intent');
