@@ -204,5 +204,15 @@
   ],
   "xharness-channel-weixin": [
     "xharness-remote"
+  ],
+  "xharness-sdk": [
+    "xharness-agent",
+    "xharness-compaction",
+    "xharness-core",
+    "xharness-host",
+    "xharness-prompt",
+    "xharness-session",
+    "xharness-session-jsonl",
+    "xharness-tools"
   ]
 }

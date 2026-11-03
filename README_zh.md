@@ -51,6 +51,14 @@ XHarness 是一个使用 Rust 编写的开源跨平台编程 Agent 运行时。�
 | **扩展能力** | 插件系统、MCP 支持、消息通道（Telegram、微信）等 workspace 模块 |
 | **分发形态** | 带应用内更新的 Tauri 桌面外壳；`ui/dist` 可部署 Web 包；浏览器终端 |
 
+## 嵌入式 Rust SDK
+
+[`xharness-sdk`](crates/xharness-sdk/README.md) 提供进程内的 0.1 开发接口：
+注入模型与工具、排队或执行输入、订阅事件、恢复会话、取消及关闭。
+复用现有持久运行时，不另建 Loop、聊天历史或 Web 服务。SDK 在本主仓维护，
+headless Runtime 分发仓同步，上层产品固定已审核版本使用。
+当前不是稳定 1.0 发布，也不代表已有产品完成迁移。
+
 ## 快速开始
 
 ### 桌面应用
