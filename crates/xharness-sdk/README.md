@@ -114,3 +114,7 @@ real native model/tool/result execution, durable queue/reopen, invalid inputs,
 execution fencing, explicit cancellation, schema/handler replacement after
 shutdown and observable preparation/cleanup failures. Their model responses are
 fixtures, not live-provider acceptance.
+
+Operator validation for this upstream candidate is recorded in
+[`verification-20261103.json`](../../docs/sdk/verification-20261103.json), including
+its exact base/source fingerprint and explicitly limited Linux/offline scope.
