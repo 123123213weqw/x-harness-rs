@@ -48,7 +48,7 @@
     xharness-terminal ──> process, debug, win32     web-terminal ──> terminal, process
     xharness-computer ──> tools      computer-macos / computer-windows ──> computer
 
- L1 传输与接入（不得反向依赖 L2 及以上）
+ L1 传输与接入（normal 依赖只到 api 与叶子层；xharness-remote 的 host 依赖仅用于测试）
     xharness-server ──> api, debug          xharness-remote ──> api
     xharness-mobile ──> api, remote         xharness-relay ──> mobile
     xharness-channel-telegram / channel-weixin ──> remote
