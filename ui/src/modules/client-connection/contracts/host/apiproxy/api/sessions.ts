@@ -388,8 +388,8 @@ export interface SessionsApi {
   Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string | undefined } | undefined }>>
 
   /** Reads one durable image after proving that this session's log references its id. */
-  attachment(request: RpcRequest<{ sessionId: SessionId; attachmentId: AttachmentIdType }>):
-  Promise<RpcResponse<{ attachment: ImageAttachmentRef; data: string }>>
+  attachment(request: RpcRequest<{ sessionId: SessionId; attachmentId: AttachmentIdType; thumbnail?: boolean | undefined }>):
+  Promise<RpcResponse<{ attachment: ImageAttachmentRef; data: string; thumbnail?: { width: number; height: number } | undefined }>>
 
   /**
    * Edits, removes, or strictly steers one pending queued occurrence on an ordinary session.

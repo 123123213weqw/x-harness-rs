@@ -50,10 +50,17 @@ export interface ISession {
   /**
    * Resolve one durable image referenced by this session.
    * @param attachmentId - opaque id found in the folded session log.
+   * @param thumbnail - explicit bounded PNG derivative; the returned reference
+   * still describes the ORIGINAL. Unsupported/legacy reads reject, never return
+   * a full original as a purported derivative.
+   * @param signal - optional caller-owned image read deadline/cancellation;
+   * non-thumbnail file downloads retain their existing unbounded policy.
    * @returns the authenticated reference and decoded bytes.
    */
   readAttachment(
     attachmentId: AttachmentIdType,
+    thumbnail?: boolean,
+    signal?: AbortSignal,
   ): Promise<RpcResult<{ attachment: ImageAttachmentRef; data: Uint8Array }>>
   /**
    * Apply one edit, remove, or strict steer action to a still-pending queue occurrence.

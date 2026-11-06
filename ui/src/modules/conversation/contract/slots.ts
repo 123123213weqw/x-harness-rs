@@ -53,7 +53,7 @@ export interface MessageImagesOwnerProps {
   /** Consecutive image blocks rendered as one gallery. */
   images: readonly { readonly attachment: ImageAttachmentRef; readonly kind?: ('image' | 'file') | undefined }[]
   /** Session-authorized durable image loader. */
-  loadImage: (attachment: ImageAttachmentRef) => Promise<string>
+  loadImage: (attachment: ImageAttachmentRef, thumbnail?: boolean) => Promise<string>
   /** Message-side alignment. */
   align: 'start' | 'end'
 }
@@ -764,7 +764,7 @@ export interface ChatViewInjected {
    * can share a single-flight gate. Legacy synchronous providers still work. */
   loadOlder: () => void | Promise<void>
   /** Resolve a session-authorized historical image for inline display. */
-  loadImage: (attachment: ImageAttachmentRef) => Promise<string>
+  loadImage: (attachment: ImageAttachmentRef, thumbnail?: boolean) => Promise<string>
   /** Hand a call off to the trajectory view: write the one-shot inspect target and switch tabs. */
   inspectCall: (callId: CallId) => void
   /**
