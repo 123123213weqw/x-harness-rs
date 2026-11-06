@@ -181,3 +181,15 @@ test('experiment: real thumbnail dimensions preserve aspect ratio, narrow/tall e
  for(const [w,h,out] of [[3200,2000,{width:480,height:300}],[2000,3200,{width:300,height:480}],[80,60,{width:80,height:60}],[1,10000,{width:1,height:480}],[10000,1,{width:480,height:1}]])assert.deepEqual(thumbnailSize(w,h),out)
  for(const pair of [[0,1],[1,0],[Infinity,1],[-1,2]])assert.throws(()=>thumbnailSize(...pair))
 })
+
+test('adaptive image request is bounded, source-bound, strict and explicit about originals',async()=>{
+ let captured
+ const value={path:'/workspace/p.png',mediaType:'image/png',dataBase64:syntheticPng(600,375).toString('base64'),width:600,height:375,sourceWidth:3200,sourceHeight:2000,sourceId:'content-hash',original:false}
+ const client=new api.FileDisplayClient({call:async(...args)=>{captured=args;return {ok:true,value}}})
+ await client.imagePreview('s','p.png',new AbortController().signal,{width:600,height:400},false,'content-hash')
+ assert.equal(captured[1],'display/image-preview');assert.equal(captured[2].expectedSourceId,'content-hash');assert.equal(captured[2].maxWidth,600)
+ for(const size of [{width:0,height:1},{width:4096,height:4096},{width:1.5,height:1}])await assert.rejects(()=>client.imagePreview('s','p.png',new AbortController().signal,size))
+ for(const bad of [{...value,width:601},{...value,width:480,height:300},{...value,dataBase64:'AA=='},{...value,dataBase64:syntheticPng(1600,1000).toString('base64')},{...value,original:true},{...value,sourceId:'different'},{...value,sourceWidth:100000},{...value,extra:true}]){
+  const invalid=new api.FileDisplayClient({call:async()=>({ok:true,value:bad})});await assert.rejects(()=>invalid.imagePreview('s','p.png',new AbortController().signal,{width:600,height:400},false,'content-hash'))
+ }
+})

@@ -416,7 +416,7 @@ function apply(ctx) {
                     return Promise.resolve();
                 },
                 loadOlder: () => scoped.loadOlder(),
-                loadImage: attachment => conversation.resolveImage(sessionId, attachment),
+                loadImage: (attachment, thumbnail) => conversation.resolveImage(sessionId, attachment, thumbnail),
                 // Unregistered 'trajectory' id is safe: the tab ring falls back to
                 // the first view, and the untouched inspect target stays inert.
                 editMessage: content => (0, actions_1.xhEditMessage)(inputHub, sessionId, content),
@@ -2949,10 +2949,10 @@ class ConversationController extends Service {
      * @param attachment - durable image reference.
      * @returns browser URL valid until its rendered session is released.
      */
-    resolveImage(sessionId, attachment) {
+    resolveImage(sessionId, attachment, thumbnail = false) {
         if (this.disposed)
             return Promise.reject(new Error('conversation.resolveImage: service is disposed'));
-        const key = `${sessionId}:${attachment.attachmentId}`;
+        const key = JSON.stringify([sessionId, attachment.attachmentId, thumbnail]);
         const cached = this.imageUrls.get(key);
         if (cached !== undefined)
             return cached.pending;
@@ -2961,7 +2961,10 @@ class ConversationController extends Service {
         if (session === undefined) {
             return Promise.reject(new Error(`conversation.resolveImage: unknown session "${sessionId}"`));
         }
-        const pending = session.readAttachment(attachment.attachmentId)
+        // Only raster reads occupy the shared image queue. Do not silently apply
+        // its deadline to durable file downloads using the same attachment API.
+        const imageRead = typeof attachment.width === 'number' && typeof attachment.height === 'number';
+        const pending = session.readAttachment(attachment.attachmentId, thumbnail, imageRead ? AbortSignal.timeout(20000) : undefined)
             .then((result) => {
             if (!result.ok)
                 throw new Error(`${result.error.code}: ${result.error.message}`);
@@ -2970,11 +2973,25 @@ class ConversationController extends Service {
             if ((this.imageGenerations.get(sessionId) ?? 0) !== generation) {
                 throw new Error('historical image scope was released before loading completed');
             }
+            if (thumbnail) {
+                // Session faces supplied by older/custom runtimes may ignore the new
+                // optional flag. Do not trust such a face to enforce decoder sizing.
+                const data = result.value.data;
+                if (data.byteLength < 24 || data.byteLength > 1024 * 1024
+                    || [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82].some((byte, index) => data[index] !== byte)) {
+                    throw new Error('invalid thumbnail bytes');
+                }
+                const header = new DataView(data.buffer, data.byteOffset, data.byteLength);
+                const width = header.getUint32(16), height = header.getUint32(20);
+                if (width < 1 || height < 1 || width > 480 || height > 480)
+                    throw new Error('invalid thumbnail dimensions');
+            }
+            const mediaType = thumbnail ? 'image/png' : result.value.attachment.mediaType;
             if (typeof URL.createObjectURL !== 'function') {
-                return `data:${result.value.attachment.mediaType};base64,${bytesToBase64(result.value.data)}`;
+                return `data:${mediaType};base64,${bytesToBase64(result.value.data)}`;
             }
             const bytes = Uint8Array.from(result.value.data);
-            const url = URL.createObjectURL(new Blob([bytes.buffer], { type: result.value.attachment.mediaType }));
+            const url = URL.createObjectURL(new Blob([bytes.buffer], { type: mediaType }));
             this.createdImageUrls.add(url);
             return url;
         })
@@ -8317,6 +8334,7 @@ exports.en = {
     "image.dropBlocked": "Images cannot be added right now",
     "image.pending": "Pending images",
     "image.openOriginal": "View original",
+    "image.budgetExceeded": "Image memory budget reached. Close other previews, then retry.",
     "image.openOriginalLabel": "{label}, click to view original",
     "image.remove": "Remove image {name}",
     "image.scrollLeft": "Scroll images left",
@@ -8548,6 +8566,7 @@ exports.zh = {
     "image.dropBlocked": "当前无法添加图片",
     "image.pending": "待发送图片",
     "image.openOriginal": "查看原图",
+    "image.budgetExceeded": "已达图片内存预算，请关闭其他预览后重试。",
     "image.openOriginalLabel": "{label}，点击查看原图",
     "image.remove": "移除图片 {name}",
     "image.scrollLeft": "向左滚动图片",

@@ -33,6 +33,7 @@ try {
   await page.addScriptTag({content:source});
  }
  await page.addScriptTag({content:compile().test});
+ await page.evaluate(source=>{window.sourceThumbnailAcceptance=source},sourceMode)
  const checks=await page.evaluate(async()=>{
   const cache={};function load(id){if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;return cache[name]??(cache[name]=registrations[name].factory(load))}
   const {SessionManager}=load('@xharness/dsh-client-runtime/client');window.SessionManager=SessionManager;
@@ -73,6 +74,24 @@ try {
   const manager=new SessionManager(api,remote,undefined,undefined,conversation);window.fixtureManager=manager;
   const select=id=>{if(!manager.summaries.some(s=>s.sessionId===id))manager.summaries.push({sessionId:id,running:false,blank:false,updatedAt:0});manager.select(id);return manager.get(id)};
   const a=select('a');await a.open();await a.loadOlder();await a.loadOlder();
+  if(window.sourceThumbnailAcceptance){
+    const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg=='
+    let response={attachment:{attachmentId:'preview',mediaType:'image/png',bytes:500,width:3200,height:2000},data:png},request,requestSignal,decodes=0
+    api.sessions.attachment=async (payload,signal)=>{request=payload;requestSignal=signal;return {result:{ok:true,value:response}}}
+    const originalAtob=window.atob;window.atob=value=>{decodes++;return originalAtob(value)}
+    try{
+      ok(!(await a.readAttachment('preview',true)).ok&&decodes===0,'old Host full response is rejected BEFORE base64 decode')
+      response={...response,thumbnail:{width:1,height:1}}
+      const preview=await a.readAttachment('preview',true)
+      ok(preview.ok&&preview.value.data[0]===137&&request.thumbnail===true&&requestSignal instanceof AbortSignal,'real Session requests/validates thumbnail bytes with bounded read deadline')
+      response={...response,thumbnail:{width:480,height:300}}
+      ok(!(await a.readAttachment('preview',true)).ok,'PNG header must match bounded derivative dimensions')
+      delete response.thumbnail
+      ok((await a.readAttachment('preview')).ok&&request.thumbnail===undefined&&requestSignal===undefined,'original read remains unchanged')
+      const callerDeadline=new AbortController().signal
+      ok((await a.readAttachment('preview',false,callerDeadline)).ok&&requestSignal===callerDeadline,'image caller deadline is forwarded without changing file defaults')
+    }finally{window.atob=originalAtob;delete api.sessions.attachment}
+  }
   ok(a.baseSeq===51&&a.getSnapshot().chat.order.length===150,'loaded three pages with real Chat projection');
   a.actx={draft:'keep me',attachments:['file-ref'],expanded:['tool-1']};
   // Real InputMachine/facade, not a string sentinel pretending to be a draft.

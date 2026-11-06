@@ -11,10 +11,13 @@ const engine=process.env.UI_TEST_BROWSER??'chromium',browser=await require('play
 const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGOQ67nzHwAE2AKGL5GjpgAAAABJRU5ErkJggg=='
 const patch='diff --git a/main.rs b/main.rs\n--- a/main.rs\n+++ b/main.rs\n@@ -1,2 +1,2 @@\n fn main() {\n-old();\n+new();\ndiff --git a/image.png b/image.png\nindex a..b 100644\nBinary files a/image.png and b/image.png differ\n'
 const bigPng=syntheticPng(1600,1200).toString('base64')
-let version=1,imageMode='image';const imageGates=[]
+let version=1,imageMode='image',inlineImageMode='static';const imageGates=[]
 try{
  async function waitForRead(before){for(let i=0;i<200&&reads.length===before;i++)await page.waitForTimeout(10);assert.ok(reads.length>before,'display RPC started within fixture deadline')}
  const page=await browser.newPage({viewport:{width:1400,height:900},locale:'zh-CN'}),errors=[],reads=[],externalRequests=[]
+ const jpeg=Buffer.from(await page.evaluate(()=>{const c=document.createElement('canvas');c.width=2;c.height=1;return c.toDataURL('image/jpeg').split(',')[1]}),'base64')
+ const exif=Buffer.from([69,120,105,102,0,0,73,73,42,0,8,0,0,0,1,0,0x12,1,3,0,1,0,0,0,6,0,0,0,0,0,0,0])
+ const orientedJpeg=Buffer.concat([jpeg.subarray(0,2),Buffer.from([255,225,0,exif.length+2]),exif,jpeg.subarray(2)]).toString('base64')
  page.setDefaultTimeout(20000);page.on('pageerror',e=>{errors.push(e.message);console.error('PAGEERROR',e.message)})
 
  await page.route('**/*',async route=>{
@@ -39,7 +42,7 @@ try{
     value=imageMode==='pdf'?{kind:'pdf',path:'/workspace/memory-large.png',dataBase64:Buffer.from('%PDF-1.4\n%%EOF\n').toString('base64')}:{kind:'image',path:args.path,mediaType:'image/png',dataBase64:bigPng,width:1600,height:1200}
    }
    else if(args.path.endsWith('animation.gif'))value={kind:'image',path:'/workspace/animation.gif',mediaType:'image/gif',width:1,height:1,dataBase64:'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'}
-   else if(args.path.endsWith('figure.png'))value={kind:'image',path:'/workspace/figure.png',mediaType:'image/png',dataBase64:png,width:1,height:1}
+   else if(args.path.endsWith('figure.png'))value=inlineImageMode==='oriented'?{kind:'image',path:'/workspace/figure.png',mediaType:'image/jpeg',dataBase64:orientedJpeg,width:2,height:1}:inlineImageMode==='animated'?{kind:'image',path:'/workspace/figure.png',mediaType:'image/gif',width:1,height:1,dataBase64:'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'}:{kind:'image',path:'/workspace/figure.png',mediaType:'image/png',dataBase64:png,width:1,height:1}
    else if(args.path.endsWith('report.pdf'))value={kind:'pdf',path:'/workspace/report.pdf',dataBase64:Buffer.from('%PDF-1.4\n%%EOF\n').toString('base64')}
    else if(args.path.endsWith('page.html'))value={kind:'text',path:'/workspace/page.html',text:'<h1>Local HTML</h1><style>h1{color:rgb(22,88,44)}</style><script>parent.executed=true</script><img src="https://outside.invalid/tracker"><iframe src="https://outside.invalid/frame"></iframe><meta http-equiv="refresh" content="0;url=https://outside.invalid/nav"><a href="https://outside.invalid/nav">No navigation</a>'}
    else if(args.path.endsWith('main.rs'))value={kind:'text',path:'/workspace/main.rs',text:'fn main() { println!("Preview"); }'}
@@ -68,6 +71,26 @@ try{
  const pane=page.locator('.xhworkspace-item:not([hidden])').getByRole('region',{name:'文件预览'});await pane.getByRole('heading',{name:'Report v1'}).waitFor()
  await pane.locator('table').waitFor();await pane.locator('.katex').first().waitFor();await pane.locator('img').waitFor();await pane.locator('img').evaluate(img=>img.decode());assert.ok(reads.some(r=>r.path==='../figure.png'&&r.relativeTo==='/workspace/docs/report.md'&&r.sessionId==='fx-alpha'))
  assert.equal(await page.evaluate(()=>window.executed),undefined);assert.equal(await page.locator('.xhworkspace-body script').count(),0)
+ // Hidden Markdown rasters share the same resource ledger and do not reread.
+ const inlineUrl=await pane.locator('img').getAttribute('src'),inlineReads=reads.length
+ for(let cycle=0;cycle<3;cycle++){
+  await page.getByRole('button',{name:'收起右侧工作区',exact:true}).click();assert.equal(await page.locator('.xhfile-local-image img').count(),0)
+  await page.getByRole('button',{name:'展开右侧工作区',exact:true}).click();await pane.locator('img').evaluate(img=>img.decode());assert.equal(await pane.locator('img').getAttribute('src'),inlineUrl)
+ }
+ assert.equal(reads.length,inlineReads,'Markdown hide/show keeps the bounded snapshot without another read')
+ // Preserve browser-oriented geometry, not raw JPEG header dimensions.
+ inlineImageMode='oriented';await pane.getByRole('button',{name:'刷新文件',exact:true}).click();await pane.locator('img').evaluate(img=>img.decode())
+ assert.deepEqual(await pane.locator('img').evaluate(img=>[img.naturalWidth,img.naturalHeight]),[1,2])
+ await page.getByRole('button',{name:'收起右侧工作区',exact:true}).click()
+ assert.equal(await page.locator('.xhfile-local-image > span').evaluate(el=>{const [w,h]=el.style.aspectRatio.split('/').map(Number);return w/h}),.5,'hidden placeholder keeps decoded EXIF orientation')
+ await page.getByRole('button',{name:'展开右侧工作区',exact:true}).click();await pane.locator('img').evaluate(img=>img.decode())
+ // Unknown/animated Markdown rasters must retain the same decoder DOM too.
+ inlineImageMode='animated';await pane.getByRole('button',{name:'刷新文件',exact:true}).click();await pane.locator('img').evaluate(img=>img.decode())
+ await pane.locator('img').evaluate(img=>{window.retainedMarkdownAnimation=img});const animatedReads=reads.length
+ await page.getByRole('button',{name:'收起右侧工作区',exact:true}).click()
+ assert.equal(await page.evaluate(()=>retainedMarkdownAnimation.isConnected&&document.querySelector('.xhfile-local-image img')===retainedMarkdownAnimation),true,'hidden Markdown animation keeps decoder identity')
+ await page.getByRole('button',{name:'展开右侧工作区',exact:true}).click();assert.equal(await pane.locator('img').evaluate(img=>img===retainedMarkdownAnimation),true);assert.equal(reads.length,animatedReads)
+ inlineImageMode='static';await pane.getByRole('button',{name:'刷新文件',exact:true}).click();await pane.locator('img').evaluate(img=>img.decode())
  const count=await page.locator('.xhworkspace-tab').count();await page.evaluate(()=>emitFileDisplay({sessionId:'fx-alpha',path:'/workspace/docs/report.md'}));assert.equal(await page.locator('.xhworkspace-tab').count(),count,'same file reuses its tab')
  const markdownUrl=await pane.locator('img').getAttribute('src');await pane.getByRole('button',{name:'源码',exact:true}).click();await pane.locator('pre').waitFor();await page.waitForFunction(url=>!blobs.has(url),markdownUrl);await pane.getByRole('button',{name:'预览',exact:true}).click();await pane.locator('img').waitFor()
  version=2;await pane.getByRole('button',{name:'刷新文件',exact:true}).click();await pane.getByRole('heading',{name:'Report v2'}).waitFor();await pane.locator('img').evaluate(img=>img.decode())
@@ -76,7 +99,7 @@ try{
  await page.evaluate(()=>emitFileDisplay({sessionId:'fx-alpha',path:'/workspace/figure.png'}));await pane.locator('.xhfile-image img').waitFor();await pane.locator('.xhfile-image img').evaluate(img=>img.decode());const imageUrl=await pane.locator('.xhfile-image img').getAttribute('src');assert.equal(await page.evaluate(url=>blobs.has(url),imageUrl),true)
  await pane.getByRole('button',{name:'放大',exact:true}).click();await pane.getByRole('button',{name:'125%',exact:true}).waitFor()
  const evidence=resolve('dist/regression/file-display');mkdirSync(evidence,{recursive:true});await page.screenshot({path:resolve(evidence,engine+'-image.png')})
- await page.getByRole('button',{name:'收起右侧工作区',exact:true}).click();await pane.waitFor({state:'hidden'});await page.waitForFunction(url=>!blobs.has(url),imageUrl);assert.equal(await page.locator('.xhfile-image img').count(),0,'hidden raster releases decoder DOM and Blob ownership');await page.getByRole('button',{name:'展开右侧工作区',exact:true}).click();await pane.locator('.xhfile-image img').waitFor();const reopenedUrl=await pane.locator('.xhfile-image img').getAttribute('src');assert.notEqual(reopenedUrl,imageUrl);await pane.getByRole('button',{name:'125%',exact:true}).waitFor()
+ await page.getByRole('button',{name:'收起右侧工作区',exact:true}).click();await pane.waitFor({state:'hidden'});assert.equal(await page.evaluate(url=>blobs.has(url),imageUrl),true,'hidden URL remains bounded and charged for reuse');assert.equal(await page.locator('.xhfile-image img').count(),0,'hidden raster removes decoder DOM');await page.getByRole('button',{name:'展开右侧工作区',exact:true}).click();await pane.locator('.xhfile-image img').waitFor();const reopenedUrl=await pane.locator('.xhfile-image img').getAttribute('src');assert.equal(reopenedUrl,imageUrl,'reopening reuses the charged snapshot URL');await pane.getByRole('button',{name:'125%',exact:true}).waitFor()
  await page.getByRole('button',{name:'关闭 figure.png',exact:true}).click();await pane.locator('pre').waitFor();await page.waitForFunction(url=>!blobs.has(url),reopenedUrl)
  await page.evaluate(()=>emitFileDisplay({sessionId:'fx-alpha',path:'/workspace/memory-large.png'}));await pane.locator('.xhfile-image img').evaluate(img=>img.decode())
  await pane.getByRole('button',{name:'放大',exact:true}).click();await pane.getByRole('button',{name:'125%',exact:true}).waitFor()
@@ -85,7 +108,7 @@ try{
  const tabBefore=await page.locator('.xhworkspace-tab').count(),imageReadsBefore=reads.filter(r=>r.path==='/workspace/memory-large.png').length
  for(let cycle=0;cycle<3;cycle++){
   const url=await pane.locator('.xhfile-image img').getAttribute('src')
-  await page.getByRole('button',{name:'收起右侧工作区',exact:true}).click();await page.waitForFunction(url=>!blobs.has(url),url)
+  await page.getByRole('button',{name:'收起右侧工作区',exact:true}).click();assert.equal(await page.evaluate(url=>blobs.has(url),url),true)
   assert.equal(await page.locator('.xhfile-image img').count(),0)
   await page.getByRole('button',{name:'展开右侧工作区',exact:true}).click();await pane.locator('.xhfile-image img').evaluate(img=>img.decode())
   await pane.getByRole('button',{name:'125%',exact:true}).waitFor()

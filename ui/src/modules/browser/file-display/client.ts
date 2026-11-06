@@ -3,8 +3,8 @@ import {FileInspectionCache} from '../../shared/file-inspection'
 import {resolveWorkspacePath} from '../../client-runtime/workspaces/path'
 import {parentPath} from '../../shared/file-types'
 import type {DisplayInspection} from '../../shared/file-inspection'
-import {DisplayFileSchema} from '../../shared/generated/file-display'
-import type {DisplayFile,GitDiffScope} from '../../shared/generated/file-display'
+import {DisplayImageSchema,DisplayFileSchema} from '../../shared/generated/file-display'
+import type {DisplayImage,DisplayFile,GitDiffScope} from '../../shared/generated/file-display'
 export const MAX_IMAGE_BYTES=8*1024*1024
 export const MAX_TEXT_BYTES=512*1024
 export class FileDisplayClient {
@@ -15,6 +15,24 @@ export class FileDisplayClient {
   async openExternal(path:string):Promise<void>{if(!this.external||!this.canOpenExternal(path))throw new Error("System opener requires a resolved absolute path");await this.external.open(path)}
   canReveal(path:string):boolean{return this.canOpenExternal(path)&&this.external?.canReveal?.()===true&&this.external.reveal!==undefined}
   async reveal(path:string):Promise<void>{if(!this.external?.reveal||!this.canReveal(path))throw new Error('Showing in folder is unavailable');await this.external.reveal(path)}
+  async imagePreview(sessionId:string,path:string,signal:AbortSignal,size:{width:number;height:number},original=false,expectedSourceId?:string,relativeTo?:string):Promise<DisplayImage>{
+    const {width,height}=size
+    if(!Number.isSafeInteger(width)||!Number.isSafeInteger(height)||width<1||height<1||width>4096||height>4096||width*height>4*1024*1024)throw Error('Invalid image preview dimensions')
+    const response=await this.rpc.call('/api','display/image-preview',{sessionId,path,maxWidth:width,maxHeight:height,original,...expectedSourceId===undefined?{}:{expectedSourceId},...relativeTo===undefined?{}:{relativeTo}},AbortSignal.any([signal,AbortSignal.timeout(20000)]))
+    if(!response.ok)throw Error(response.error.message)
+    const image=DisplayImageSchema.parse(response.value)
+    if(!validBase64(image.dataBase64)||!['image/png','image/jpeg','image/gif','image/webp'].includes(image.mediaType)||image.path.length===0||image.path.length>4096||image.sourceId.length===0||image.sourceId.length>128||image.original!==original||[image.width,image.height,image.sourceWidth,image.sourceHeight].some(n=>n<1)||image.sourceWidth*image.sourceHeight>16*1024*1024||image.width*image.height>16*1024*1024||(!original&&(image.width>width||image.height>height||image.mediaType!=='image/png'))||expectedSourceId!==undefined&&image.sourceId!==expectedSourceId)throw Error('Invalid image preview response')
+    if(image.width>image.sourceWidth||image.height>image.sourceHeight)throw Error('Upscaled image preview response')
+    if(!original){
+      const scale=Math.min(1,width/image.sourceWidth,height/image.sourceHeight)
+      if(Math.abs(image.width-image.sourceWidth*scale)>1||Math.abs(image.height-image.sourceHeight*scale)>1)throw Error('Incomplete image preview dimensions')
+      const binary=atob(image.dataBase64)
+      if(binary.length<24||[137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82].some((byte,index)=>binary.charCodeAt(index)!==byte))throw Error('Invalid preview PNG header')
+      const header=new DataView(Uint8Array.from(binary.slice(16,24),char=>char.charCodeAt(0)).buffer)
+      if(header.getUint32(0)!==image.width||header.getUint32(4)!==image.height)throw Error('Mismatched preview PNG dimensions')
+    }else if(image.width!==image.sourceWidth||image.height!==image.sourceHeight)throw Error('Invalid original dimensions')
+    return image
+  }
   async read(sessionId:string,path:string,signal:AbortSignal,relativeTo?:string,gitDiff?:GitDiffScope):Promise<DisplayFile>{
     const response=await this.rpc.call('/api','display/read',{sessionId,path,...relativeTo===undefined?{}:{relativeTo},...gitDiff===undefined?{}:{gitDiff}},AbortSignal.any([signal,AbortSignal.timeout(20000)]))
     if(!response.ok)throw new Error(response.error.message)

@@ -1,4 +1,5 @@
 import {installSharedSourceVendors} from './fixtures/shared-source-vendors.mjs'
+import {acceptHistoryImageBudget} from './fixtures/history-image-budget-browser.mjs'
 // Real-browser old/new acceptance over isolated React root and fake Host loader.
 import assert from 'node:assert/strict'
 import {readFileSync}from'node:fs'
@@ -17,7 +18,7 @@ try{
  await installSharedSourceVendors(page)
  await page.addScriptTag({content:'window.__ModuleLoader__={load:row=>window.registration=row}'});await page.addScriptTag({content:source});
  await page.evaluate(()=>{
-  const api=registration.factory(name=>name==='zod'?window.__sourceVendors.zod:name==='react'?React:name==='react-dom'?ReactDOM:name==='react/jsx-runtime'?{jsx:(type,props,key)=>React.createElement(type,{...props,key}),jsxs:(type,props,key)=>React.createElement(type,{...props,key}),Fragment:React.Fragment}:new Proxy({}, {get:()=>()=>null}));
+  const api=registration.factory(name=>name==='zod'?window.__sourceVendors.zod:name==='react'?React:name==='react-dom'?ReactDOM:name==='react/jsx-runtime'?{jsx:(type,props,key)=>React.createElement(type,{...props,key}),jsxs:(type,props,key)=>React.createElement(type,{...props,key}),Fragment:React.Fragment}:new Proxy({}, {get:(_target,key)=>window.__sourceVendors.imageResources[key]??(()=>null)}));
   window.slots={};api.apply({slots:{inject:(_name,fn)=>fn(),register:(spec,component)=>{slots[spec.name]=component}}});
   window.root=ReactDOM.createRoot(document.getElementById('root'));window.removed=[];window.added=[];window.loads=[];window.fail=false;window.mode='draft';window.canAccept=true;
   window.png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==';
@@ -48,6 +49,7 @@ try{
  const rect=await page.getByRole('button',{name:'Open portrait'}).boundingBox();assert.ok(rect.width<=64&&rect.height<=90,JSON.stringify(rect));
  await page.evaluate(()=>{images=[{attachment:{attachmentId:'f',name:'unknown-dimensions',bytes:50}}];render()});await page.getByText('unknown-dimensions').waitFor();assert.equal(await page.getByRole('img').count(),0);
  // All document handlers must leave with the source slot.
+ if(process.env.UI_TEST_IMPL!=='legacy')await acceptHistoryImageBudget(page)
  await page.evaluate(()=>root.unmount());await page.evaluate(()=>document.dispatchEvent(new DragEvent('dragenter',{bubbles:true,cancelable:true,dataTransfer:transfer})));assert.equal(await page.getByRole('status').count(),0);
  console.log(`${engine} ${process.env.UI_TEST_IMPL??'source'}: draft files/images, preview/Escape, nested drop/refusal, history retry/download, durable reference payload, sizing and teardown passed`);
 }finally{await browser.close()}

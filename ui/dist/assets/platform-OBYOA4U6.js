@@ -31661,6 +31661,7 @@ __export(primitives_exports, {
   DEFAULT_READ_MAX_LINES: () => DEFAULT_READ_MAX_LINES,
   DEFAULT_SEARCH_MAX_LINES: () => DEFAULT_SEARCH_MAX_LINES,
   DEFAULT_TERMINAL_MAX_LINES: () => DEFAULT_TERMINAL_MAX_LINES,
+  DecodedImageBudget: () => DecodedImageBudget,
   DialogSurface: () => DialogSurface,
   DiffBlock: () => DiffBlock,
   DisclosureRow: () => DisclosureRow,
@@ -31746,6 +31747,7 @@ __export(primitives_exports, {
   IconTriangleRightFill14: () => IconTriangleRightFill14,
   IconUserOutline16: () => IconUserOutline16,
   IconWarningOutline16: () => IconWarningOutline16,
+  ImageUrlPool: () => ImageUrlPool,
   Input: () => Input,
   JsonBlock: () => JsonBlock,
   JsonTree: () => JsonTree,
@@ -31760,10 +31762,14 @@ __export(primitives_exports, {
   SearchBlock: () => SearchBlock,
   StateDot: () => StateDot,
   TerminalBlock: () => TerminalBlock,
+  ThumbnailQueue: () => ThumbnailQueue,
   Toast: () => Toast,
   Tooltip: () => Tooltip,
   WebBlock: () => WebBlock,
+  decodedImageBudget: () => decodedImageBudget,
   extractMarkdownPlainText: () => extractMarkdownPlainText,
+  imageReadQueue: () => imageReadQueue,
+  imageUrlPool: () => imageUrlPool,
   useAnchoredMaxHeight: () => useAnchoredMaxHeight,
   useAnchoredPosition: () => useAnchoredPosition,
   useDismissOnOutsidePointer: () => useDismissOnOutsidePointer,
@@ -34934,6 +34940,18 @@ function highlighter() {
 var pending = /* @__PURE__ */ new Map();
 var listeners = /* @__PURE__ */ new Set();
 var loadCount = 0;
+function canHighlight(code2) {
+  if (code2.length > 64 * 1024) return false;
+  let lines = 1, column = 0;
+  for (let index2 = 0; index2 < code2.length; index2++) {
+    if (code2.charCodeAt(index2) === 10) {
+      lines++;
+      column = 0;
+    } else column++;
+    if (lines > 1e3 || column > 4096) return false;
+  }
+  return true;
+}
 function subscribeGrammarLoaded(listener) {
   listeners.add(listener);
   return () => {
@@ -34988,12 +35006,14 @@ function ensureGrammar(resolved) {
   return false;
 }
 function highlightToHtml(code2, lang) {
+  if (!canHighlight(code2)) return void 0;
   const resolved = lang === void 0 ? void 0 : LANG_ALIASES.get(lang.toLowerCase());
   if (resolved === void 0) return void 0;
   if (!ensureGrammar(resolved)) return void 0;
   return singleton?.codeToHtml(code2, { lang: resolved, theme: "css-variables" });
 }
 function highlightLines(code2, lang) {
+  if (!canHighlight(code2)) return void 0;
   const resolved = lang === void 0 ? void 0 : LANG_ALIASES.get(lang.toLowerCase());
   if (resolved === void 0) return void 0;
   if (!ensureGrammar(resolved)) return void 0;
@@ -59486,6 +59506,145 @@ function extractMarkdownPlainText(markdown, options = {}) {
   }
 }
 
+// src/modules/platform/primitives/image-resources.ts
+init_define_process_execArgv();
+var DecodedImageBudget = class {
+  constructor(limit = 128 * 1024 * 1024) {
+    this.limit = limit;
+    this.used = 0;
+    this.evictors = /* @__PURE__ */ new Set();
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new Error("Invalid decoded image budget");
+  }
+  onPressure(evict) {
+    this.evictors.add(evict);
+    return () => {
+      this.evictors.delete(evict);
+    };
+  }
+  reserve(width, height) {
+    const bytes = width * height * 4;
+    if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1 || !Number.isSafeInteger(bytes)) return void 0;
+    if (bytes > this.limit - this.used) for (const evict of this.evictors) {
+      evict();
+      if (bytes <= this.limit - this.used) break;
+    }
+    if (bytes > this.limit - this.used) return void 0;
+    this.used += bytes;
+    let active = true;
+    return { release: () => {
+      if (active) {
+        active = false;
+        this.used -= bytes;
+      }
+    } };
+  }
+  get bytes() {
+    return this.used;
+  }
+};
+var decodedImageBudget = new DecodedImageBudget();
+var ThumbnailQueue = class {
+  constructor() {
+    this.active = false;
+    this.pending = [];
+  }
+  run(work, signal, interactive = false) {
+    if (signal.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
+    if (this.pending.length >= 128) return Promise.reject(new Error("Thumbnail queue full; retry"));
+    return new Promise((resolve, reject) => {
+      const job = {
+        cancel: () => {
+          const index2 = this.pending.indexOf(job);
+          if (index2 >= 0) this.pending.splice(index2, 1);
+          signal.removeEventListener("abort", job.cancel);
+          reject(new DOMException("Aborted", "AbortError"));
+        },
+        start: () => {
+          signal.removeEventListener("abort", job.cancel);
+          this.active = true;
+          void Promise.resolve().then(() => {
+            signal.throwIfAborted();
+            return work();
+          }).then(resolve, reject).finally(() => {
+            this.active = false;
+            this.pump();
+          });
+        }
+      };
+      signal.addEventListener("abort", job.cancel, { once: true });
+      if (interactive) this.pending.unshift(job);
+      else this.pending.push(job);
+      this.pump();
+    });
+  }
+  pump() {
+    if (!this.active) this.pending.shift()?.start();
+  }
+};
+var imageReadQueue = new ThumbnailQueue();
+var ImageUrlPool = class {
+  constructor(budget, byteLimit = 32 * 1024 * 1024, countLimit = 12) {
+    this.budget = budget;
+    this.byteLimit = byteLimit;
+    this.countLimit = countLimit;
+    this.entries = [];
+    budget.onPressure(() => this.evictInactive());
+  }
+  remove(entry) {
+    if (!entry.alive) return;
+    entry.alive = false;
+    URL.revokeObjectURL(entry.url);
+    entry.lease.release();
+    const index2 = this.entries.indexOf(entry);
+    if (index2 >= 0) this.entries.splice(index2, 1);
+  }
+  evictInactive() {
+    for (const entry of [...this.entries].sort((a, b) => a.touched - b.touched)) if (entry.active === 0) this.remove(entry);
+  }
+  dispose(owner) {
+    for (const entry of [...this.entries]) if (entry.owner === owner) this.remove(entry);
+  }
+  acquire(owner, blob, width, height) {
+    if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1 || !Number.isSafeInteger(width * height * 4) || width * height * 4 > this.budget.limit) return void 0;
+    let entry = this.entries.find((entry2) => entry2.owner === owner && entry2.blob === blob && entry2.alive);
+    if (!entry) {
+      if (blob.size > this.byteLimit) return void 0;
+      const bytes = () => this.entries.reduce((sum, entry2) => sum + entry2.blob.size, 0);
+      for (const old of [...this.entries].sort((a, b) => a.touched - b.touched)) {
+        if (this.entries.length < this.countLimit && bytes() + blob.size <= this.byteLimit) break;
+        if (old.active === 0) this.remove(old);
+      }
+      if (this.entries.length >= this.countLimit || bytes() + blob.size > this.byteLimit) return void 0;
+      const lease = this.budget.reserve(width, height);
+      if (!lease) return void 0;
+      let url2;
+      try {
+        url2 = URL.createObjectURL(blob);
+      } catch (error62) {
+        lease.release();
+        throw error62;
+      }
+      entry = { owner, blob, url: url2, active: 0, touched: 0, lease, alive: true };
+      this.entries.push(entry);
+    }
+    const held = entry;
+    held.active++;
+    held.touched = Date.now();
+    let active = true;
+    return { url: held.url, release: () => {
+      if (active) {
+        active = false;
+        held.active--;
+        held.touched = Date.now();
+      }
+    } };
+  }
+  get size() {
+    return this.entries.length;
+  }
+};
+var imageUrlPool = new ImageUrlPool(decodedImageBudget);
+
 // src/modules/platform/web/seed.ts
 function getStaticModules() {
   return {
@@ -59636,4 +59795,4 @@ init_define_process_execArgv();
 var el = document.getElementById("root");
 if (el === null) throw new Error("web app: missing #root");
 void new AppWebEntry(el).run();
-//# sourceMappingURL=platform-JFA3TUP5.js.map
+//# sourceMappingURL=platform-OBYOA4U6.js.map
