@@ -26,9 +26,8 @@
 
  L4 控制面与长生命周期运行时
     xharness-host ──> agent, core, session, projection, schedule, attachments,
-                      compaction, session-jsonl, session-import, tools, token,
-                      prompt, interaction, jobs, process, fs, control, api, win32,
-                      debug, diagnostics
+                      compaction, session-import, tools, token, prompt,
+                      interaction, jobs, fs, control, api, debug, diagnostics, win32
     xharness-agent ──> core, goal, session
     xharness-schedule ──> agent, session, tools
     xharness-projection ──> core, session
@@ -63,8 +62,10 @@
 
 - `xharness-core` 不依赖任何平台、进程或 HTTP 实现，操作系统分支只允许出现在
   `xharness-platform` 及其下层（[全局不变量 5](../architecture.md#全局不变量)）。
-- `xharness-host` 不依赖 Provider、Server、Platform、Job 或 Web 运行时；这些只由
-  `xharness-host-app` 组合，见 [Host 规范](../specs/host.md)。
+- `xharness-host` 不依赖任何原生平台、具体 Provider 或 Server；这些只在
+  `xharness-host-app` 组合，见 [Host 规范](../specs/host.md)。它对
+  `xharness-process` / `xharness-session-jsonl` 只有 dev 依赖，因此不出现在 L4 的
+  normal 依赖列表中。
 - `xharness-api` 是叶子：它冻结线协议类型，不允许反向引用 Host、Core 或 Session 类型。
 - 依赖方向不是靠约定维持：`scripts/regression/check-architecture.py` 以
   `config/architecture-dependencies.json` 为冻结基线，拒绝新增内部 crate 依赖；
