@@ -1211,7 +1211,7 @@ function DiffPreview({ file }) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.inspectPatch = inspectPatch;
 exports.splitRows = splitRows;
-// File framing is presentation-only; coordinates reuse Code Review's strict parser.
+// File framing is presentation-only; coordinates reuse the shared strict hunk parser.
 const hunks_1 = require("../../shared/diff/hunks");
 const strip = (path) => path?.replace(/^[ab]\//, '');
 /** Decode Git's quoted filename bytes, without interpreting them as links. */

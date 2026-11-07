@@ -70,7 +70,6 @@ export function apply(ctx: ClientContext): void {
         'sidebar': { kind: 'single', scope: 'root' },
         'conversation': { kind: 'single', scope: 'session-maybe' },
         'plugins.center': { kind: 'single', scope: 'root' },
-        'review.center': { kind: 'single', scope: 'root' },
         'assistant.center': { kind: 'single', scope: 'root' },
         'swarm.center': { kind: 'single', scope: 'root' },
         'work.center.tasks': { kind: 'single', scope: 'root' },

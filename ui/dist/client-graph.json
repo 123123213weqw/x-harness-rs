@@ -1,5 +1,5 @@
 {
-  "rev": "e8ac3f3992153920",
+  "rev": "32c352f3cfe70d78",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -149,8 +149,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-layout",
-      "url": "/plugins/@xharness/dsh-client-ui-layout/client.js?rev=348c5860e46fda78",
-      "rev": "348c5860e46fda78",
+      "url": "/plugins/@xharness/dsh-client-ui-layout/client.js?rev=7b3efceba17e5f65",
+      "rev": "7b3efceba17e5f65",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-ui-theme"
@@ -837,8 +837,8 @@
     },
     {
       "id": "@xlang/xharness-client-ui-browser",
-      "url": "/plugins/@xlang/xharness-client-ui-browser/client.js?rev=348ee8a77522cc4e",
-      "rev": "348ee8a77522cc4e",
+      "url": "/plugins/@xlang/xharness-client-ui-browser/client.js?rev=5a6558f91cd50b3f",
+      "rev": "5a6558f91cd50b3f",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-ui-layout",
@@ -879,24 +879,6 @@
         "react",
         "react/jsx-runtime",
         "zod"
-      ]
-    },
-    {
-      "id": "@xlang/xharness-client-ui-code-review",
-      "url": "/plugins/@xlang/xharness-client-ui-code-review/client.js?rev=59e97d964d0b215e",
-      "rev": "59e97d964d0b215e",
-      "inject": [
-        "@xharness/dsh-client-ui-layout",
-        "@xharness/dsh-client-ui-sidebar",
-        "@xharness/dsh-client-locale",
-        "@xharness/dsh-client-connection",
-        "@xharness/dsh-client-runtime",
-        "@xlang/xharness-client-ui-assistant"
-      ],
-      "external": [
-        "@xharness/dsh-client-ui-primitives",
-        "react",
-        "react/jsx-runtime"
       ]
     },
     {

@@ -133,9 +133,9 @@
  commands/list、commands/execute、goals/*、automation/manage、job/manage
         ──> rpc/dynamic.rs（显式兼容边界）
  swarm/tasks、swarm/manage、workspace/memory、display/inspect、display/read、
- github/review-*、github/*
+ github/*
         ──> rpc.rs 内联分发；github/* 读路径经 GithubBackend，
-            github/chat-* 已退役并 fail closed
+            github/review-* 与 github/chat-* 已退役并 fail closed
 ```
 
 `rpc/<namespace>.rs` 之后进入两类状态所有者，边界由架构检查强制执行：
@@ -375,7 +375,7 @@ Session 事件日志是唯一真源；Snapshot 只能是缓存。
 
 `config/architecture-host-modules.json` 中每个受管模块声明唯一状态责任、集成入口、允许的
 直接消费者和内部 crate 依赖；`scripts/regression/check-architecture.py` 做增量边界检查。
-同一检查器另维护 30 条 source-level seam（`SOURCE_BOUNDARIES`），覆盖已完成分段抽取、
+同一检查器另按 `SOURCE_BOUNDARIES` 维护 source-level seam，覆盖已完成分段抽取、
 不得再获得传输/Host 耦合的 processor。
 
 ```text

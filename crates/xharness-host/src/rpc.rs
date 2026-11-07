@@ -222,13 +222,10 @@ impl ApiBackend for BasicHost {
                     Err(e) => RpcResult::failure(e),
                 });
             }
+            // Tombstone the retired product before payload parsing, credentials,
+            // storage or model access. Old clients cannot start paid background work.
             if endpoint.starts_with("github/review-") {
-                let result =
-                    crate::github_review::call(self, endpoint, &payload, _cancellation).await;
-                return Some(match result {
-                    Ok(v) => RpcResult::success(v),
-                    Err(e) => RpcResult::failure(e),
-                });
+                return Some(RpcResult::failure(crate::github_review::retired()));
             }
             // Retired product surface: fail closed without reading or mutating old
             // PR/chat metadata. Existing normal conversations are unaffected.
