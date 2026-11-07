@@ -1107,8 +1107,11 @@ async fn english_task_persona_is_compatible_and_stable_at_the_provider_boundary(
     assert!(system.contains("The user selected danger-full-access"));
     assert!(!system.contains("workspace-write isolation"));
     assert!(system.contains("Inspect before editing"));
-    assert!(system.contains("Only user-requested future work uses automation"));
-    assert!(system.contains("Never create schedules without a request."));
+    assert!(system.contains("Future scheduling is not available as a model tool"));
+    assert!(system.contains("do not emulate timers with sleep, cron or background jobs"));
+    assert!(system.contains("without a native scheduling receipt"));
+    assert!(!system.contains("Only user-requested future work uses automation"));
+    assert!(!system.contains("Use automation for user-requested future reminders"));
     assert!(!system.contains("You are a coding agent."));
     for request in requests.iter() {
         assert_eq!(request.messages[0].role, Role::System);
