@@ -112,7 +112,7 @@ try{
   const effortEntry=document.querySelectorAll('button[data-xh-model-control="effort"]')
   const environmentEntry=document.querySelectorAll('button[data-xh-runtime-environment][aria-label="Choose execution environment"]')
   const modelEntry=document.querySelectorAll('button[data-xh-model-control="model"]')
-  // Explicit product deltas: Tasks, Code Review, Little X and removed sidebar search.
+  // Explicit product deltas: Tasks, Little X and removed Code Review/sidebar search.
   // Count the removed controls independently; all other controls and exact
   // conversation pixels continue to use the untouched frozen reference.
   const shellNavigation=document.querySelectorAll('button[data-shell-navigation-back],button[data-shell-navigation-forward]')
@@ -132,7 +132,7 @@ try{
  assert.equal(early.effortEntryCount,implementation==='source'?1:0,'exactly one reviewed adjacent effort control')
  assert.equal(early.modelEntryCount,implementation==='source'?1:0,'source retains one authoritative model control')
  assert.equal(early.shellNavigationCount,implementation==='source'?2:0,'exactly the reviewed Back/Forward pair')
- assert.equal(early.codeReviewEntryCount,implementation==='source'?1:0,'reviewed navigation is one exact owned control; frozen positive control stays immutable')
+ assert.equal(early.codeReviewEntryCount,0,'retired Code Review must not register a sidebar control')
  assert.equal(early.assistantEntryCount,implementation==='source'?1:0,'Little X is one exact owned control, not a generic parity mask')
  assert.equal(early.environmentEntryCount,implementation==='source'?1:0,'exactly the reviewed typed execution-environment chip; frozen reference stays unchanged')
  assert.equal(early.sidebarSearchEntryCount,implementation==='source'?0:1,'removed search versus intact frozen positive control')
@@ -193,6 +193,7 @@ try{
  // optional connection after its isolated 404. Do not ignore static failures.
  const staticFailures=failed.filter(row=>new URL(row.url).pathname!=='/plugins/events')
  assert.deepEqual(staticFailures,[],'all full graph static requests complete')
+ assert.ok(!requests.some(path=>path.includes('/@xlang/xharness-client-ui-code-review/')),'retired module must not load or prefetch in the full product graph')
 
  assert.deepEqual(errors,[],'navigation on the genuine full graph must not throw')
  console.log(JSON.stringify({engine,implementation,fullGraph:true,fixtureTransport:true,settingsProviders:true,modelEffortAndContextControls:true,effortChange:true,environmentEntryCount:early.environmentEntryCount,effortEntryCount:early.effortEntryCount,modelEntryCount:early.modelEntryCount,shellNavigationCount:early.shellNavigationCount,workCenterNavigation:implementation==='source',assistantEntryCount:early.assistantEntryCount,codeReviewEntryCount:early.codeReviewEntryCount,accountEntryCount:early.accountEntryCount,buttons:early.buttons,stableButtons:early.stableButtons,stableText:early.stableText,navigationCount:early.navigationCount,sidebarSearchEntryCount:early.sidebarSearchEntryCount,sidebarSearchInputCount:early.sidebarSearchInputCount,inputs:early.inputs,errors,staticFailures,fixtureHmrDisconnects:failed.filter(row=>new URL(row.url).pathname==='/plugins/events').length,text:early.text.slice(0,1000),loadedPluginPaths:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).sort(),loadedPlugins:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).length}))

@@ -299,6 +299,35 @@ class WebviewTests(unittest.TestCase):
             Contract(call).observe()
         self.assertLessEqual(call.call_count,11)
 
+    def test_viewport_settling_retries_only_fresh_reads_and_preserves_scope(self):
+        messages = ['browser layout is changing; observe again',
+                    'browser viewport has not settled; synchronize the pane and observe again']
+        page = {'source': {'engine': 'tauri-webview'}, 'nodes': []}
+        for message in messages:
+            with self.subTest(message=message):
+                call = Mock(side_effect=[RuntimeError(message), page])
+                checks = Contract(call)
+                with patch('scripts.gui_bench.webview_contract.time.sleep'):
+                    self.assertEqual(checks.observe('dialog', node_offset=20), page)
+                self.assertEqual(checks.readiness_denials, [message])
+                self.assertEqual([item.args for item in call.call_args_list],
+                                 [('observe', {'scope': 'dialog', 'node_offset': 20})] * 2)
+                self.assertEqual(checks.actions, [])
+                clock = itertools.count(0, .5)
+                call = Mock(side_effect=RuntimeError(message))
+                with patch('scripts.gui_bench.webview_contract.time.sleep'), \
+                     patch('scripts.gui_bench.webview_contract.time.monotonic', side_effect=lambda: next(clock)), \
+                     self.assertRaises(RuntimeError):
+                    Contract(call).observe()
+                self.assertLessEqual(call.call_count, 11)
+        # Identity changes and invalid geometry remain terminal, not retryable.
+        for message in ['browser tab changed', 'browser viewport geometry unavailable',
+                        'missing viewport width', 'native bridge interrupted']:
+            call = Mock(side_effect=RuntimeError(message))
+            with self.assertRaises(RuntimeError): Contract(call).observe()
+            self.assertEqual(call.call_count, 1)
+
+
     def test_navigation_invalidated_observation_is_reobserved_with_the_same_scope(self):
         message = 'browser navigation changed during inspection; observe again'
         page = {'source': {'engine': 'tauri-webview'}, 'nodes': []}
@@ -593,6 +622,62 @@ class WebviewTests(unittest.TestCase):
                 ledger.close()
                 self.assertTrue(budget_receipt({'base_url':broker.url,'capability':ledger.token})['closed'])
             finally: broker.stop(); ledger.release()
+
+
+class OwnedBrowserProtocolTests(unittest.TestCase):
+    def test_old_reader_eof_cannot_poison_the_successor_queue(self):
+        import queue
+        import threading
+        from scripts.gui_bench.owned_browser_protocol import read_replies
+        entered, release = threading.Event(), threading.Event()
+        old, successor = queue.Queue(), queue.Queue()
+
+        def old_stream():
+            entered.set()
+            if not release.wait(2):
+                raise AssertionError('test did not release the old reader')
+            return
+            yield  # An iterator whose delayed EOF races with successor startup.
+
+        reader = threading.Thread(target=read_replies, args=(old_stream(), old))
+        reader.start()
+        try:
+            self.assertTrue(entered.wait(2))
+            # A late old EOF must remain on old, even after the owner swaps queues.
+            responses = successor
+            release.set()
+            reader.join(2)
+            self.assertFalse(reader.is_alive())
+            self.assertIsNone(old.get_nowait())
+            with self.assertRaises(queue.Empty): responses.get_nowait()
+        finally:
+            release.set()
+            reader.join(2)
+
+    def test_messages_and_eof_stay_on_the_bound_stream(self):
+        import io
+        import queue
+        from scripts.gui_bench.owned_browser_protocol import read_replies
+        replies = queue.Queue()
+        read_replies(io.StringIO('diagnostic\nBENCH_REPLY {"seq":0,"result":{"ready":true}}\n'), replies)
+        self.assertEqual(replies.get_nowait(), {'seq':0,'result':{'ready':True}})
+        self.assertIsNone(replies.get_nowait())
+        with self.assertRaises(queue.Empty): replies.get_nowait()
+
+    def test_malformed_protocol_is_not_success_and_still_closes_its_queue(self):
+        import io
+        import queue
+        from scripts.gui_bench.owned_browser_protocol import read_replies
+        replies = queue.Queue()
+        with self.assertRaises(json.JSONDecodeError):
+            read_replies(io.StringIO('BENCH_REPLY invalid\n'), replies)
+        self.assertIsNone(replies.get_nowait())
+
+    def test_acceptance_binds_both_readers_without_a_mutable_process_closure(self):
+        from pathlib import Path
+        source = Path(__file__).with_name('owned_browser_acceptance.py').read_text()
+        self.assertEqual(source.count('target=read_replies,args=(process.stdout,responses)'), 2)
+        self.assertNotIn('def read():', source)
 
 
 if __name__ == '__main__': unittest.main()

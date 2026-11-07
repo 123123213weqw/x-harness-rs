@@ -59,19 +59,6 @@ const rows = [
     ]
   },
   {
-    "id": "@xlang/xharness-client-ui-code-review",
-    "kind": "source-module",
-    "source": "src/modules/code-review/index.tsx",
-    "inject": [
-      "@xharness/dsh-client-ui-layout",
-      "@xharness/dsh-client-ui-sidebar",
-      "@xharness/dsh-client-locale",
-      "@xharness/dsh-client-connection",
-      "@xharness/dsh-client-runtime",
-      "@xlang/xharness-client-ui-assistant"
-    ]
-  },
-  {
     "id": "@xlang/xharness-client-ui-session-import",
     "kind": "source-module",
     "source": "src/modules/session-import/index.ts",

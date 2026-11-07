@@ -1477,11 +1477,13 @@ exports.imageAttachmentRefSchema = zod_1.z.object({
 exports.sessionAttachmentRequestSchema = zod_1.z.object({
     sessionId: exports.sessionIdSchema,
     attachmentId: exports.attachmentIdSchema,
+    thumbnail: zod_1.z.boolean().optional(),
 });
 /** session.attachment response value. */
 exports.sessionAttachmentValueSchema = zod_1.z.object({
     attachment: exports.imageAttachmentRefSchema,
     data: zod_1.z.string(),
+    thumbnail: zod_1.z.object({ width: zod_1.z.number().int().positive().max(480), height: zod_1.z.number().int().positive().max(480) }).optional(),
 });
 /** session.updateQueue request payload. */
 exports.sessionUpdateQueueRequestSchema = zod_1.z.object({
@@ -5094,18 +5096,37 @@ class Session {
     /**
      * Resolve one image referenced by this session into browser-consumable bytes.
      * @param attachmentId - opaque id found in the folded session log.
+     * @param thumbnail - return a bounded PNG derivative (or fail); the durable
+     * reference remains original metadata, NOT the derivative's MIME/dimensions.
+     * @param signal - optional caller-owned deadline/cancellation. Original file
+     * downloads keep their prior policy when no signal is supplied.
      * @returns the authenticated reference and decoded bytes.
      */
-    async readAttachment(attachmentId) {
+    async readAttachment(attachmentId, thumbnail = false, signal) {
         try {
             const result = (await this.api.sessions.attachment({
                 sessionId: this.sessionId,
                 attachmentId,
-            })).result;
+                ...(thumbnail ? { thumbnail: true } : {}),
+            }, signal ?? (thumbnail ? AbortSignal.timeout(20000) : undefined))).result;
             if (!result.ok)
                 return result;
+            // An old Host may ignore the optional request flag and return ORIGINAL
+            // bytes. Never decode or mount that response as a supposedly tiny image.
+            if (thumbnail && (!result.value.thumbnail || result.value.data.length > Math.ceil(1024 * 1024 / 3) * 4)) {
+                throw new Error('Thumbnail unavailable; open original');
+            }
             const binary = atob(result.value.data);
             const data = Uint8Array.from(binary, char => char.charCodeAt(0));
+            if (thumbnail) {
+                const size = result.value.thumbnail;
+                if (!size || data.length < 24 || [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82].some((byte, index) => data[index] !== byte)) {
+                    throw new Error('Invalid thumbnail PNG');
+                }
+                const view = new DataView(data.buffer);
+                if (view.getUint32(16) !== size.width || view.getUint32(20) !== size.height)
+                    throw new Error('Invalid thumbnail dimensions');
+            }
             return { ok: true, value: { attachment: result.value.attachment, data } };
         }
         catch (error) {

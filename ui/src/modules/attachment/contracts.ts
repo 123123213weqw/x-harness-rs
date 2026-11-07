@@ -11,12 +11,14 @@ export interface DurableAttachment {
   path?: string
 }
 export interface ImageAttachment extends DurableAttachment { width: number; height: number }
-export type AttachmentLoader = (attachment: DurableAttachment) => Promise<string>
+/** `thumbnail=true` must resolve a physically <=480px PNG or reject; it must
+ * never silently fall back to an original. Omitted means the original bytes. */
+export type AttachmentLoader = (attachment: DurableAttachment, thumbnail?: boolean) => Promise<string>
 export interface RailItem { id: string; previewUrl: string; alt: string; removeLabel: string; attachment: DraftAttachment }
 export interface RailLabels { group: string; open: string; scrollLeft: string; scrollRight: string }
 export interface LightboxLabels { dialog: string; close: string }
 export interface MessageImageLabels {
-  image: string; open: string; openNamed(label: string): string; loading: string; loadFailed: string; lightbox: LightboxLabels
+  image: string; open: string; openNamed(label: string): string; loading: string; loadFailed: string; budgetExceeded: string; lightbox: LightboxLabels
 }
 export interface ComposerAttachmentsProps {
   attachments: readonly DraftAttachment[]

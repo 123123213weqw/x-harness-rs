@@ -106,6 +106,9 @@ fn selected_start(model: &str, effort: Option<&str>) -> AgentOperation {
         provider: None,
         model: Some(model.into()),
         reasoning_effort: effort.map(str::to_owned),
+        max_steps: None,
+        timeout_seconds: None,
+        tool_allowlist: None,
     }
 }
 
@@ -581,6 +584,7 @@ async fn legacy_child_without_model_admission_still_accepts_inherited_retry() {
                 parent_session_id: "p".into(),
                 invocation_id: id.clone(),
                 task: "inspect only".into(),
+                policy: None,
             }
             .into()],
         )

@@ -83,8 +83,12 @@ pub(super) fn turn_notice(
             _ => None,
         })
         .unwrap_or("");
-    json!({"agent_id":child,"turn":turn,"outcome":reason,
-        "answer":super::bounded(answer,8192),"truncated":answer.len()>8192})
+    let mut notice = json!({"agent_id":child,"turn":turn,"outcome":reason,
+        "answer":super::bounded(answer,8192),"truncated":answer.len()>8192});
+    if let Some(state) = xharness_session::agent_policy(session) {
+        notice["execution_policy"] = json!(state.policy);
+    }
+    notice
 }
 
 pub(super) fn failure_notice(child: &str, work: &str, error: &str) -> Value {

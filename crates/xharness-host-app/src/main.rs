@@ -334,9 +334,10 @@ async fn run(
     search.bind_host(&host)?;
     // Local gh credentials must never be exposed by a public unauthenticated Host.
     if args.bind.ip().is_loopback() {
+        // Code Review is retired. Keep the generic read-only GitHub seam, but
+        // do not configure review storage or touch existing state/reviews files.
         host.install_github(Arc::new(
-            xharness_host_app::github_service::NativeGitHub::default()
-                .with_review_directory(args.state_dir.join("reviews")),
+            xharness_host_app::github_service::NativeGitHub::default(),
         ))?;
     }
     if let Some(plugins) = plugins {
