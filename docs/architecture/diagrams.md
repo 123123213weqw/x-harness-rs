@@ -271,11 +271,15 @@ Durable ID，它原样进入 Middleware、Approval、Handler、Observer 和最�
  Coding Bundle（11）：bash job_output job_list job_kill read write edit glob grep
                          web_search web_fetch
  交互层（+1）：ask_user_question（Exclusive + External Settlement + Standalone Batch）
- Schedule 层（+1）：automation
  Host 只读：history（绑定当前 session，只读证据）
+ 父会话委托：agent（子会话禁止再次委托）
  Goal 轮次：goal（create/get/update/pause/resume/report）
- 生产默认最多可见 15 个；Process 不可用时保留 Job 控制器
+ 可选能力：computer、plugin_mcp、plugin_skill（按平台、权限与部署注册）
+ 实际工具集以当前 Step 的 registry/schema 为准，不声明固定最大数量
 ```
+
+生产模型注册表已移除 `automation`，系统与 Shell 提示也不再引导调用它。已有计划及原生
+UI/RPC 控制仍保留，不等于模型可以创建未来调度。Process 不可用时仍保留 Job 控制器。
 
 ## 图 7：原生执行与沙箱分层
 

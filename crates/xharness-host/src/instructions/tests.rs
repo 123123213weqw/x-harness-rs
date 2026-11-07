@@ -184,6 +184,43 @@ async fn workspace_switch_and_refresh_do_not_append_rules_to_history() {
 }
 
 #[tokio::test]
+async fn jobs_policy_does_not_route_models_to_retired_scheduling_tools() {
+    let root = Root::new();
+    let host = crate::BasicHost::without_provider(crate::HostConfig::new(&root.0));
+    create(&host, "jobs-policy", &root).await;
+    let assembly = host.prompt_assembly("jobs-policy").await.unwrap();
+    let sections = host
+        .state
+        .read()
+        .await
+        .prompt_sections("jobs-policy")
+        .unwrap();
+    let policy = sections.iter().find(|s| s.id == "tool/jobs").unwrap();
+    assert_eq!(policy.version, "7");
+    assert_eq!(assembly.system().matches(&policy.content).count(), 1);
+    assert!(policy
+        .content
+        .contains("Future scheduling is not available as a model tool"));
+    assert!(policy
+        .content
+        .contains("do not emulate timers with sleep, cron or background jobs"));
+    assert!(policy
+        .content
+        .contains("without a native scheduling receipt"));
+    for retired in [
+        "automation",
+        "schedule_create",
+        "schedule_list",
+        "schedule_delete",
+    ] {
+        assert!(!policy.content.contains(retired));
+    }
+    for immediate in ["run_in_background=true", "job_output", "job_kill"] {
+        assert!(policy.content.contains(immediate));
+    }
+}
+
+#[tokio::test]
 async fn browser_routing_is_a_single_stable_audited_policy_not_a_capability_claim() {
     let root = Root::new();
     let host = crate::BasicHost::without_provider(crate::HostConfig::new(&root.0));
