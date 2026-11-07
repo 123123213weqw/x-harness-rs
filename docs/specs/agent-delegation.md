@@ -285,3 +285,49 @@ Host 必须在子会话的 `session.list` 摘要和 `host/session-added` 推送�
 `crates/xharness-host-app/examples/subagent_revert_acceptance.rs` 与
 `scripts/experiments/live-subagent-revert.py`，只在 V100 一次性合成目录验收，上游 API Key 留在本机，远端只持有受请求次数限制的临时 relay nonce。
 真实验收是方向变更链路，不把合成故障／模型参数实验当作生产任务质量全面通过。
+
+## Opt-in child execution policy (issue #419, first batch)
+
+`agent.start` accepts `max_steps` (1..10,000), `timeout_seconds` (1..86,400),
+and `tool_allowlist` (up to 128 unique exact tool names). **All are optional:**
+omitting budgets imposes no new default limit; existing sessions are unchanged.
+
+```json
+{"action":"start","task":"Review the patch without editing","max_steps":32,"timeout_seconds":600,"tool_allowlist":["history"]}
+```
+
+- Steps are cumulative Core model/tool cycles within this created child's task
+  scope, not user turns, tool-call count, tokens or money. Followups/steering and
+  restart do not replenish them. Recovery can settle an already charged step,
+  but cannot request the next model step beyond the cap. Completion on the last
+  allowed step remains completion; exhaustion otherwise uses `limit_reached`.
+- Timeout is wall time from durable admission, including capacity, preparation,
+  network and approval waits. The absolute deadline survives restart and human
+  resume. Idle children do not get a background model wake/timer; expiration is
+  enforced before their next work. A backwards clock fails closed.
+- Timeout cancels the owned Core run and awaits existing tool cleanup. It is a
+  visible terminal failure, not silent success. Pending approvals are cancelled;
+  effects lacking authoritative results remain unknown, never automatically
+  replayed. Cleanup itself has a bounded grace; this is not hard OS preemption.
+  Detached jobs/external effects still follow existing ownership/cleanup contracts;
+  cancelling a model turn does not undo them or impose a global cost quota.
+- Omitted allowlist inherits existing tools; `[]` grants none. Explicit names
+  must be available to the parent at admission. Each turn intersects that list
+  with current parent and child/deployment capabilities. Both the model schema
+  and actual executor lookup are restricted, including forged/recovered calls.
+  Other sessions' registries and existing guards/approval rules stay intact.
+  This is not an OS sandbox: allowing a shell still permits its approved actions.
+- Policy lives as an optional field on `agent/delegated`, not a parallel mutable
+  config store. Old absent fields serialize exactly as before. Inspection reports
+  policy/used/remaining steps; existing terminal parent settlements carry policy.
+  Admission/preparation failures retain the inbox item and notify the parent.
+  Exhausted children park; a user resume cannot reset the policy. Start a new child
+  with an explicit new budget for a different task.
+- Explicit context correction (`revert`) creates a distinct child with only the
+  source's currently unspent steps and the same deadline/allowlist. Copied history
+  is not charged again. It never refunds spent work or renews time, and does not
+  establish a shared global budget across separately created branches. Ordinary
+  human conversation forks are not delegated tasks and do not inherit ownership.
+
+Worktree isolation, token/cost budgets, forced default limits and a new result
+schema are deliberately outside this batch. No dependency versions are changed.
