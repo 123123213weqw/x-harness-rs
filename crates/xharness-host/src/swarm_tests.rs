@@ -204,6 +204,9 @@ async fn start(host: &BasicHost, task: &str) -> String {
                 provider: None,
                 model: None,
                 reasoning_effort: None,
+                max_steps: None,
+                timeout_seconds: None,
+                tool_allowlist: None,
             },
         )
         .await
@@ -514,6 +517,7 @@ async fn swarm_delegation_identity_respects_forks_and_missing_workers_are_not_re
             parent_session_id: "owner".into(),
             invocation_id: "seed".into(),
             task: "Review".into(),
+            policy: None,
         }
         .into()];
         if id == "fork" {
@@ -1246,6 +1250,9 @@ async fn swarm_board_blocked_outbox_does_not_block_ordinary_child_result_deliver
                 provider: None,
                 model: None,
                 reasoning_effort: None,
+                max_steps: None,
+                timeout_seconds: None,
+                tool_allowlist: None,
             },
         )
         .await

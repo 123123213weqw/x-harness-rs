@@ -53,6 +53,25 @@ function fixture({failed = false, failedCache = false} = {}) {
   return {api: exports, registered, warmups, scans, imports, get cache() {return engineCache}, get created() {return created}, get timers() {return timers}, get warnings() {return warnings}}
 }
 const settle = () => new Promise(resolve => setImmediate(resolve))
+test('large source falls back BEFORE grammar imports/tokenization, with exact boundary checks', async () => {
+  const h = fixture()
+  for (const code of ['x'.repeat(4097), 'x\n'.repeat(1000), ('x'.repeat(1023)+'\n').repeat(65)]) {
+    assert.equal(h.api.canHighlight(code), false)
+    assert.equal(h.api.highlightToHtml(code, 'ts'), undefined)
+    assert.equal(h.api.highlightLines(code, 'ts'), undefined)
+  }
+  await settle()
+  assert.equal(h.created, 0); assert.deepEqual(h.imports, []); assert.deepEqual(h.scans, [])
+  assert.equal(h.api.canHighlight('x'.repeat(4096)), true)
+  assert.equal(h.api.canHighlight('x\n'.repeat(999)), true)
+  assert.equal(h.api.canHighlight(('x'.repeat(1023)+'\n').repeat(64)), true)
+  // A large streaming block must also drop highlighting after a grammar is hot.
+  h.api.highlightToHtml('const x = 1', 'ts'); await settle()
+  const scans = h.scans.length
+  assert.equal(h.api.highlightToHtml('const x = 1\n'.repeat(16000), 'ts'), undefined)
+  assert.equal(h.api.highlightLines('const x = 1\n'.repeat(16000), 'ts'), undefined)
+  assert.equal(h.scans.length, scans)
+})
 test('import/unknown languages do not construct, register or schedule speculative grammar work', () => {
   const h = fixture()
   for (const lang of [undefined, '', 'unknown', 'constructor', '__proto__', 'toString']) {

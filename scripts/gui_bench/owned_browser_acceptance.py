@@ -15,6 +15,10 @@ import threading
 import time
 from PIL import Image
 import psutil
+if __package__:
+    from .owned_browser_protocol import read_replies
+else:
+    from owned_browser_protocol import read_replies
 
 
 class Fixture:
@@ -61,11 +65,7 @@ def main():
     fixture=Fixture();responses=queue.Queue();seq=0
     log=(args.output/'worker.log').open('w')
     process=subprocess.Popen([str(args.binary.resolve())],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=log,text=True)
-    def read():
-        for line in process.stdout:
-            if line.startswith('BENCH_REPLY '):responses.put(json.loads(line[len('BENCH_REPLY '):]))
-        responses.put(None)
-    threading.Thread(target=read,daemon=True).start()
+    threading.Thread(target=read_replies,args=(process.stdout,responses),daemon=True).start()
     transcript=(args.output/'protocol.jsonl').open('w')
     def compact(value):
         if isinstance(value,dict):return {key:('<image bytes omitted>' if key in ['image','png_base64'] and isinstance(item,str) else compact(item)) for key,item in value.items()}
@@ -198,7 +198,7 @@ def main():
         # Only this test-owned probe is killed, never an installed app/browser.
         responses=queue.Queue();seq=0
         process=subprocess.Popen([str(args.binary.resolve())],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=log,text=True)
-        threading.Thread(target=read,daemon=True).start()
+        threading.Thread(target=read_replies,args=(process.stdout,responses),daemon=True).start()
         assert responses.get(timeout=10)['result']['ready']
         call('control',{'action':'open','url':fixture.url})
         owned=owned_children();process.kill();process.wait(timeout=8)

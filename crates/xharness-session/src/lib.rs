@@ -7,7 +7,9 @@
 
 pub mod plan;
 pub use plan::{session_plan, PlanItem, PlanItemStatus, SessionPlan};
+mod agent_policy;
 mod checkpoint;
+pub use agent_policy::*;
 mod dispatch;
 pub mod goal;
 mod goal_validation;

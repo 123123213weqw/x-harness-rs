@@ -336,12 +336,14 @@ export const imageAttachmentRefSchema = z.object({
 export const sessionAttachmentRequestSchema = z.object({
   sessionId: sessionIdSchema,
   attachmentId: attachmentIdSchema,
+  thumbnail: z.boolean().optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'session.attachment'>>>
 
 /** session.attachment response value. */
 export const sessionAttachmentValueSchema = z.object({
   attachment: imageAttachmentRefSchema,
   data: z.string(),
+  thumbnail: z.object({ width: z.number().int().positive().max(480), height: z.number().int().positive().max(480) }).optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.attachment'>>>
 
 /** session.updateQueue request payload. */
