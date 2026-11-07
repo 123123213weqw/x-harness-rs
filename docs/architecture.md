@@ -56,6 +56,14 @@ Token/Cookie 交换和签名更新；导航完成后仍由同一个 `xharness-ho
 与完整 Agent Runtime。Host 使用 `127.0.0.1:0` 原子绑定地址，Ready File 只传输地址，认证 Token
 只经 Sidecar 环境变量传递。浏览器部署不经过 Tauri，并继续复用反向代理认证边界。
 
+## 架构详图
+
+[架构详图](architecture/diagrams.md) 把本文的分层、边界、管线与恢复顺序展开成可逐条对照
+源码/规范的十张图：workspace crate 依赖分层、部署与进程视图、56 个 RPC 到 Host 的分发、
+一次 Turn 的生命周期、模型 Step 的 Context/Token 预检、工具执行管线、原生执行与沙箱分层、
+持久化真源与恢复、Durable Inbox/Steering 调度、Host 受管纯决策模块。图不引入新契约，
+与规范和源码冲突时以后者为准。
+
 ## 一次模型 Step 的数据流
 
 ```text
