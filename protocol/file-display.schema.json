@@ -144,6 +144,107 @@
       ],
       "title": "DisplayFile"
     },
+    "DisplayImage": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "dataBase64": {
+          "type": "string"
+        },
+        "height": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "mediaType": {
+          "type": "string"
+        },
+        "original": {
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string"
+        },
+        "sourceHeight": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sourceId": {
+          "type": "string"
+        },
+        "sourceWidth": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "width": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "mediaType",
+        "dataBase64",
+        "width",
+        "height",
+        "sourceWidth",
+        "sourceHeight",
+        "sourceId",
+        "original"
+      ],
+      "title": "DisplayImage",
+      "type": "object"
+    },
+    "DisplayImageRead": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "UI-only, session-authorized raster derivative. No durable/model mutation.",
+      "properties": {
+        "expectedSourceId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maxHeight": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxWidth": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "original": {
+          "default": false,
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string"
+        },
+        "relativeTo": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "path",
+        "maxWidth",
+        "maxHeight"
+      ],
+      "title": "DisplayImageRead",
+      "type": "object"
+    },
     "DisplayInspect": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,

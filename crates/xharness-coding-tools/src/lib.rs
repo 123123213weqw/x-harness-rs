@@ -1114,7 +1114,7 @@ fn native_shell_description(shell: &Result<Shell, ShellError>) -> String {
             "Shell unavailable: {error}. Direct program + args execution remains available."
         ),
     };
-    format!("Run one managed process under the active session permission policy. Provide exactly one of command (shell script) or program (direct executable with literal args). {selection} Preserve build/test exit status before filtering logs: grep returns 1 for no matches, and head can cause SIGPIPE. Do not hide real failures with blanket || true. Inspect installed dependency APIs before guessing methods. For long-running non-interactive work that begins now prefer run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. Use automation for user-requested future reminders (mode=reminder) and delayed tasks (mode=task). Native interactive/existing sessions need status, logs, and stop method; detached processes may not survive Host shutdown/cancellation. No shell state persists between calls. A failed invocation is never replayed in another interpreter.")
+    format!("Run one managed process under the active session permission policy. Provide exactly one of command (shell script) or program (direct executable with literal args). {selection} Preserve build/test exit status before filtering logs: grep returns 1 for no matches, and head can cause SIGPIPE. Do not hide real failures with blanket || true. Inspect installed dependency APIs before guessing methods. For long-running non-interactive work that begins now prefer run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. Future scheduling is not available as a model tool; do not emulate timers with sleep, cron or background jobs. Native interactive/existing sessions need status, logs, and stop method; detached processes may not survive Host shutdown/cancellation. No shell state persists between calls. A failed invocation is never replayed in another interpreter.")
 }
 
 struct ProcessInvocation {
@@ -1335,7 +1335,9 @@ mod tests {
         assert!(description.contains("prefer run_in_background=true"));
         assert!(description.contains("job_output"));
         assert!(description.contains("job_kill"));
-        assert!(description.contains("automation"));
+        assert!(!description.contains("automation"));
+        assert!(description.contains("Future scheduling is not available as a model tool"));
+        assert!(description.contains("do not emulate timers with sleep, cron or background jobs"));
         assert!(!description.contains("schedule_create"));
         assert!(description.contains("Native "));
         assert!(description.contains("status, logs, and stop method"));

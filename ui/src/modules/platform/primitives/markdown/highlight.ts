@@ -172,6 +172,20 @@ const listeners = new Set<() => void>()
 /** Bumped on each lazy-grammar load; the `useSyncExternalStore` snapshot. */
 let loadCount = 0
 
+/** Bound token/span construction, not source visibility. Long minified lines
+ * need a separate limit: a tiny line count can still generate huge token trees.
+ * Callers keep the complete plain text and copy/export behavior on refusal. */
+export function canHighlight(code: string): boolean {
+  if (code.length > 64 * 1024) return false
+  let lines = 1, column = 0
+  for (let index = 0; index < code.length; index++) {
+    if (code.charCodeAt(index) === 10) { lines++; column = 0 }
+    else column++
+    if (lines > 1000 || column > 4096) return false
+  }
+  return true
+}
+
 /**
  * Subscribe to lazy-grammar load completions; `listener` fires after a
  * {@link GRAMMARS} grammar finishes registering on the singleton, so a
@@ -261,6 +275,7 @@ function ensureGrammar(resolved: string): boolean {
  * @returns the highlighted HTML, or `undefined` for unknown or not-yet-loaded languages.
  */
 export function highlightToHtml(code: string, lang: string | undefined): string | undefined {
+  if (!canHighlight(code)) return undefined
   const resolved = lang === undefined ? undefined : LANG_ALIASES.get(lang.toLowerCase())
   if (resolved === undefined) return undefined
   if (!ensureGrammar(resolved)) return undefined
@@ -294,6 +309,7 @@ export interface HighlightSpan {
  * @returns one entry per source line (each an array of runs), or `undefined` for unknown or not-yet-loaded languages.
  */
 export function highlightLines(code: string, lang: string | undefined): HighlightSpan[][] | undefined {
+  if (!canHighlight(code)) return undefined
   const resolved = lang === undefined ? undefined : LANG_ALIASES.get(lang.toLowerCase())
   if (resolved === undefined) return undefined
   if (!ensureGrammar(resolved)) return undefined

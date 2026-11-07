@@ -4346,6 +4346,41 @@
         "UI_TEST_BROWSER": "webkit"
       },
       "weight": 20
+    },
+    {
+      "id": "contract-176",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-image-resources.mjs"
+      ],
+      "env": {},
+      "weight": 3
+    },
+    {
+      "id": "browser-252",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-fitted-image-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 5
+    },
+    {
+      "id": "browser-253",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-fitted-image-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 7
     }
   ]
 }

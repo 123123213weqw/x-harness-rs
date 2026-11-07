@@ -335,7 +335,7 @@ const react_1 = require("react");
 const react_dom_1 = require("react-dom");
 const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
 const styles_1 = require("./styles");
-function ImageLightbox({ src, alt, labels, onClose }) {
+function ImageLightbox({ src, alt, labels, onClose, children, onError }) {
     const closeRef = (0, react_1.useRef)(null), restoreRef = (0, react_1.useRef)(null);
     (0, react_1.useEffect)(() => {
         restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -345,7 +345,7 @@ function ImageLightbox({ src, alt, labels, onClose }) {
         window.addEventListener('keydown', onKeyDown);
         return () => { window.removeEventListener('keydown', onKeyDown); restoreRef.current?.focus(); };
     }, [onClose]);
-    return (0, react_dom_1.createPortal)((0, jsx_runtime_1.jsxs)("div", { className: styles_1.ImageLightboxCss.backdrop, role: "dialog", "aria-modal": "true", "aria-label": labels.dialog, children: [(0, jsx_runtime_1.jsx)("div", { className: styles_1.ImageLightboxCss.mask, "aria-hidden": "true", onMouseDown: onClose }), (0, jsx_runtime_1.jsx)("img", { className: styles_1.ImageLightboxCss.image, src: src, alt: alt }), (0, jsx_runtime_1.jsx)("button", { ref: closeRef, type: "button", className: styles_1.ImageLightboxCss.close, "aria-label": labels.close, onClick: onClose, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCloseOutline16, { size: 16 }) })] }), document.body);
+    return (0, react_dom_1.createPortal)((0, jsx_runtime_1.jsxs)("div", { className: styles_1.ImageLightboxCss.backdrop, role: "dialog", "aria-modal": "true", "aria-label": labels.dialog, children: [(0, jsx_runtime_1.jsx)("div", { className: styles_1.ImageLightboxCss.mask, "aria-hidden": "true", onMouseDown: onClose }), src !== undefined ? (0, jsx_runtime_1.jsx)("img", { className: styles_1.ImageLightboxCss.image, src: src, alt: alt, onError: onError }) : (0, jsx_runtime_1.jsx)("div", { className: styles_1.ImageLightboxCss.image, children: children }), (0, jsx_runtime_1.jsx)("button", { ref: closeRef, type: "button", className: styles_1.ImageLightboxCss.close, "aria-label": labels.close, onClick: onClose, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCloseOutline16, { size: 16 }) })] }), document.body);
 }
 
 },
@@ -360,7 +360,7 @@ exports.dropOverlayLabels = dropOverlayLabels;
 exports.attachmentRailLabels = attachmentRailLabels;
 function lightboxLabels(t) { return { dialog: t('image.preview'), close: t('image.closePreview') }; }
 function messageImageLabels(t) {
-    return { image: t('image.label'), open: t('image.openOriginal'), openNamed: label => t('image.openOriginalLabel', { label }), loading: t('image.loading'), loadFailed: t('image.loadFailed'), lightbox: lightboxLabels(t) };
+    return { image: t('image.label'), open: t('image.openOriginal'), openNamed: label => t('image.openOriginalLabel', { label }), loading: t('image.loading'), loadFailed: t('image.loadFailed'), budgetExceeded: t('image.budgetExceeded'), lightbox: lightboxLabels(t) };
 }
 function dropOverlayLabels(t, accepting, _limits) {
     return accepting ? { title: '拖入图片或文件', desc: '图片 ≤ 20 MiB / 张，普通文件 ≤ 32 MiB；本次合计 ≤ 96 MiB' } : { title: t('image.dropBlocked') };
@@ -382,6 +382,7 @@ const styles_1 = require("./styles");
 const FileCard_1 = require("./FileCard");
 const ImageLightbox_1 = require("./ImageLightbox");
 const labels_1 = require("./labels");
+const image_budget_1 = require("./image-budget");
 function isImageAttachment(attachment) {
     return typeof attachment.width === 'number' && typeof attachment.height === 'number';
 }
@@ -394,22 +395,60 @@ function singleFit(attachment) {
 }
 function MessageImage({ attachment, load, variant, labels }) {
     const [src, setSrc] = (0, react_1.useState)(null), [error, setError] = (0, react_1.useState)(false), [open, setOpen] = (0, react_1.useState)(false), [attempt, setAttempt] = (0, react_1.useState)(0);
+    const [dimensions, setDimensions] = (0, react_1.useState)(), [budgetExceeded, setBudgetExceeded] = (0, react_1.useState)(false);
     const request = (0, react_1.useCallback)(() => { setAttempt(value => value + 1); }, []), close = (0, react_1.useCallback)(() => { setOpen(false); }, []);
-    const fit = (0, react_1.useMemo)(() => variant === 'single' ? singleFit(attachment) : undefined, [attachment, variant]);
+    const fit = (0, react_1.useMemo)(() => variant === 'single' ? singleFit(dimensions ?? attachment) : undefined, [attachment, dimensions, variant]);
     (0, react_1.useEffect)(() => {
         let live = true;
         setError(false);
+        setBudgetExceeded(false);
         setSrc(null);
-        void load(attachment).then(url => { if (live)
-            setSrc(url); }).catch(() => { if (live)
+        setDimensions(undefined);
+        // Every accepted thumbnail is physically <=480px, independent of the CSS
+        // tile size. Reserve the worst case before any asynchronous load starts.
+        const thumbnail = image_budget_1.historyThumbnailBudget.reserve(480, 480);
+        const lease = thumbnail && image_budget_1.historyImageBudget.reserve(480, 480), abort = new AbortController();
+        const release = () => { lease?.release(); thumbnail?.release(); };
+        if (!lease) {
+            release();
+            setError(true);
+            setBudgetExceeded(true);
+            return;
+        }
+        void image_budget_1.thumbnailQueue.run(() => load(attachment, true), abort.signal)
+            .then(url => { if (live)
+            setSrc(url); })
+            .catch(() => { release(); if (live)
             setError(true); });
-        return () => { live = false; };
+        return () => { live = false; abort.abort(); release(); };
     }, [attachment, load, attempt]);
     const label = attachment.name ?? labels.image;
-    if (error)
-        return (0, jsx_runtime_1.jsx)("button", { type: "button", className: styles_1.MessageImageCss.error, "data-variant": variant, onClick: request, children: labels.loadFailed });
-    return (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: styles_1.MessageImageCss.frame, "data-variant": variant, style: fit === undefined ? undefined : { width: fit.width, height: fit.height }, title: labels.open, "aria-label": labels.openNamed(label), onClick: () => { if (src !== null)
-                    setOpen(true); }, children: src === null ? (0, jsx_runtime_1.jsx)("span", { className: styles_1.MessageImageCss.loading, children: labels.loading }) : (0, jsx_runtime_1.jsx)("img", { src: src, alt: label, style: fit === undefined ? undefined : { objectPosition: fit.objectPosition } }) }), open && src !== null && (0, jsx_runtime_1.jsx)(ImageLightbox_1.ImageLightbox, { src: src, alt: label, labels: labels.lightbox, onClose: close })] });
+    return (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: styles_1.MessageImageCss.frame, "data-variant": variant, style: fit === undefined ? undefined : { width: fit.width, height: fit.height }, title: labels.open, "aria-label": labels.openNamed(label), onClick: () => { setOpen(true); }, children: src === null ? (0, jsx_runtime_1.jsx)("span", { className: styles_1.MessageImageCss.loading, children: error ? labels.open : labels.loading }) : (0, jsx_runtime_1.jsx)("img", { src: src, alt: label, style: fit === undefined ? undefined : { objectPosition: fit.objectPosition }, onLoad: event => { setDimensions({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight }); }, onError: () => { setSrc(null); setError(true); } }) }), error && (0, jsx_runtime_1.jsx)("button", { type: "button", className: styles_1.MessageImageCss.error, "data-variant": variant, onClick: request, children: budgetExceeded ? labels.budgetExceeded : labels.loadFailed }), open && (0, jsx_runtime_1.jsx)(HistoricalOriginal, { attachment: attachment, load: load, labels: labels, onClose: close })] });
+}
+/** Original bytes/decoder are never mounted just to draw a gallery tile. Closing
+ * a pending load cannot reopen it; reservations are idempotent under StrictMode. */
+function HistoricalOriginal({ attachment, load, labels, onClose }) {
+    const [src, setSrc] = (0, react_1.useState)(), [error, setError] = (0, react_1.useState)(''), [attempt, setAttempt] = (0, react_1.useState)(0);
+    (0, react_1.useEffect)(() => {
+        let live = true;
+        const abort = new AbortController();
+        setSrc(undefined);
+        setError('');
+        const lease = image_budget_1.historyImageBudget.reserve(attachment.width, attachment.height);
+        if (!lease) {
+            setError(labels.budgetExceeded);
+            return;
+        }
+        void image_budget_1.thumbnailQueue.run(() => load(attachment), abort.signal, true)
+            .then(url => { if (live && url !== undefined)
+            setSrc(url); }).catch(() => {
+            lease.release();
+            if (live)
+                setError(labels.loadFailed);
+        });
+        return () => { live = false; abort.abort(); lease.release(); };
+    }, [attachment, load, attempt, labels.budgetExceeded, labels.loadFailed]);
+    return (0, jsx_runtime_1.jsx)(ImageLightbox_1.ImageLightbox, { src: src, alt: attachment.name ?? labels.image, labels: labels.lightbox, onClose: onClose, onError: () => { setSrc(undefined); setError(labels.loadFailed); }, children: error ? (0, jsx_runtime_1.jsxs)("div", { role: "alert", children: [(0, jsx_runtime_1.jsx)("p", { children: error }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setAttempt(value => value + 1), children: labels.loadFailed })] }) : (0, jsx_runtime_1.jsx)("span", { role: "status", children: labels.loading }) });
 }
 function MessageImages({ images, loadImage, align, t }) {
     if (images.length === 0)
@@ -425,9 +464,26 @@ function MessageImages({ images, loadImage, align, t }) {
         }) });
 }
 
+},
+"src/modules/attachment/image-budget.js": function(module, exports, require) {
+// source: src/modules/attachment/image-budget.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.historyThumbnailBudget = exports.thumbnailQueue = exports.historyImageBudget = exports.ThumbnailQueue = exports.DecodedImageBudget = void 0;
+const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
+var dsh_client_ui_primitives_2 = require("@xharness/dsh-client-ui-primitives");
+Object.defineProperty(exports, "DecodedImageBudget", { enumerable: true, get: function () { return dsh_client_ui_primitives_2.DecodedImageBudget; } });
+Object.defineProperty(exports, "ThumbnailQueue", { enumerable: true, get: function () { return dsh_client_ui_primitives_2.ThumbnailQueue; } });
+var dsh_client_ui_primitives_3 = require("@xharness/dsh-client-ui-primitives");
+Object.defineProperty(exports, "historyImageBudget", { enumerable: true, get: function () { return dsh_client_ui_primitives_3.decodedImageBudget; } });
+Object.defineProperty(exports, "thumbnailQueue", { enumerable: true, get: function () { return dsh_client_ui_primitives_3.imageReadQueue; } });
+// A sub-limit, not an extra budget: leave room for an explicit original.
+exports.historyThumbnailBudget = new dsh_client_ui_primitives_1.DecodedImageBudget(48 * 1024 * 1024);
+
 }
 };
-const __dependencies = {"src/modules/attachment/index.js":{"./ComposerAttachments":"src/modules/attachment/ComposerAttachments.js","./MessageImages":"src/modules/attachment/MessageImages.js"},"src/modules/attachment/ComposerAttachments.js":{"./AttachmentRail":"src/modules/attachment/AttachmentRail.js","./DropOverlay":"src/modules/attachment/DropOverlay.js","./ImageLightbox":"src/modules/attachment/ImageLightbox.js","./labels":"src/modules/attachment/labels.js","./styles":"src/modules/attachment/styles.js"},"src/modules/attachment/AttachmentRail.js":{"./styles":"src/modules/attachment/styles.js","./FileCard":"src/modules/attachment/FileCard.js"},"src/modules/attachment/styles.js":{"./AttachmentRail.css":"src/modules/attachment/AttachmentRail.css","./DropOverlay.css":"src/modules/attachment/DropOverlay.css","./ImageLightbox.css":"src/modules/attachment/ImageLightbox.css","./ComposerAttachments.css":"src/modules/attachment/ComposerAttachments.css","./MessageImage.css":"src/modules/attachment/MessageImage.css","./FileCard.css":"src/modules/attachment/FileCard.css"},"src/modules/attachment/AttachmentRail.css":{},"src/modules/attachment/DropOverlay.css":{},"src/modules/attachment/ImageLightbox.css":{},"src/modules/attachment/ComposerAttachments.css":{},"src/modules/attachment/MessageImage.css":{},"src/modules/attachment/FileCard.css":{},"src/modules/attachment/FileCard.js":{},"src/modules/attachment/DropOverlay.js":{"./styles":"src/modules/attachment/styles.js"},"src/modules/attachment/ImageLightbox.js":{"./styles":"src/modules/attachment/styles.js"},"src/modules/attachment/labels.js":{},"src/modules/attachment/MessageImages.js":{"./styles":"src/modules/attachment/styles.js","./FileCard":"src/modules/attachment/FileCard.js","./ImageLightbox":"src/modules/attachment/ImageLightbox.js","./labels":"src/modules/attachment/labels.js"}};
+const __dependencies = {"src/modules/attachment/index.js":{"./ComposerAttachments":"src/modules/attachment/ComposerAttachments.js","./MessageImages":"src/modules/attachment/MessageImages.js"},"src/modules/attachment/ComposerAttachments.js":{"./AttachmentRail":"src/modules/attachment/AttachmentRail.js","./DropOverlay":"src/modules/attachment/DropOverlay.js","./ImageLightbox":"src/modules/attachment/ImageLightbox.js","./labels":"src/modules/attachment/labels.js","./styles":"src/modules/attachment/styles.js"},"src/modules/attachment/AttachmentRail.js":{"./styles":"src/modules/attachment/styles.js","./FileCard":"src/modules/attachment/FileCard.js"},"src/modules/attachment/styles.js":{"./AttachmentRail.css":"src/modules/attachment/AttachmentRail.css","./DropOverlay.css":"src/modules/attachment/DropOverlay.css","./ImageLightbox.css":"src/modules/attachment/ImageLightbox.css","./ComposerAttachments.css":"src/modules/attachment/ComposerAttachments.css","./MessageImage.css":"src/modules/attachment/MessageImage.css","./FileCard.css":"src/modules/attachment/FileCard.css"},"src/modules/attachment/AttachmentRail.css":{},"src/modules/attachment/DropOverlay.css":{},"src/modules/attachment/ImageLightbox.css":{},"src/modules/attachment/ComposerAttachments.css":{},"src/modules/attachment/MessageImage.css":{},"src/modules/attachment/FileCard.css":{},"src/modules/attachment/FileCard.js":{},"src/modules/attachment/DropOverlay.js":{"./styles":"src/modules/attachment/styles.js"},"src/modules/attachment/ImageLightbox.js":{"./styles":"src/modules/attachment/styles.js"},"src/modules/attachment/labels.js":{},"src/modules/attachment/MessageImages.js":{"./styles":"src/modules/attachment/styles.js","./FileCard":"src/modules/attachment/FileCard.js","./ImageLightbox":"src/modules/attachment/ImageLightbox.js","./labels":"src/modules/attachment/labels.js","./image-budget":"src/modules/attachment/image-budget.js"},"src/modules/attachment/image-budget.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

@@ -46,6 +46,37 @@ pub struct DisplayRead {
     pub relative_to: Option<String>,
 }
 
+/// UI-only, session-authorized raster derivative. No durable/model mutation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DisplayImageRead {
+    pub session_id: String,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relative_to: Option<String>,
+    pub max_width: u32,
+    pub max_height: u32,
+    #[serde(default)]
+    pub original: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_source_id: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DisplayImage {
+    pub path: String,
+    pub media_type: String,
+    pub data_base64: String,
+    pub width: u32,
+    pub height: u32,
+    pub source_width: u32,
+    pub source_height: u32,
+    pub source_id: String,
+    pub original: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
@@ -154,6 +185,8 @@ mod tests {
     fn export_file_display_contract() {
         let contract = serde_json::json!({"contract":"xharness-file-display-v1","schemas":{
             "DisplayRead":schemars::schema_for!(DisplayRead),
+            "DisplayImageRead":schemars::schema_for!(DisplayImageRead),
+            "DisplayImage":schemars::schema_for!(DisplayImage),
             "DisplayInspect":schemars::schema_for!(DisplayInspect),
             "DisplayInspection":schemars::schema_for!(DisplayInspection),
             "DisplayFile":schemars::schema_for!(DisplayFile),
