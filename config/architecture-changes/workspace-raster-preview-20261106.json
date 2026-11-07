@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Add an optional session-authorized adaptive raster preview endpoint; existing display/read, durable image bytes and model inputs are unchanged.",
+  "compatibility": "Existing file display schemas/endpoints remain unchanged. New strict DisplayImageRead/DisplayImage wire types are used only by display/image-preview; older Hosts retain explicit original-open fallback. Derivatives preserve EXIF orientation, RGB ICC and alpha; reject unsupported animation/color metadata rather than silently degrading it. No dependencies, lockfiles, CI versions or Host task lifecycle changes.",
+  "paths": {
+    "crates/xharness-api/src/display.rs": {
+      "before": "9fb3e2dd1d733ec398e8bf9bbf3a830a9be3bd862bf64ae7800ccfb4decd4c3e",
+      "after": "6e266a18699ed3406f56f1c712d6169cf8141f5e80ce998133e3bc986ae045c8"
+    }
+  },
+  "regressions": [
+    "native",
+    "windows",
+    "wire"
+  ]
+}

@@ -2509,6 +2509,37 @@ async fn uploaded_image_reaches_model_as_reference_and_is_session_scoped() {
         )
         .await;
     assert_eq!(restored["data"], upload);
+    let thumbnail = fx
+        .value(
+            RpcMethod::SessionAttachment,
+            json!({"sessionId":sid,"attachmentId":id,"thumbnail":true}),
+        )
+        .await;
+    assert_eq!(
+        thumbnail["attachment"], restored["attachment"],
+        "derivative preserves the authorized ORIGINAL reference"
+    );
+    assert_eq!(thumbnail["thumbnail"], json!({"width":64,"height":32}));
+    assert!(thumbnail["data"]
+        .as_str()
+        .is_some_and(|data| data.starts_with("iVBORw0KGgo")));
+    let original_again = fx
+        .value(
+            RpcMethod::SessionAttachment,
+            json!({"sessionId":sid,"attachmentId":id}),
+        )
+        .await;
+    assert_eq!(
+        original_again, restored,
+        "preview does not overwrite source data"
+    );
+    assert!(!fx
+        .call(
+            RpcMethod::SessionAttachment,
+            json!({"sessionId":sid,"attachmentId":id,"thumbnail":"yes"})
+        )
+        .await
+        .is_ok());
     fx.value(RpcMethod::SessionPrompt, json!({"sessionId":sid,"mode":"queue",
         "requireIdle":true,"content":[{"type":"image_ref","attachmentId":id}, {"type":"text","text":"edited"}]})).await;
     tokio::time::timeout(Duration::from_secs(2), async {
@@ -2563,6 +2594,13 @@ async fn uploaded_image_reaches_model_as_reference_and_is_session_scoped() {
         )
         .await;
     assert_eq!(inherited["data"], upload);
+    let inherited_thumb = fx
+        .value(
+            RpcMethod::SessionAttachment,
+            json!({"sessionId":child,"attachmentId":id,"thumbnail":true}),
+        )
+        .await;
+    assert_eq!(inherited_thumb["thumbnail"], thumbnail["thumbnail"]);
 
     let other = fx
         .value(RpcMethod::SessionCreate, json!({"cwd":fx.root}))
@@ -2577,6 +2615,15 @@ async fn uploaded_image_reaches_model_as_reference_and_is_session_scoped() {
         )
         .await
         .is_ok());
+    assert!(
+        !fx.call(
+            RpcMethod::SessionAttachment,
+            json!({"sessionId":other,"attachmentId":id,"thumbnail":true})
+        )
+        .await
+        .is_ok(),
+        "thumbnail keeps session authorization"
+    );
     assert!(!fx.call(RpcMethod::SessionPrompt,json!({"sessionId":sid,"mode":"queue","content":[{"type":"image","mediaType":"image/png","data":"broken"}]})).await.is_ok());
     assert!(!fx
         .call(

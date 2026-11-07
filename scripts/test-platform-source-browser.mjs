@@ -220,6 +220,21 @@ for(const engine of engines){
     if(kind==='modal'){await page.keyboard.press('Escape');assert.ok(await page.evaluate(()=>fixtureCloseCount>0),'actual modal Escape routes onClose')}
    }
    if(implementation==='source'){
+    // Guard the actual CodeBlock, including transitions after its grammar is
+    // hot. Keep this additive case OUTSIDE frozen/source parity snapshots.
+    const largeCode='const value: number = 42;\n'.repeat(16000).trimEnd()
+    await page.evaluate(code=>{
+     const R=staticModules.react,D=staticModules['react-dom'],P=staticModules['@xharness/dsh-client-ui-primitives']
+     D.flushSync(()=>mount.render(R.createElement(P.CodeBlock,{code,lang:'typescript'})))
+    },largeCode)
+    assert.equal(await page.locator('.md-code-block .shiki').count(),0)
+    assert.equal(await page.locator('.md-code-block pre').textContent(),largeCode,'complete plain source, no truncation')
+    assert.equal(await page.locator('.md-code-block pre span').count(),0,'no per-token DOM expansion')
+    await page.evaluate(()=>{
+     const R=staticModules.react,D=staticModules['react-dom'],P=staticModules['@xharness/dsh-client-ui-primitives']
+     D.flushSync(()=>mount.render(R.createElement(P.CodeBlock,{code:'const value = 42',lang:'typescript'})))
+    })
+    await page.waitForFunction(()=>document.querySelector('.md-code-block .shiki'))
     // Additional owning-theme acceptance, AFTER the independent platform
     // snapshots above. Never project/mask or update the frozen pixel oracle.
     // The standalone platform fixture deliberately has no theme plugin.

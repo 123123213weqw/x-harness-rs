@@ -53,3 +53,5 @@ export { MessageText } from './markdown/MessageText'
 export { extractMarkdownPlainText } from './markdown/plain-text'
 export type { MarkdownPlainTextMode, MarkdownPlainTextOptions } from './markdown/plain-text'
 export * from './icons/index'
+
+export { DecodedImageBudget, ThumbnailQueue, decodedImageBudget, imageReadQueue, ImageUrlPool, imageUrlPool } from './image-resources'
