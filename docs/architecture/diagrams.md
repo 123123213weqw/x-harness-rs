@@ -15,14 +15,16 @@
 
 ## 图 1：Workspace 分层与 crate 依赖方向
 
-46 个 workspace crate 按当前 manifest 的实际依赖方向分层。这是对现状的描述，不是新增的强制
+47 个 workspace crate 按当前 manifest 的实际依赖方向分层。这是对现状的描述，不是新增的强制
 规则：跨层新依赖仍必须按 `docs/specs/` 与架构检查审查。唯一选择具体实现的位置是最顶端的
 `xharness-host-app`。
 
 ```text
- L5 组合根
+ L5 组合根与嵌入门面
     xharness-host-app ──> 37 个 crate（normal 依赖，含平台条件）：选择 Provider /
                           Server / 原生工具，产出二进制
+    xharness-sdk ──> host, agent, core, compaction, prompt, session,
+                    session-jsonl, tools（抽象注入，复用既有 Durable Runtime）
 
  L4 控制面与长生命周期运行时
     xharness-host ──> agent, core, session, projection, schedule, attachments,

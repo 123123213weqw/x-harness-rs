@@ -35,6 +35,7 @@ members = [
     "crates/xharness-remote",
     "crates/xharness-sandbox",
     "crates/xharness-schedule",
+    "crates/xharness-sdk",
     "crates/xharness-session",
     "crates/xharness-session-jsonl",
     "crates/xharness-session-import",

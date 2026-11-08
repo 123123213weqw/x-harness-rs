@@ -52,6 +52,15 @@ A [read-only Gitee mirror](https://gitee.com/wangyue2006/x-harness-rs) is availa
 | **Extensibility** | Plugin system, MCP support, and messaging channels (Telegram, WeChat) in the workspace |
 | **Delivery** | Tauri desktop shell with in-app updates; deployable Web bundle in `ui/dist`; Web terminal |
 
+## Embedded Rust SDK
+
+[`xharness-sdk`](crates/xharness-sdk/README.md) provides an in-process 0.1 entry
+point for embedding the existing durable runtime: inject models and tools, queue
+or execute input, observe events, recover sessions, cancel and shut down.
+It creates no second loop/history or Web service. The crate is maintained here;
+headless distributions can synchronize it and products can pin a reviewed revision.
+This is an evolving SDK API, not a stable 1.0 release or a product migration.
+
 ## Quick start
 
 ### Desktop application
