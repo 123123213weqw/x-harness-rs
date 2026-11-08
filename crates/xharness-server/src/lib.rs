@@ -274,8 +274,15 @@ pub fn web_router_with_debug_desktop_token_and_readiness(
     )
 }
 
+/// Shared static UI carrier for a composition-owned authenticated router.
+/// This helper supplies no API, credentials, readiness or execution authority.
+pub fn web_assets(root: PathBuf) -> Router {
+    let index = root.join("index.html");
+    Router::new().fallback_service(ServeDir::new(root).fallback(ServeFile::new(index)))
+}
+
 /// Complete Web carrier plus an XHarness extension router (see
-/// [`api_router_with_debug_and_extension`]) merged inside the readiness and
+/// [`api_router_with_debug_and_extension`]) merged inside readiness and
 /// desktop-token layers.
 pub fn web_router_full(
     backend: Arc<dyn ApiBackend>,
@@ -407,6 +414,36 @@ async fn desktop_identity(
         Json(json!({"proof":proof})),
     )
         .into_response()
+}
+
+/// Verify the existing domain-separated loopback identity challenge before
+/// transmitting a Host bearer credential. A health response is not identity.
+pub fn verify_desktop_identity(token: &str, nonce: &str, proof: &str) -> bool {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    if nonce.len() != 64
+        || !nonce.bytes().all(|b| b.is_ascii_hexdigit())
+        || proof.len() != 64
+        || !proof.bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        return false;
+    }
+    let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(token.as_bytes()) else {
+        return false;
+    };
+    mac.update(b"xharness-desktop-host-v1\0");
+    mac.update(nonce.as_bytes());
+    let mut bytes = [0u8; 32];
+    for (index, pair) in proof.as_bytes().as_chunks::<2>().0.iter().enumerate() {
+        let Some(high) = (pair[0] as char).to_digit(16) else {
+            return false;
+        };
+        let Some(low) = (pair[1] as char).to_digit(16) else {
+            return false;
+        };
+        bytes[index] = ((high << 4) | low) as u8;
+    }
+    mac.verify_slice(&bytes).is_ok()
 }
 
 #[derive(Clone)]

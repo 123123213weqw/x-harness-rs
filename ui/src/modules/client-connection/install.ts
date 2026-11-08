@@ -13,6 +13,11 @@ export interface HostDescriptionSource {
   subscribe(listener: () => void): () => void
 }
 
+/** Transport-owned optional discovery. Absent on isolated fixture carriers. */
+export interface EnvironmentCatalogueClient {
+  read(signal: AbortSignal): Promise<unknown>
+}
+
 /**
  * The ctx.connection service API: the API client plus a one-shot
  * controller starter (the runtime plugin supplies sinks when its object layer
@@ -28,6 +33,7 @@ export interface ConnectionHandle {
   /** Generic logical RPC channels over the same Connection transport. */
   readonly rpc: ClientConnectionRpc
   readonly jobs?: JobClient | undefined
+  readonly environmentCatalogue?: EnvironmentCatalogueClient | undefined
   /**
    * Start the connect/pump/reconnect loop with the consumer's frame sinks.
    * One consumer owns the streams (the runtime object layer); a second call
@@ -40,7 +46,7 @@ export interface ConnectionHandle {
 }
 
 /** Install the shared connection lifetime without selecting a transport. */
-export function installConnection(ctx: Context, api: IApiClient, rpc: ClientConnectionRpc): void {
+export function installConnection(ctx: Context, api: IApiClient, rpc: ClientConnectionRpc, options: { environmentCatalogue?: EnvironmentCatalogueClient } = {}): void {
   const pageLocation = typeof location === 'undefined' ? undefined : location
   const jobs = new JobClient(rpc)
   let started = false
@@ -60,6 +66,7 @@ export function installConnection(ctx: Context, api: IApiClient, rpc: ClientConn
   }
   const handle: ConnectionHandle = {
     api,
+    environmentCatalogue: options.environmentCatalogue,
     isLoopback: pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
     hostDescription: {
       getSnapshot: () => description,

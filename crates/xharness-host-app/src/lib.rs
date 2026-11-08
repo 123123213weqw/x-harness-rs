@@ -8,6 +8,7 @@
 mod builtin_ui;
 pub mod channel_accounts;
 mod computer_media;
+pub mod environment_gateway;
 mod file_display;
 mod git_display;
 mod github_http;

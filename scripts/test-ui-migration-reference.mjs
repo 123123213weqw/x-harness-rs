@@ -104,13 +104,14 @@ test('performance allowance cannot add eager boot work', () => {
   assert.throws(() => assertReviewedAdditions(manifest, baseline), /must not add eager boot work/)
 })
 
-for (const row of approvedAdditions.filter(row => ['@xlang/xharness-client-ui-memory', '@xlang/xharness-client-ui-session-import'].includes(row.id))) {
+for (const row of approvedAdditions.filter(row => ['@xlang/xharness-client-ui-memory', '@xlang/xharness-client-ui-session-import', '@xlang/xharness-client-ui-runtime'].includes(row.id))) {
   test(`${row.id}: allowance pins registration, source, complete ABI and passive boot`, () => {
     const manifest = JSON.parse(readFileSync('ui/modules.json', 'utf8'))
     const baseline = JSON.parse(readFileSync(join(root, 'client-graph.json'), 'utf8'))
     for (const mutate of [
       value => { value.source = 'src/modules/unreviewed/index.ts' },
       value => { value.kind = 'source-library' },
+      value => { value.inject = value.inject.slice(1) },
       value => { value.inject.push('@xharness/unreviewed') },
       value => { value.inject.reverse() },
       value => { value.immediately = true },

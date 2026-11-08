@@ -15,7 +15,13 @@ path = "src/main.rs"
 name = "xharness-browser-extension-host"
 path = "src/browser_extension_host.rs"
 
+[[bin]]
+name = "xharness-environment-gateway"
+path = "src/environment_gateway_main.rs"
+
 [dependencies]
+futures.workspace = true
+tokio-tungstenite.workspace = true
 axum.workspace = true
 base64 = "0.22"
 getrandom = "0.3"
@@ -72,10 +78,8 @@ tower.workspace = true
 xharness-prompt = { path = "../xharness-prompt" }
 thiserror.workspace = true
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
-futures.workspace = true
 reqwest.workspace = true
 tokio = { workspace = true, features = ["process", "test-util"] }
-tokio-tungstenite.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 xharness-computer-windows = { path = "../xharness-computer-windows" }

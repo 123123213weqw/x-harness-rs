@@ -3,9 +3,10 @@ import type { ConnectionContext as Context } from './context'
 import { installConnection } from './install'
 import { WebApiClient } from './web-api-client'
 import { createWebConnectionRpc } from './rpc'
+import { createWebEnvironmentCatalogue } from './environment-catalogue'
 export * from './public'
 
 export const inject: string[] = []
 export function apply(ctx: Context): void {
-  installConnection(ctx, new WebApiClient(), createWebConnectionRpc())
+  installConnection(ctx, new WebApiClient(), createWebConnectionRpc(), { environmentCatalogue: createWebEnvironmentCatalogue() })
 }
