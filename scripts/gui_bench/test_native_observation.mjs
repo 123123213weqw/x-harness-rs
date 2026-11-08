@@ -29,6 +29,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
     check(!JSON.stringify(snapshot).includes("private-secret") && snapshot.nodes.find(x => x.type === "password").value === "<redacted>");
     check((await page.locator("#answer").inputValue()) === "existing", "read-only inspection never changes an input");
     check((await observe({ scope: "dialog" })).error);
+    check((await observe({ scope: "dialog" })).code === "scope_not_found");
+    await page.setContent("<section><button>No main</button></section>");
+    check((await observe({ scope: "main" })).code === "scope_not_found");
+    check((await observe({ scope: "page" })).nodes.some(x => x.label === "No main"));
+    await page.evaluate(() => document.body.remove());
+    check((await observe({ scope: "page" })).code === "page_not_ready");
     await page.setContent('<main><button>Main</button></main><dialog open><button>Inside dialog</button></dialog>');
     check((await observe({ scope: "dialog" })).nodes.every(x => x.label === "Inside dialog"));
     check((await observe({ scope: "main" })).nodes.every(x => x.label === "Main"));

@@ -898,6 +898,19 @@ async fn builtin_ui_owner_is_bound_and_unknown_targets_cannot_emit() {
             .to_string(),
         ))
         .await;
+    assert_eq!(
+        result.failure.unwrap().kind,
+        xharness_tools::ToolFailureKind::InvalidArguments
+    );
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(30), events.next())
+            .await
+            .is_err(),
+        "spoofed envelope must not emit any UI intent"
+    );
+    let result = executor
+        .execute(display_request(json!({"path":"main.rs"})))
+        .await;
     assert!(result.is_ok(), "{result:?}");
     let event = serde_json::to_value(events.next().await.unwrap()).unwrap();
     assert!(event.to_string().contains("\"sessionId\":\"s\""), "{event}");

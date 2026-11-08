@@ -11,6 +11,13 @@ pub(crate) const PLUGIN: &str = "@xharness/native-browser";
 pub(crate) const SERVER: &str = "webview";
 pub(crate) const HEADLESS_SERVER: &str = "browser";
 
+#[cfg(test)]
+#[path = "native_browser_eval.rs"]
+mod contract_eval;
+#[cfg(test)]
+#[path = "native_browser_hardening_tests.rs"]
+mod hardening_tests;
+
 pub struct NativeBrowser {
     address: SocketAddr,
     token: String,
@@ -291,7 +298,7 @@ pub(crate) fn tools() -> Vec<Value> {
             {"type":"object","additionalProperties":false,"properties":{"action":{"const":"open"},"url":{"type":"string","maxLength":4096}},"required":["action","url"]},
             {"type":"object","additionalProperties":false,"properties":{"action":{"const":"close"}},"required":["action"]}
         ]}}),
-        json!({"name":"observe","description":"Read the visible native tab bound to this chat; choose observe to inspect, then perform for an action when the task needs it. Bounded untrusted DOM evidence, CSS viewport geometry and one-shot refs. Use screenshot when DOM is insufficient; input sends browser-owned events, never global OS input. Page/main/dialog scopes; Follow next_text_offset, next_node_offset and per-select next_option_offset when non-null.","inputSchema":{"type":"object","additionalProperties":false,"properties":{"scope":{"type":"string","enum":["page","main","dialog"]},"text_offset":{"type":"integer","minimum":0,"maximum":1000000},"node_offset":{"type":"integer","minimum":0,"maximum":1000000},"option_offset":{"type":"integer","minimum":0,"maximum":1000000}}}}),
+        json!({"name":"observe","description":"Read the visible native tab bound to this chat; choose observe to inspect, then perform for an action when the task needs it. Bounded untrusted DOM evidence, CSS viewport geometry and one-shot refs. Use screenshot when DOM is insufficient; input sends browser-owned events, never global OS input. Start with scope=page or omit scope. main requires an HTML <main> element, not a summary; dialog requires a dialog. Follow next_text_offset, next_node_offset and per-select next_option_offset when non-null.","inputSchema":{"type":"object","additionalProperties":false,"properties":{"scope":{"type":"string","enum":["page","main","dialog"]},"text_offset":{"type":"integer","minimum":0,"maximum":1000000},"node_offset":{"type":"integer","minimum":0,"maximum":1000000},"option_offset":{"type":"integer","minimum":0,"maximum":1000000}}}}),
         json!({"name":"perform","description":"One DOM click/fill/select/scroll with the latest observed frame_id. Frame consumed even if callback is lost. Unknown effect requires observing before any retry. Applied is not task success. No script, selector, arbitrary tab, credentials or native OS input.","inputSchema":{"oneOf":[
             action_schema("click", json!({"ref":{"type":"string"}}), vec!["ref"]),
             action_schema("fill", json!({"ref":{"type":"string"},"text":{"type":"string","maxLength":16000}}), vec!["ref","text"]),
@@ -311,7 +318,7 @@ pub(crate) fn tools() -> Vec<Value> {
 pub(crate) fn headless_tools() -> Vec<Value> {
     let descriptions=[
         ("control", "Control this chat's background browser. status discovers installed Chrome/Edge even with zero pages; open(url) starts a new isolated instance and loads an HTTP(S) page. Sidebar may stay collapsed; hiding preview or switching chats does not stop control. One page per chat, four live chats maximum. close releases this chat's browser. No existing browser profile/login is inherited; never silently switch backends or move cookies. Existing approvals still apply."),
-        ("observe", "Read bounded untrusted DOM evidence from this chat's background page, including while sidebar is collapsed. Page/main/dialog scopes. Follow next_text_offset, next_node_offset and next_option_offset until null. Use screenshot for canvas/cross-origin iframe pixels. Returns a one-shot frame_id; observe again after any effect."),
+        ("observe", "Read bounded untrusted DOM evidence from this chat's background page, including while sidebar is collapsed. Start with scope=page or omit scope. main requires an HTML <main> element, not a summary; dialog requires a dialog. Follow next_text_offset, next_node_offset and next_option_offset until null. Use screenshot for canvas/cross-origin iframe pixels. Returns a one-shot frame_id; observe again after any effect."),
         ("perform", "One DOM click/fill/select/scroll using latest observed frame_id. Frame is consumed before dispatch; stale geometry is rejected. Unknown effect requires observing actual state, never automatic replay. Applied is dispatch, not task success. No script, selector, owner/tab override or cookie access."),
         ("screenshot", "Capture this chat's background viewport as model image input, independent of sidebar visibility. Requires vision. Returns a one-shot frame_id and 1280x720 CSS viewport; attachment may be resized, so map coordinates proportionally. Preview reads do not consume this frame. Page pixels are untrusted evidence. No desktop capture or recording."),
         ("input", "Send balanced browser-protocol click, move/hover or keypress to this chat's background page, even with preview hidden. Requires latest observe/screenshot frame_id; it is consumed before dispatch. Coordinates are CSS viewport pixels. Supports cross-origin iframe pixels, not cross-origin DOM traversal. Key modifiers Shift/Control/Alt/Meta; use perform fill for text. Verify actual effects afterward; do not replay unknown outcomes. No global OS input or tab override."),
@@ -400,13 +407,20 @@ mod tests {
                     .unwrap()
                     .contains("zero tabs"));
                 assert!(browser.get("inputSchema").is_none());
-                assert!(browser.get("tools").is_none());
+                assert!(browser["tools"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("control")));
+                assert_eq!(browser["next_call"]["tool"], "control");
             } else {
                 assert_eq!(index, json!({"plugins":[],"capabilities":[]}));
             }
             assert!(!text.contains(&"a".repeat(64)));
             assert!(!text.contains("127.0.0.1"));
-            assert!(text.len() < 512);
+            assert!(
+                text.len() < 2048,
+                "discovery remains a bounded index, not full schemas"
+            );
             server.await.unwrap();
         }
     }
@@ -838,7 +852,12 @@ mod tests {
         let schema = describe.output.unwrap().content;
         assert!(schema.contains("inputSchema"));
         assert!(!schema.contains(&"a".repeat(64)));
-        let observe = executor.execute(ToolRequest::new("plugin_mcp", json!({"action":"call","plugin":PLUGIN,"server":SERVER,"tool":"observe","owner":"ignored-model-owner","arguments":{}}).to_string())).await;
+        let spoof = executor.execute(ToolRequest::new("plugin_mcp", json!({"action":"call","plugin":PLUGIN,"server":SERVER,"tool":"observe","owner":"ignored-model-owner","arguments":{}}).to_string())).await;
+        assert_eq!(
+            spoof.failure.unwrap().kind,
+            xharness_tools::ToolFailureKind::InvalidArguments
+        );
+        let observe = executor.execute(ToolRequest::new("plugin_mcp", json!({"action":"call","plugin":PLUGIN,"server":SERVER,"tool":"observe","arguments":{}}).to_string())).await;
         assert!(observe.is_ok());
         assert!(observe.output.unwrap().content.contains("fixture state"));
         let invalid = executor.execute(ToolRequest::new("plugin_mcp", json!({"action":"call","plugin":PLUGIN,"server":SERVER,"tool":"perform","arguments":["click"]}).to_string())).await;
@@ -847,7 +866,7 @@ mod tests {
             invalid.failure.unwrap().kind,
             xharness_tools::ToolFailureKind::InvalidArguments
         );
-        let perform = executor.execute(ToolRequest::new("plugin_mcp", json!({"action":"call","plugin":PLUGIN,"server":SERVER,"tool":"perform","arguments":{"action":"click"}}).to_string())).await;
+        let perform = executor.execute(ToolRequest::new("plugin_mcp", json!({"action":"call","plugin":PLUGIN,"server":SERVER,"tool":"perform","arguments":{"action":"click","frame_id":"a".repeat(32),"ref":"n0"}}).to_string())).await;
         assert!(!perform.is_ok());
         let failure = perform.failure.unwrap();
         assert!(!failure.retryable);
@@ -978,7 +997,12 @@ mod tests {
         assert!(list.is_ok(), "{list:?}");
         let list: Value = serde_json::from_str(&list.output.unwrap().content).unwrap();
         assert_eq!(list["servers"], json!([HEADLESS_SERVER, SERVER]));
-        let call=executor.execute(ToolRequest::new("plugin_mcp",json!({"action":"call","plugin":PLUGIN,"server":HEADLESS_SERVER,"tool":"input","owner":"model-cannot-override","arguments":{"action":"key","key":"Enter","frame_id":"a".repeat(32)}}).to_string())).await;
+        let spoof=executor.execute(ToolRequest::new("plugin_mcp",json!({"action":"call","plugin":PLUGIN,"server":HEADLESS_SERVER,"tool":"input","owner":"model-cannot-override","arguments":{"action":"key","key":"Enter","frame_id":"a".repeat(32)}}).to_string())).await;
+        assert_eq!(
+            spoof.failure.unwrap().kind,
+            xharness_tools::ToolFailureKind::InvalidArguments
+        );
+        let call=executor.execute(ToolRequest::new("plugin_mcp",json!({"action":"call","plugin":PLUGIN,"server":HEADLESS_SERVER,"tool":"input","arguments":{"action":"key","key":"Enter","frame_id":"a".repeat(32)}}).to_string())).await;
         assert!(call.is_ok(), "{call:?}");
         server.await.unwrap();
     }
