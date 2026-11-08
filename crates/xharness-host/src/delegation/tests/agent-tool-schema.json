@@ -39,6 +39,30 @@
       "type": "integer",
       "minimum": 0,
       "description": "Exact safe checkpoint seq returned by inspect; revert only."
+    },
+    "max_steps": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000,
+      "description": "Optional cumulative step limit for this child task; not user turns, tool count or a money budget. No default limit."
+    },
+    "timeout_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 86400,
+      "description": "Optional wall timeout from admission, including queued waits. No default; cannot be reset by send, restart or revert."
+    },
+    "tool_allowlist": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "pattern": "^[A-Za-z0-9_-]+$"
+      },
+      "description": "Optional subset of tools currently available to the parent. [] means no tools; omitted inherits. Cannot add capabilities."
     }
   },
   "required": [

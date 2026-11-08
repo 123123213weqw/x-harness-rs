@@ -1,4 +1,4 @@
-// File framing is presentation-only; coordinates reuse Code Review's strict parser.
+// File framing is presentation-only; coordinates reuse the shared strict hunk parser.
 import {diffRows} from '../../shared/diff/hunks'
 export interface DiffRow {kind:'hunk'|'context'|'added'|'removed'|'note';text:string;left?:number;right?:number}
 export interface DiffFile {path:string;oldPath?:string;added:number;removed:number;binary:boolean;rename:boolean;mode?:string;rows:readonly DiffRow[]}

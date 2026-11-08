@@ -265,6 +265,13 @@ impl ToolExecutor {
         &self.registry
     }
 
+    /// Restrict actual lookup/execution as well as model-visible definitions,
+    /// retaining every existing guard, approval and lifecycle hook.
+    pub async fn restrict_tools(mut self, names: &std::collections::BTreeSet<String>) -> Self {
+        self.registry = Arc::new(self.registry.restricted(names).await);
+        self
+    }
+
     pub async fn execute(&self, request: ToolRequest) -> ToolResult {
         let execution_id = request
             .execution_id

@@ -1343,6 +1343,8 @@ impl DriverWorker {
         let _ = self
             .events
             .send(AgentEvent::TurnStarted { turn, input_ids });
+        let budgeted =
+            request.execution_deadline_ms.is_some() || request.config.max_steps != usize::MAX;
         let mut run = LoopEngine.start(request);
         loop {
             tokio::select! {
@@ -1399,6 +1401,39 @@ impl DriverWorker {
                     .settle(None)
                     .await
                     .map_err(|e| AgentCommandError::Failed(e.to_string()))?;
+            }
+        }
+        if budgeted {
+            let session = self
+                .activation
+                .inbox()
+                .store()
+                .load(self.activation.id())
+                .await
+                .map_err(|e| AgentCommandError::Failed(e.to_string()))?;
+            if let Some(state) = session.as_ref().and_then(xharness_session::agent_policy) {
+                let expired = state
+                    .policy
+                    .remaining_ms(
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map_err(|e| AgentCommandError::Failed(e.to_string()))?
+                            .as_millis()
+                            .try_into()
+                            .map_err(|_| {
+                                AgentCommandError::Failed("agent clock overflow".into())
+                            })?,
+                    )
+                    .map_err(AgentCommandError::Failed)?
+                    == Some(0);
+                if state.remaining_steps() == Some(0) || expired {
+                    self.activation
+                        .inbox()
+                        .preserve_dispatch_pause()
+                        .await
+                        .map_err(inbox_error)?;
+                    self.park_settled_pending().await?;
+                }
             }
         }
         let _ = self.events.send(AgentEvent::TurnFinished { turn, result });

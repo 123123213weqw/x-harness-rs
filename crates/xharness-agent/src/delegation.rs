@@ -25,6 +25,12 @@ pub enum AgentOperation {
         model: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reasoning_effort: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_steps: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_seconds: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_allowlist: Option<Vec<String>>,
     },
     Send {
         agent_id: String,
@@ -67,7 +73,15 @@ impl AgentOperation {
                 provider,
                 model,
                 reasoning_effort,
+                max_steps,
+                timeout_seconds,
+                tool_allowlist,
             } => {
+                xharness_session::validate_agent_options(
+                    *max_steps,
+                    *timeout_seconds,
+                    tool_allowlist.as_deref(),
+                )?;
                 text(task, "task", 32768)?;
                 if let Some(label) = label {
                     text(label, "label", 160)?;
@@ -205,6 +219,9 @@ mod tests {
             provider: None,
             model: None,
             reasoning_effort: None,
+            max_steps: None,
+            timeout_seconds: None,
+            tool_allowlist: None,
         }
         .validate()
         .is_err());
@@ -214,5 +231,47 @@ mod tests {
         }
         .validate()
         .is_err());
+    }
+}
+
+#[cfg(test)]
+mod policy_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn limits_are_start_only_opt_in_and_empty_allowlist_is_not_inheritance() {
+        let old = json!({"action":"start","task":"review","label":null});
+        let inherited: AgentOperation = serde_json::from_value(old.clone()).unwrap();
+        assert_eq!(serde_json::to_value(inherited).unwrap(), old);
+        let explicit = json!({"action":"start","task":"review","label":null,"max_steps":2,"timeout_seconds":60,"tool_allowlist":[]});
+        let op: AgentOperation = serde_json::from_value(explicit.clone()).unwrap();
+        op.validate().unwrap();
+        assert_eq!(serde_json::to_value(op).unwrap(), explicit);
+        for args in [
+            json!({"action":"send","agent_id":"a","message":"x","max_steps":2}),
+            json!({"action":"inspect","timeout_seconds":10}),
+            json!({"action":"stop","agent_id":"a","tool_allowlist":[]}),
+            json!({"action":"start","task":"x","max_steps":4294967296u64}),
+        ] {
+            assert!(serde_json::from_value::<AgentOperation>(args).is_err());
+        }
+        for args in [
+            json!({"max_steps":0}),
+            json!({"max_steps":10001}),
+            json!({"timeout_seconds":0}),
+            json!({"timeout_seconds":86401}),
+            json!({"tool_allowlist":["read","read"]}),
+            json!({"tool_allowlist":["*"]}),
+        ] {
+            let mut value = json!({"action":"start","task":"review"});
+            value
+                .as_object_mut()
+                .unwrap()
+                .extend(args.as_object().unwrap().clone());
+            assert!(serde_json::from_value::<AgentOperation>(value)
+                .unwrap()
+                .validate()
+                .is_err());
+        }
     }
 }

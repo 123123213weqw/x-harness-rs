@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Add an explicitly requested embedded Rust SDK in the upstream runtime repository so products and headless distributions consume one reviewed source of truth. Enroll only the new SDK crate and its existing native component dependencies.",
+  "compatibility": "Existing crates gain no dependency on the SDK. The SDK delegates to the same durable Runtime and Store without changing native permissions, wire/session formats, default Host behavior, product sources or deployments. Existing architecture, compiler-error and unsafe fences remain unchanged; the SDK has its own strict fences. Windows/native regressions remain enrolled in existing workspace CI.",
+  "paths": {
+    "Cargo.toml": {
+      "before": "327c2115d06f319419954be52604c03941e963f626c2cf7ddcbcd1fb8b34e574",
+      "after": "c11f1912d73af9184f909d37258a532f8912024f1bd64a3d201bd785d3e816cf"
+    },
+    "config/architecture-dependencies.json": {
+      "before": "900f87d40d6e8514cc27b01798c0210fcd96d871b88f90edcc43c30be04a83fb",
+      "after": "a15d2d7772ab392ea391eb8224e08302a045c92a93a4eea83a2c827012b8b2b7"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}

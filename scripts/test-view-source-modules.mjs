@@ -227,7 +227,6 @@ for (const name of modules) {
       'work.center.tasks': {kind: 'single', scope: 'root'},
       'work.center.automations': {kind: 'single', scope: 'root'},
       'work.center.executions': {kind: 'single', scope: 'root'},
-      'review.center': {kind: 'single', scope: 'root'},
       'assistant.center': {kind: 'single', scope: 'root'},
     })
     if (name === 'sidebar') Object.assign(expected[0].children, {

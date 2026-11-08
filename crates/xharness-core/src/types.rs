@@ -869,6 +869,9 @@ pub struct LoopRequest {
     pub journal_prelude: Vec<xharness_session::SessionEvent>,
     pub context_policy: Arc<dyn crate::ContextPolicy>,
     pub config: LoopConfig,
+    /// Durable caller-owned wall deadline, not a fresh timeout on each restart.
+    /// Cancellation is driven to completion before the run releases resources.
+    pub execution_deadline_ms: Option<u64>,
 }
 
 impl LoopRequest {
@@ -892,6 +895,7 @@ impl LoopRequest {
             journal_prelude: Vec::new(),
             context_policy: Arc::new(crate::IdentityContextPolicy),
             config: LoopConfig::default(),
+            execution_deadline_ms: None,
         }
     }
 

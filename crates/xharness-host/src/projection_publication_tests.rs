@@ -930,6 +930,7 @@ fn fork_of_subagent_does_not_restore_as_a_delegated_child() {
                 parent_session_id: "old-parent".into(),
                 invocation_id: "invocation".into(),
                 task: "task".into(),
+                policy: None,
             },
         )
         .unwrap();

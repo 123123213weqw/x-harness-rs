@@ -17,8 +17,8 @@
       "after": "3f7c3936a1370ba99f396f86299576d9f530a3576e48e14b12025b115abc0ec5"
     },
     "scripts/regression/check-architecture.py": {
-      "before": "a0cae1b3f209fec81b021f200d23a6ee18496610c11b16f71f6cc5b4bb754526",
-      "after": "65798b5acd1ef580cbaddfb671e6b4b7b6bda554c62e7d91b56ce9d10ee7750d"
+      "before": "d87e89ab3d135fa599b65c7cb0ce03e35cd02156a2da426cff87c3f22f49a417",
+      "after": "f53e17f22e6e106e47e9f0c299a5aa0cfe442424671618b5af025fd7e6c0622c"
     }
   },
   "regressions": [

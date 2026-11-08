@@ -833,6 +833,21 @@ impl BasicHost {
         let session_id = session_id.as_str();
         // Only an explicit user prompt resumes a stopped admission gate.
         if source.get("kind").and_then(Value::as_str) == Some("user") {
+            // Validate before reopening admission: an exhausted opt-in child
+            // must not turn a retained user input into a phantom running loop.
+            if self
+                .state
+                .read()
+                .await
+                .sessions
+                .get(session_id)
+                .is_some_and(|s| s.delegated)
+            {
+                self.agent_runtime
+                    .check_child_execution_budget(session_id)
+                    .await
+                    .map_err(|message| RpcError::bad_request(message, Value::Null))?;
+            }
             self.set_dispatch_paused(session_id, false).await?;
         } else if matches!(
             source.get("kind").and_then(Value::as_str),
@@ -1128,6 +1143,23 @@ impl BasicHost {
                 (record.dispatch_paused, record.has_queued_user_prompt())
             };
             self.queue_title(&session_id);
+            // A previously admitted human input may have expired while waiting
+            // for capacity. Do not mistake its presence for a fresh budget grant.
+            let queued_user_prompt = if paused && queued_user_prompt {
+                match self
+                    .agent_runtime
+                    .check_child_execution_budget(&session_id)
+                    .await
+                {
+                    Ok(()) => true,
+                    Err(error) => {
+                        self.push_host(json!({"type":"host/agent-error","sessionId":session_id,"message":error}));
+                        false
+                    }
+                }
+            } else {
+                queued_user_prompt
+            };
             let resuming = paused && queued_user_prompt;
             if paused {
                 // An explicit stop ends the current turn; it never discards a

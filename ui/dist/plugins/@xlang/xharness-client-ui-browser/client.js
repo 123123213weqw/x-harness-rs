@@ -910,16 +910,22 @@ const client_1 = require("./client");
 function openDisplayFile(path, sessionId, relativeTo, gitDiff) {
     window.dispatchEvent(new CustomEvent('xharness:workspace-open', { detail: { kind: 'file', source: path, sessionId, ...gitDiff === undefined ? {} : { gitDiff }, ...gitDiff === undefined ? {} : { title: label('差异 · ', 'Diff · ') + gitDiff }, ...relativeTo === undefined ? {} : { relativeTo } } }));
 }
+const ImagePreview_1 = require("./ImagePreview");
+const FittedImagePreview_1 = require("./FittedImagePreview");
+const PdfPreview_1 = require("./PdfPreview");
 const zh = () => document.documentElement.lang.toLowerCase().startsWith('zh');
 const label = (cn, en) => zh() ? cn : en;
-function LocalImage({ path, alt, base, sessionId, client, budget }) {
-    const ref = (0, react_1.useRef)(null), [src, setSrc] = (0, react_1.useState)(), [error, setError] = (0, react_1.useState)('');
+function LocalImage({ path, alt, base, sessionId, client, budget, active }) {
+    const ref = (0, react_1.useRef)(null), [owner] = (0, react_1.useState)(() => Symbol('markdown-raster'));
+    const [resource, setResource] = (0, react_1.useState)(), [decodedSize, setDecodedSize] = (0, react_1.useState)(), [src, setSrc] = (0, react_1.useState)(), [error, setError] = (0, react_1.useState)('');
+    const show = active || resource?.canSuspend === false;
+    (0, react_1.useEffect)(() => () => dsh_client_ui_primitives_1.imageUrlPool.dispose(owner), [owner]);
     (0, react_1.useEffect)(() => {
         const element = ref.current;
         if (!element)
             return;
         const controller = new AbortController();
-        let url, started = false;
+        let started = false;
         const load = () => {
             if (started)
                 return;
@@ -928,18 +934,16 @@ function LocalImage({ path, alt, base, sessionId, client, budget }) {
                 setError(label('图片数量超过预览预算，点击单独查看', 'Image preview budget reached; open individually'));
                 return;
             }
-            void client.read(sessionId, path, controller.signal, base).then(file => {
+            void dsh_client_ui_primitives_1.imageReadQueue.run(() => client.read(sessionId, path, controller.signal, base), controller.signal).then(file => {
                 if (controller.signal.aborted)
                     return;
                 if (file.kind !== 'image')
                     throw new Error(label('不是可预览的图片', 'Not a previewable image'));
-                const created = (0, client_1.imageObjectUrl)(file);
-                if (!budget.retain(created.bytes, file.width * file.height * 4)) {
-                    URL.revokeObjectURL(created.url);
+                const created = (0, client_1.imageResource)(file);
+                if (!budget.retain(created.blob.size, file.width * file.height * 4))
                     throw new Error(label('图片超过预览预算', 'Image preview budget reached'));
-                }
-                url = created.url;
-                setSrc(url);
+                setDecodedSize(undefined);
+                setResource({ ...created, width: file.width, height: file.height });
             }).catch((e) => { if (!controller.signal.aborted)
                 setError(e instanceof Error ? e.message : String(e)); });
         };
@@ -948,23 +952,53 @@ function LocalImage({ path, alt, base, sessionId, client, budget }) {
             load();
         } }, { rootMargin: '200px' });
         observer.observe(element);
-        return () => { controller.abort(); observer.disconnect(); if (url)
-            URL.revokeObjectURL(url); };
+        return () => { controller.abort(); observer.disconnect(); };
     }, [path, base, sessionId, client, budget]);
-    return (0, jsx_runtime_1.jsxs)("span", { ref: ref, className: "xhfile-local-image", children: [src ? (0, jsx_runtime_1.jsx)("img", { src: src, alt: alt, decoding: "async" }) : (0, jsx_runtime_1.jsx)("span", { children: error || alt || label('加载图片…', 'Loading image…') }), error && (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => openDisplayFile(path, sessionId, base), children: label('单独查看', 'Open separately') })] });
+    (0, react_1.useEffect)(() => {
+        setSrc(undefined);
+        if (!show || !resource)
+            return;
+        try {
+            const lease = dsh_client_ui_primitives_1.imageUrlPool.acquire(owner, resource.blob, resource.width, resource.height);
+            if (!lease) {
+                setError(label('图片超过预览预算，点击单独查看', 'Image preview budget reached; open individually'));
+                return;
+            }
+            setError('');
+            setSrc(lease.url);
+            return () => lease.release();
+        }
+        catch (error) {
+            setError(error instanceof Error ? error.message : String(error));
+        }
+    }, [resource, show, owner]);
+    // Browser dimensions include EXIF orientation; raw file metadata may not.
+    // Unknown/animated formats keep their decoder identity across hide/show.
+    const size = decodedSize ?? resource;
+    return (0, jsx_runtime_1.jsxs)("span", { ref: ref, className: "xhfile-local-image", children: [src && show ? (0, jsx_runtime_1.jsx)("img", { src: src, alt: alt, decoding: "async", onLoad: event => { const image = event.currentTarget; if (image.naturalWidth > 0 && image.naturalHeight > 0)
+                    setDecodedSize({ width: image.naturalWidth, height: image.naturalHeight }); }, onError: () => { dsh_client_ui_primitives_1.imageUrlPool.dispose(owner); setError(label('图片解码失败', 'Image decode failed')); setSrc(undefined); } }) : (0, jsx_runtime_1.jsx)("span", { style: size ? { display: 'block', width: '100%', maxWidth: size.width, aspectRatio: `${size.width}/${size.height}` } : undefined, children: error || alt || label('加载图片…', 'Loading image…') }), error && (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => openDisplayFile(path, sessionId, base), children: label('单独查看', 'Open separately') })] });
 }
-function MarkdownFile({ file, sessionId, client }) {
+function MarkdownFile({ file, sessionId, client, open }) {
+    const budget = (0, react_1.useMemo)(() => new client_1.ResourceBudget(), [file, sessionId, client]);
     const resources = (0, react_1.useMemo)(() => {
-        const budget = new client_1.ResourceBudget();
         return {
-            image: (url, alt) => { const path = (0, client_1.localResource)(url); return path === undefined ? undefined : (0, jsx_runtime_1.jsx)(LocalImage, { path: path, alt: alt, base: file.path, sessionId: sessionId, client: client, budget: budget }); },
+            image: (url, alt) => { const path = (0, client_1.localResource)(url); return path === undefined ? undefined : (0, jsx_runtime_1.jsx)(LocalImage, { path: path, alt: alt, base: file.path, sessionId: sessionId, client: client, budget: budget, active: open }); },
             link: (url, children) => { const path = (0, client_1.localResource)(url); return path === undefined ? undefined : (0, jsx_runtime_1.jsx)("button", { type: "button", className: "xhfile-link", onClick: () => openDisplayFile(path, sessionId, file.path), children: children }); },
         };
-    }, [file.path, sessionId, client]);
+    }, [file.path, sessionId, client, open, budget]);
     return (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.MarkdownText, { text: file.text, resources: resources });
 }
 function FilePane({ item, open, sessionId, client }) {
     const owner = item.sessionId ?? sessionId;
+    const body = (0, react_1.useRef)(null), imageReady = (0, react_1.useRef)(false);
+    const imageScroll = (0, react_1.useRef)({ left: 0, top: 0 });
+    const restoreImageScroll = (0, react_1.useCallback)(() => {
+        const element = body.current;
+        if (element)
+            element.scrollTo(imageScroll.current.left, imageScroll.current.top);
+        imageReady.current = true;
+    }, []);
+    (0, react_1.useLayoutEffect)(() => { imageReady.current = false; }, [open, owner, item.source, item.relativeTo, item.gitDiff]);
     const actionGeneration = (0, react_1.useRef)(0);
     const [actionError, setActionError] = (0, react_1.useState)(''), [nativeBusy, setNativeBusy] = (0, react_1.useState)(false), [copied, setCopied] = (0, react_1.useState)(false);
     (0, react_1.useEffect)(() => { if (!copied)
@@ -973,6 +1007,8 @@ function FilePane({ item, open, sessionId, client }) {
     (0, react_1.useEffect)(() => {
         actionGeneration.current++;
         setNativeBusy(false);
+        imageScroll.current = { left: 0, top: 0 };
+        imageReady.current = false;
         setFile(undefined);
         setError('');
         setActionError('');
@@ -988,6 +1024,8 @@ function FilePane({ item, open, sessionId, client }) {
                 const metadata = await client.inspect(owner, item.source, controller.signal, item.relativeTo, revision).catch(() => undefined);
                 if (controller.signal.aborted)
                     return undefined;
+                if (metadata?.preview === 'image' && metadata.width && metadata.height)
+                    return { kind: 'image-fit', path: metadata.path, width: metadata.width, height: metadata.height };
                 if (metadata ? ['unsupported', 'tooLarge'].includes(metadata.preview) : (0, file_types_1.fileType)(item.source).preview === 'none')
                     return { kind: 'info', path: metadata?.path ?? item.source, metadata };
             }
@@ -996,8 +1034,10 @@ function FilePane({ item, open, sessionId, client }) {
             if (controller.signal.aborted || !result)
                 return;
             if (result.kind === 'image') {
-                objectUrl = (0, client_1.imageObjectUrl)(result).url;
-                setFile({ kind: 'image', path: result.path, url: objectUrl, width: result.width, height: result.height });
+                // Keep only bounded compressed bytes in a retained tab. Reopening must
+                // not require a healthy Host or a still-existing workspace file.
+                const resource = (0, client_1.imageResource)(result);
+                setFile({ kind: 'image', path: result.path, width: result.width, height: result.height, ...resource });
             }
             else if (result.kind === 'pdf') {
                 objectUrl = (0, client_1.pdfObjectUrl)(result);
@@ -1032,16 +1072,18 @@ function FilePane({ item, open, sessionId, client }) {
         }
     };
     return (0, jsx_runtime_1.jsxs)("section", { className: "xhfile-pane", "data-file-page-state": open ? 'visible' : 'retained', "aria-label": label('文件预览', 'File preview'), children: [(0, jsx_runtime_1.jsxs)("header", { className: "xhfile-toolbar", children: [(0, jsx_runtime_1.jsx)("span", { className: "xhfile-path", title: path, children: path }), !item.gitDiff && client.canReveal(path) && (0, jsx_runtime_1.jsx)("button", { type: "button", disabled: nativeBusy, onClick: () => { void nativeAction('reveal'); }, children: label('在文件夹中显示', 'Show in folder') }), !item.gitDiff && client.canOpenExternal(path) && (0, jsx_runtime_1.jsx)("button", { type: "button", disabled: nativeBusy, onClick: () => { void nativeAction('open'); }, children: label('默认应用打开', 'Open with default app') }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => { void (0, dsh_client_ui_primitives_1.writeClipboard)(path).then(ok => { setCopied(ok); setActionError(ok ? '' : label('路径复制失败', 'Could not copy path')); }); }, children: copied ? label('路径已复制', 'Path copied') : label('复制路径', 'Copy path') }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setRevision(value => value + 1), "aria-label": label('刷新文件', 'Refresh file'), children: "\u21BB" }), item.gitDiff && (0, jsx_runtime_1.jsxs)("select", { "aria-label": label('差异范围', 'Diff scope'), value: item.gitDiff, onChange: event => { const scope = file_display_1.GitDiffScopeSchema.safeParse(event.target.value); if (scope.success && owner)
-                            openDisplayFile(item.source, owner, undefined, scope.data); }, children: [(0, jsx_runtime_1.jsx)("option", { value: "working", children: label('未暂存', 'Unstaged') }), (0, jsx_runtime_1.jsx)("option", { value: "staged", children: label('已暂存', 'Staged') }), (0, jsx_runtime_1.jsx)("option", { value: "head", children: label('相对 HEAD', 'Against HEAD') })] }), (file?.kind === 'markdown' || html !== undefined) && (0, jsx_runtime_1.jsx)("button", { type: "button", "aria-pressed": source, onClick: () => setSource(value => !value), children: source ? label('预览', 'Preview') : label('源码', 'Source') }), file?.kind === 'image' && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(value => Math.max(25, (value || 100) - 25)), "aria-label": label('缩小', 'Zoom out'), children: "\u2212" }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(0), children: zoom ? `${zoom}%` : label('适应', 'Fit') }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(value => Math.min(400, (value || 100) + 25)), "aria-label": label('放大', 'Zoom in'), children: "+" })] })] }), actionError && (0, jsx_runtime_1.jsx)("p", { className: "xhfile-action-error", role: "alert", children: actionError }), (0, jsx_runtime_1.jsx)("div", { className: "xhfile-body", "data-diff": file?.kind === 'diff' || undefined, "data-document": file?.kind === 'pdf' || html !== undefined && !source || undefined, children: !owner ? (0, jsx_runtime_1.jsx)("p", { role: "alert", children: label('请选择一个会话后打开文件', 'Select a conversation before opening files') })
+                            openDisplayFile(item.source, owner, undefined, scope.data); }, children: [(0, jsx_runtime_1.jsx)("option", { value: "working", children: label('未暂存', 'Unstaged') }), (0, jsx_runtime_1.jsx)("option", { value: "staged", children: label('已暂存', 'Staged') }), (0, jsx_runtime_1.jsx)("option", { value: "head", children: label('相对 HEAD', 'Against HEAD') })] }), (file?.kind === 'markdown' || html !== undefined) && (0, jsx_runtime_1.jsx)("button", { type: "button", "aria-pressed": source, onClick: () => setSource(value => !value), children: source ? label('预览', 'Preview') : label('源码', 'Source') }), (file?.kind === 'image' || file?.kind === 'image-fit') && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(value => Math.max(25, (value || 100) - 25)), "aria-label": label('缩小', 'Zoom out'), children: "\u2212" }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(0), children: zoom ? `${zoom}%` : label('适应', 'Fit') }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(value => Math.min(400, (value || 100) + 25)), "aria-label": label('放大', 'Zoom in'), children: "+" })] })] }), actionError && (0, jsx_runtime_1.jsx)("p", { className: "xhfile-action-error", role: "alert", children: actionError }), (0, jsx_runtime_1.jsx)("div", { ref: body, onScroll: () => { const element = body.current; if (open && (file?.kind === 'image' || file?.kind === 'image-fit') && imageReady.current && element)
+                    imageScroll.current = { left: element.scrollLeft, top: element.scrollTop }; }, className: "xhfile-body", "data-diff": file?.kind === 'diff' || undefined, "data-document": file?.kind === 'pdf' || html !== undefined && !source || undefined, children: !owner ? (0, jsx_runtime_1.jsx)("p", { role: "alert", children: label('请选择一个会话后打开文件', 'Select a conversation before opening files') })
                     : error ? (0, jsx_runtime_1.jsxs)("div", { role: "alert", children: [(0, jsx_runtime_1.jsx)("p", { children: label('此文件暂时无法内置预览，可以在文件夹中查看或使用默认应用打开。', 'This file cannot be previewed here. Show it in its folder or open with the default app.') }), (0, jsx_runtime_1.jsxs)("details", { children: [(0, jsx_runtime_1.jsx)("summary", { children: label('详情', 'Details') }), (0, jsx_runtime_1.jsx)("p", { children: error })] }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setRevision(value => value + 1), children: label('重试', 'Retry') })] })
                         : !file ? (0, jsx_runtime_1.jsx)("p", { role: "status", children: label('加载文件…', 'Loading file…') })
                             : file.kind === 'info' ? (0, jsx_runtime_1.jsxs)("div", { className: "xhfile-info", children: [(0, jsx_runtime_1.jsx)("p", { children: file.metadata?.preview === 'tooLarge' ? label('文件超过内置预览大小限制。', 'Too large for built-in preview.') : label('此格式暂不支持内置预览。', 'This format has no built-in preview.') }), (0, jsx_runtime_1.jsx)("p", { children: file.metadata ? (0, file_types_1.formatFileSize)(file.metadata.bytes) : '' }), (0, jsx_runtime_1.jsx)("p", { children: label('可以使用顶部的打开选项，或复制路径。', 'Use the opening options above, or copy the path.') })] })
-                                : file.kind === 'image' ? (0, jsx_runtime_1.jsxs)("div", { className: "xhfile-image", children: [(0, jsx_runtime_1.jsx)("img", { src: file.url, alt: file.path.split(/[\\/]/).at(-1), style: zoom ? { width: `${file.width * zoom / 100}px`, maxWidth: 'none' } : undefined, decoding: "async" }), (0, jsx_runtime_1.jsxs)("small", { children: [file.width, " \u00D7 ", file.height] })] })
-                                    : file.kind === 'pdf' ? (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("p", { className: "xhfile-preview-note", children: label('PDF 预览 · 如无法显示，请使用默认应用打开', 'PDF preview · If unavailable, use the default app') }), (0, jsx_runtime_1.jsx)("iframe", { className: "xhfile-document", title: label('PDF 预览', 'PDF preview'), src: file.url, referrerPolicy: "no-referrer" })] })
-                                        : file.kind === 'diff' ? (0, jsx_runtime_1.jsx)(DiffPreview_1.DiffPreview, { file: file })
-                                            : file.kind === 'markdown' && !source ? (0, jsx_runtime_1.jsx)(MarkdownFile, { file: file, sessionId: owner, client: client })
-                                                : html !== undefined && !source ? (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("p", { className: "xhfile-preview-note", children: label('静态预览 · 不执行脚本或加载外部资源', 'Static preview · Scripts and external resources are disabled') }), (0, jsx_runtime_1.jsx)("iframe", { className: "xhfile-document", title: label('HTML 预览', 'HTML preview'), sandbox: "", srcDoc: html, referrerPolicy: "no-referrer" })] })
-                                                    : (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.CodeBlock, { code: file.text, lang: file.kind === 'markdown' ? 'markdown' : (0, client_1.codeLanguage)(file.path) }) }, revision)] });
+                                : file.kind === 'image-fit' ? (0, jsx_runtime_1.jsx)(FittedImagePreview_1.FittedImagePreview, { path: file.path, sessionId: owner, client: client, open: open, zoom: zoom, ready: restoreImageScroll, zh: zh() }, revision)
+                                    : file.kind === 'image' ? (0, jsx_runtime_1.jsx)(ImagePreview_1.ImagePreview, { image: file, zoom: zoom, ready: restoreImageScroll, zh: zh(), active: open || !file.canSuspend }, revision)
+                                        : file.kind === 'pdf' ? (0, jsx_runtime_1.jsx)(PdfPreview_1.PdfPreview, { url: file.url, zh: zh() })
+                                            : file.kind === 'diff' ? (0, jsx_runtime_1.jsx)(DiffPreview_1.DiffPreview, { file: file })
+                                                : file.kind === 'markdown' && !source ? (0, jsx_runtime_1.jsx)(MarkdownFile, { file: file, sessionId: owner, client: client, open: open })
+                                                    : html !== undefined && !source ? (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("p", { className: "xhfile-preview-note", children: label('静态预览 · 不执行脚本或加载外部资源', 'Static preview · Scripts and external resources are disabled') }), (0, jsx_runtime_1.jsx)("iframe", { className: "xhfile-document", title: label('HTML 预览', 'HTML preview'), sandbox: "", srcDoc: html, referrerPolicy: "no-referrer" })] })
+                                                        : (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.CodeBlock, { code: file.text, lang: file.kind === 'markdown' ? 'markdown' : (0, client_1.codeLanguage)(file.path) }) }, revision)] });
 }
 
 },
@@ -1050,14 +1092,16 @@ function FilePane({ item, open, sessionId, client }) {
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.GitDiffScopeSchema = exports.DisplayThumbnailSchema = exports.DisplayReadSchema = exports.DisplayPreviewKindSchema = exports.DisplayOpenSchema = exports.DisplayInspectionSchema = exports.DisplayInspectSchema = exports.DisplayFileSchema = exports.DisplayDiffSourceSchema = exports.FILE_DISPLAY_SCHEMA_SHA256 = exports.FILE_DISPLAY_CONTRACT = void 0;
+exports.GitDiffScopeSchema = exports.DisplayThumbnailSchema = exports.DisplayReadSchema = exports.DisplayPreviewKindSchema = exports.DisplayOpenSchema = exports.DisplayInspectionSchema = exports.DisplayInspectSchema = exports.DisplayImageReadSchema = exports.DisplayImageSchema = exports.DisplayFileSchema = exports.DisplayDiffSourceSchema = exports.FILE_DISPLAY_SCHEMA_SHA256 = exports.FILE_DISPLAY_CONTRACT = void 0;
 // GENERATED from crates/xharness-api/src/display.rs. Do not edit.
 // Run the remote Rust exporter, then scripts/generate-file-display-contract.mjs.
 const zod_1 = require("zod");
 exports.FILE_DISPLAY_CONTRACT = "xharness-file-display-v1";
-exports.FILE_DISPLAY_SCHEMA_SHA256 = "b4c98a1027088c93e600b3b31461bcf4ca51d376159be93bbe1d227edc9cbd5d";
+exports.FILE_DISPLAY_SCHEMA_SHA256 = "3587fea156b25e515f7af9d52fb22064b0dc04daf0228b1a01cd0424927aa6a6";
 exports.DisplayDiffSourceSchema = zod_1.z.lazy(() => zod_1.z.union([zod_1.z.literal("patch"), zod_1.z.literal("working"), zod_1.z.literal("staged"), zod_1.z.literal("head")]));
 exports.DisplayFileSchema = zod_1.z.lazy(() => zod_1.z.union([zod_1.z.strictObject({ "kind": zod_1.z.literal("markdown"), "path": zod_1.z.string(), "text": zod_1.z.string() }), zod_1.z.strictObject({ "kind": zod_1.z.literal("text"), "path": zod_1.z.string(), "text": zod_1.z.string() }), zod_1.z.strictObject({ "kind": zod_1.z.literal("diff"), "path": zod_1.z.string(), "source": exports.DisplayDiffSourceSchema, "text": zod_1.z.string() }), zod_1.z.strictObject({ "dataBase64": zod_1.z.string(), "kind": zod_1.z.literal("pdf"), "path": zod_1.z.string() }), zod_1.z.strictObject({ "dataBase64": zod_1.z.string(), "height": zod_1.z.number().int().min(0).max(4294967295).min(0), "kind": zod_1.z.literal("image"), "mediaType": zod_1.z.string(), "path": zod_1.z.string(), "width": zod_1.z.number().int().min(0).max(4294967295).min(0) })]));
+exports.DisplayImageSchema = zod_1.z.lazy(() => zod_1.z.strictObject({ "dataBase64": zod_1.z.string(), "height": zod_1.z.number().int().min(0).max(4294967295).min(0), "mediaType": zod_1.z.string(), "original": zod_1.z.boolean(), "path": zod_1.z.string(), "sourceHeight": zod_1.z.number().int().min(0).max(4294967295).min(0), "sourceId": zod_1.z.string(), "sourceWidth": zod_1.z.number().int().min(0).max(4294967295).min(0), "width": zod_1.z.number().int().min(0).max(4294967295).min(0) }));
+exports.DisplayImageReadSchema = zod_1.z.lazy(() => zod_1.z.strictObject({ "expectedSourceId": zod_1.z.union([zod_1.z.string(), zod_1.z.null()]).optional(), "maxHeight": zod_1.z.number().int().min(0).max(4294967295).min(0), "maxWidth": zod_1.z.number().int().min(0).max(4294967295).min(0), "original": zod_1.z.boolean().optional(), "path": zod_1.z.string(), "relativeTo": zod_1.z.union([zod_1.z.string(), zod_1.z.null()]).optional(), "sessionId": zod_1.z.string() }));
 exports.DisplayInspectSchema = zod_1.z.lazy(() => zod_1.z.strictObject({ "path": zod_1.z.string(), "sessionId": zod_1.z.string(), "thumbnail": zod_1.z.boolean().optional() }));
 exports.DisplayInspectionSchema = zod_1.z.lazy(() => zod_1.z.strictObject({ "bytes": zod_1.z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).min(0), "height": zod_1.z.union([zod_1.z.number().int().min(0).max(4294967295).min(0), zod_1.z.null()]).optional(), "modifiedMs": zod_1.z.union([zod_1.z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).min(0), zod_1.z.null()]).optional(), "path": zod_1.z.string(), "preview": exports.DisplayPreviewKindSchema, "thumbnail": zod_1.z.union([exports.DisplayThumbnailSchema, zod_1.z.null()]).optional(), "width": zod_1.z.union([zod_1.z.number().int().min(0).max(4294967295).min(0), zod_1.z.null()]).optional() }));
 exports.DisplayOpenSchema = zod_1.z.lazy(() => zod_1.z.strictObject({ "gitDiff": zod_1.z.union([exports.GitDiffScopeSchema, zod_1.z.null()]).optional(), "path": zod_1.z.string(), "sessionId": zod_1.z.string() }));
@@ -1167,7 +1211,7 @@ function DiffPreview({ file }) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.inspectPatch = inspectPatch;
 exports.splitRows = splitRows;
-// File framing is presentation-only; coordinates reuse Code Review's strict parser.
+// File framing is presentation-only; coordinates reuse the shared strict hunk parser.
 const hunks_1 = require("../../shared/diff/hunks");
 const strip = (path) => path?.replace(/^[ab]\//, '');
 /** Decode Git's quoted filename bytes, without interpreting them as links. */
@@ -1458,6 +1502,7 @@ function diffRows(patch) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.isHtmlPath = exports.codeLanguage = exports.ResourceBudget = exports.FileDisplayClient = exports.MAX_TEXT_BYTES = exports.MAX_IMAGE_BYTES = void 0;
 exports.localResource = localResource;
+exports.imageResource = imageResource;
 exports.imageObjectUrl = imageObjectUrl;
 exports.pdfObjectUrl = pdfObjectUrl;
 exports.staticHtmlDocument = staticHtmlDocument;
@@ -1480,6 +1525,33 @@ class FileDisplayClient {
     canReveal(path) { return this.canOpenExternal(path) && this.external?.canReveal?.() === true && this.external.reveal !== undefined; }
     async reveal(path) { if (!this.external?.reveal || !this.canReveal(path))
         throw new Error('Showing in folder is unavailable'); await this.external.reveal(path); }
+    async imagePreview(sessionId, path, signal, size, original = false, expectedSourceId, relativeTo) {
+        const { width, height } = size;
+        if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1 || width > 4096 || height > 4096 || width * height > 4 * 1024 * 1024)
+            throw Error('Invalid image preview dimensions');
+        const response = await this.rpc.call('/api', 'display/image-preview', { sessionId, path, maxWidth: width, maxHeight: height, original, ...expectedSourceId === undefined ? {} : { expectedSourceId }, ...relativeTo === undefined ? {} : { relativeTo } }, AbortSignal.any([signal, AbortSignal.timeout(20000)]));
+        if (!response.ok)
+            throw Error(response.error.message);
+        const image = file_display_1.DisplayImageSchema.parse(response.value);
+        if (!validBase64(image.dataBase64) || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(image.mediaType) || image.path.length === 0 || image.path.length > 4096 || image.sourceId.length === 0 || image.sourceId.length > 128 || image.original !== original || [image.width, image.height, image.sourceWidth, image.sourceHeight].some(n => n < 1) || image.sourceWidth * image.sourceHeight > 16 * 1024 * 1024 || image.width * image.height > 16 * 1024 * 1024 || (!original && (image.width > width || image.height > height || image.mediaType !== 'image/png')) || expectedSourceId !== undefined && image.sourceId !== expectedSourceId)
+            throw Error('Invalid image preview response');
+        if (image.width > image.sourceWidth || image.height > image.sourceHeight)
+            throw Error('Upscaled image preview response');
+        if (!original) {
+            const scale = Math.min(1, width / image.sourceWidth, height / image.sourceHeight);
+            if (Math.abs(image.width - image.sourceWidth * scale) > 1 || Math.abs(image.height - image.sourceHeight * scale) > 1)
+                throw Error('Incomplete image preview dimensions');
+            const binary = atob(image.dataBase64);
+            if (binary.length < 24 || [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82].some((byte, index) => binary.charCodeAt(index) !== byte))
+                throw Error('Invalid preview PNG header');
+            const header = new DataView(Uint8Array.from(binary.slice(16, 24), char => char.charCodeAt(0)).buffer);
+            if (header.getUint32(0) !== image.width || header.getUint32(4) !== image.height)
+                throw Error('Mismatched preview PNG dimensions');
+        }
+        else if (image.width !== image.sourceWidth || image.height !== image.sourceHeight)
+            throw Error('Invalid original dimensions');
+        return image;
+    }
     async read(sessionId, path, signal, relativeTo, gitDiff) {
         const response = await this.rpc.call('/api', 'display/read', { sessionId, path, ...relativeTo === undefined ? {} : { relativeTo }, ...gitDiff === undefined ? {} : { gitDiff } }, AbortSignal.any([signal, AbortSignal.timeout(20000)]));
         if (!response.ok)
@@ -1513,12 +1585,36 @@ function localResource(raw) {
         return undefined;
     }
 }
-function imageObjectUrl(file) {
+/** Retain compressed bytes separately from a visible decoder/URL lease. Unknown
+ * or animated formats keep their existing mounted lifetime to preserve playback. */
+function imageResource(file) {
     const binary = atob(file.dataBase64);
     if (binary.length === 0 || binary.length > exports.MAX_IMAGE_BYTES)
         throw new Error('Invalid image byte length');
     const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-    return { url: URL.createObjectURL(new Blob([bytes], { type: file.mediaType })), bytes: bytes.length };
+    const canSuspend = file.mediaType === 'image/jpeg' ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255 : file.mediaType === 'image/png' && stillPng(bytes);
+    return { blob: new Blob([bytes], { type: file.mediaType }), canSuspend };
+}
+function stillPng(bytes) {
+    if ([137, 80, 78, 71, 13, 10, 26, 10].some((value, index) => bytes[index] !== value))
+        return false;
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    for (let offset = 8; offset + 12 <= bytes.length;) {
+        const length = view.getUint32(offset), end = offset + length + 12;
+        if (end > bytes.length)
+            return false;
+        const kind = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8));
+        if (kind === 'acTL')
+            return false;
+        if (kind === 'IEND')
+            return length === 0 && end === bytes.length;
+        offset = end;
+    }
+    return false;
+}
+function imageObjectUrl(file) {
+    const { blob } = imageResource(file);
+    return { url: URL.createObjectURL(blob), bytes: blob.size };
 }
 /** A single Markdown preview owns a bounded resource budget; no global cache. */
 class ResourceBudget {
@@ -1735,6 +1831,156 @@ function abbreviateHomePath(path, home) {
     if (path.startsWith(`${root}/`))
         return `~${path.slice(root.length)}`;
     return path;
+}
+
+},
+"src/modules/browser/file-display/ImagePreview.js": function(module, exports, require) {
+// source: src/modules/browser/file-display/ImagePreview.tsx
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ImagePreview = ImagePreview;
+const jsx_runtime_1 = require("react/jsx-runtime");
+const react_1 = require("react");
+const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
+/** A retained tab owns the URL, not each hide/show cycle. Inactive raster URLs
+ * are globally bounded/evictable and stay charged until actual URL disposal. */
+function ImagePreview({ image, zoom, ready, zh, active = true, owner: externalOwner }) {
+    const [localOwner] = (0, react_1.useState)(() => Symbol('workspace-image'));
+    const owner = externalOwner ?? localOwner;
+    const [url, setUrl] = (0, react_1.useState)(), [error, setError] = (0, react_1.useState)(''), [attempt, setAttempt] = (0, react_1.useState)(0);
+    (0, react_1.useEffect)(() => () => { if (!externalOwner)
+        dsh_client_ui_primitives_1.imageUrlPool.dispose(owner); }, [owner, externalOwner]);
+    (0, react_1.useEffect)(() => {
+        setUrl(undefined);
+        setError('');
+        if (!active)
+            return;
+        try {
+            const lease = dsh_client_ui_primitives_1.imageUrlPool.acquire(owner, image.blob, image.decodedWidth ?? image.width, image.decodedHeight ?? image.height);
+            if (!lease) {
+                setError(zh ? '图片预览预算已满，关闭其他预览后重试' : 'Image preview budget reached; close other previews and retry');
+                return;
+            }
+            setUrl(lease.url);
+            return () => lease.release();
+        }
+        catch (error) {
+            setError(error instanceof Error ? error.message : String(error));
+        }
+    }, [image.blob, image.width, image.height, image.decodedWidth, image.decodedHeight, active, owner, attempt, zh]);
+    if (!active)
+        return null;
+    if (error)
+        return (0, jsx_runtime_1.jsxs)("div", { role: "alert", children: [(0, jsx_runtime_1.jsx)("p", { children: error }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setAttempt(value => value + 1), children: zh ? '重试' : 'Retry' })] });
+    if (!url)
+        return null;
+    return (0, jsx_runtime_1.jsxs)("div", { className: "xhfile-image", children: [(0, jsx_runtime_1.jsx)("img", { src: url, alt: image.path.split(/[\\/]/).at(-1), style: zoom ? { width: `${image.width * zoom / 100}px`, maxWidth: 'none' } : image.displayWidth === undefined ? undefined : { width: image.displayWidth, maxWidth: '100%' }, decoding: "async", onError: () => { dsh_client_ui_primitives_1.imageUrlPool.dispose(owner); setError(zh ? '图片解码失败；可刷新文件后重试' : 'Image decode failed; refresh the file and retry'); }, onLoad: ready }), (0, jsx_runtime_1.jsxs)("small", { children: [image.width, " \u00D7 ", image.height] })] });
+}
+
+},
+"src/modules/browser/file-display/FittedImagePreview.js": function(module, exports, require) {
+// source: src/modules/browser/file-display/FittedImagePreview.tsx
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.FittedImagePreview = FittedImagePreview;
+const jsx_runtime_1 = require("react/jsx-runtime");
+const react_1 = require("react");
+const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
+const client_1 = require("./client");
+const ImagePreview_1 = require("./ImagePreview");
+/** Fit reads are physically sized for the panel AND DPR. Explicit zoom is never
+ * synthesized by enlarging the derivative; it requests the byte-exact original.
+ * Only bounded compressed snapshots/URLs survive hiding, not raster DOM. */
+function FittedImagePreview({ path, sessionId, client, open, zoom, ready, zh }) {
+    const frame = (0, react_1.useRef)(null), [owner] = (0, react_1.useState)(() => Symbol('workspace-raster-snapshot'));
+    const [size, setSize] = (0, react_1.useState)({ width: 0, height: 0, dpr: 1 }), [fit, setFit] = (0, react_1.useState)(), [original, setOriginal] = (0, react_1.useState)(), [error, setError] = (0, react_1.useState)(''), [attempt, setAttempt] = (0, react_1.useState)(0), [forceOriginal, setForceOriginal] = (0, react_1.useState)(false), [loading, setLoading] = (0, react_1.useState)(false);
+    (0, react_1.useEffect)(() => () => dsh_client_ui_primitives_1.imageUrlPool.dispose(owner), [owner]);
+    (0, react_1.useLayoutEffect)(() => {
+        const parent = frame.current?.parentElement;
+        if (!parent || !open)
+            return;
+        let timer;
+        const measure = () => { const width = Math.floor(parent.clientWidth - 40), height = Math.floor(parent.clientHeight - 76); if (width < 1 || height < 1)
+            return; const dpr = window.devicePixelRatio || 1; setSize({ width, height, dpr }); };
+        const later = () => { window.clearTimeout(timer); timer = window.setTimeout(measure, 180); };
+        const observer = new ResizeObserver(later);
+        observer.observe(parent);
+        window.addEventListener('resize', later);
+        const density = window.matchMedia(`(resolution: ${size.dpr}dppx)`);
+        density.addEventListener('change', later);
+        measure();
+        return () => { window.clearTimeout(timer); observer.disconnect(); window.removeEventListener('resize', later); density.removeEventListener('change', later); };
+    }, [open, size.dpr]);
+    const physicalWidth = Math.max(1, Math.ceil(size.width * size.dpr)), physicalHeight = Math.max(1, Math.ceil(size.height * size.dpr));
+    const wantsOriginal = forceOriginal || zoom > 0 || physicalWidth > 4096 || physicalHeight > 4096 || physicalWidth * physicalHeight > 4 * 1024 * 1024;
+    const width = wantsOriginal ? 1 : physicalWidth, height = wantsOriginal ? 1 : physicalHeight;
+    (0, react_1.useEffect)(() => {
+        if (!open || !size.width)
+            return;
+        const source = fit ?? original, scale = source ? Math.min(1, width / source.width, height / source.height) : 0;
+        if (wantsOriginal ? original !== undefined : fit !== undefined && fit.decodedWidth + 1 >= fit.width * scale && fit.decodedHeight + 1 >= fit.height * scale) {
+            setError('');
+            setLoading(false);
+            return;
+        }
+        const controller = new AbortController();
+        setLoading(true);
+        setError('');
+        void dsh_client_ui_primitives_1.imageReadQueue.run(async () => {
+            try {
+                const response = await client.imagePreview(sessionId, path, controller.signal, { width, height }, wantsOriginal, source?.sourceId);
+                const resource = (0, client_1.imageResource)({ kind: 'image', path: response.path, mediaType: response.mediaType, dataBase64: response.dataBase64, width: response.width, height: response.height });
+                return { ...resource, path: response.path, width: response.sourceWidth, height: response.sourceHeight, decodedWidth: response.width, decodedHeight: response.height, sourceId: response.sourceId, original: response.original };
+            }
+            catch (error) {
+                // An older Host or unsupported color/animation keeps an explicit
+                // original-open action. Never silently load it as a small fit preview.
+                if (!wantsOriginal || source?.sourceId || controller.signal.aborted)
+                    throw error;
+                const file = await client.read(sessionId, path, controller.signal);
+                if (file.kind !== 'image')
+                    throw Error('Not an image');
+                return { ...(0, client_1.imageResource)(file), path: file.path, width: file.width, height: file.height, decodedWidth: file.width, decodedHeight: file.height, original: true };
+            }
+        }, controller.signal, true).then(image => {
+            if (controller.signal.aborted)
+                return;
+            if (image.original)
+                setOriginal(image);
+            else
+                setFit(image);
+            setLoading(false);
+        }).catch((error) => { if (!controller.signal.aborted) {
+            setError(error instanceof Error ? error.message : String(error));
+            setLoading(false);
+        } });
+        return () => controller.abort();
+    }, [client, sessionId, path, open, width, height, wantsOriginal, attempt, fit, original, size.width]);
+    const selected = wantsOriginal ? (original ?? fit) : (fit ?? original);
+    const show = open || selected?.canSuspend === false;
+    // Physical derivative pixels must not become CSS pixels for height-limited
+    // portrait images on Retina. Keep small originals at their intrinsic CSS size.
+    const display = selected ? { ...selected, displayWidth: selected.width * Math.min(1, size.width / selected.width, size.height / selected.height) } : undefined;
+    return (0, jsx_runtime_1.jsxs)("div", { ref: frame, className: "xhfile-raster-stage", "data-raster-quality": selected?.original ? 'original' : 'fit', children: [selected && display && (0, jsx_runtime_1.jsx)(ImagePreview_1.ImagePreview, { image: display, zoom: selected.original ? zoom : 0, ready: ready, zh: zh, active: show, owner: owner }), open && loading && (0, jsx_runtime_1.jsx)("p", { role: "status", children: zh ? '加载清晰预览…' : 'Loading sharp preview…' }), open && error && (0, jsx_runtime_1.jsxs)("div", { role: "alert", children: [(0, jsx_runtime_1.jsx)("p", { children: error }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setAttempt(value => value + 1), children: zh ? '重试' : 'Retry' }), " ", (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => { setForceOriginal(true); setAttempt(value => value + 1); }, children: zh ? '查看原图' : 'Open original' })] })] });
+}
+
+},
+"src/modules/browser/file-display/PdfPreview.js": function(module, exports, require) {
+// source: src/modules/browser/file-display/PdfPreview.tsx
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.PdfPreview = PdfPreview;
+const jsx_runtime_1 = require("react/jsx-runtime");
+const react_1 = require("react");
+/** Native PDF plugins do not expose a portable trusted reading-position API.
+ * Keep hidden readers intact by default. Explicit pause is the safe opt-in;
+ * resuming reloads the same bounded snapshot and may reset the reader position. */
+function PdfPreview({ url, zh }) {
+    const [paused, setPaused] = (0, react_1.useState)(false);
+    return (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("p", { className: "xhfile-preview-note", children: [zh ? 'PDF 预览 · 暂停可释放预览资源，恢复时阅读位置可能重置' : 'PDF preview · Pausing releases the viewer; resuming may reset reading position', " ", (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setPaused(value => !value), children: paused ? (zh ? '恢复 PDF 预览' : 'Resume PDF preview') : (zh ? '暂停 PDF 预览' : 'Pause PDF preview') })] }), !paused && (0, jsx_runtime_1.jsx)("iframe", { className: "xhfile-document", title: zh ? 'PDF 预览' : 'PDF preview', src: url, referrerPolicy: "no-referrer" })] });
 }
 
 },
@@ -2035,7 +2281,7 @@ function HeadlessPreview(props) {
 
 }
 };
-const __dependencies = {"src/modules/browser/index.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/workspace-dock":"src/modules/shared/workspace-dock.js","./Browser.css":"src/modules/browser/Browser.css","./file-display/FilePane.css":"src/modules/browser/file-display/FilePane.css","./file-display/FilePane":"src/modules/browser/file-display/FilePane.js","./file-display/client":"src/modules/browser/file-display/client.js","../shared/generated/file-display":"src/modules/shared/generated/file-display.js","./model-activity":"src/modules/browser/model-activity.js","./component-picker":"src/modules/browser/component-picker.js","./headless-preview":"src/modules/browser/headless-preview.js"},"src/modules/shared/runtime-types.js":{},"src/modules/shared/workspace-dock.js":{},"src/modules/browser/Browser.css":{},"src/modules/browser/file-display/FilePane.css":{},"src/modules/browser/file-display/FilePane.js":{"../../shared/generated/file-display":"src/modules/shared/generated/file-display.js","../../shared/file-types":"src/modules/shared/file-types.js","./DiffPreview":"src/modules/browser/file-display/DiffPreview.js","./client":"src/modules/browser/file-display/client.js"},"src/modules/shared/generated/file-display.js":{},"src/modules/shared/file-types.js":{},"src/modules/browser/file-display/DiffPreview.js":{"./diff":"src/modules/browser/file-display/diff.js"},"src/modules/browser/file-display/diff.js":{"../../shared/diff/hunks":"src/modules/shared/diff/hunks.js"},"src/modules/shared/diff/hunks.js":{},"src/modules/browser/file-display/client.js":{"../../shared/file-inspection":"src/modules/shared/file-inspection.js","../../client-runtime/workspaces/path":"src/modules/client-runtime/workspaces/path.js","../../shared/file-types":"src/modules/shared/file-types.js","../../shared/generated/file-display":"src/modules/shared/generated/file-display.js"},"src/modules/shared/file-inspection.js":{"./generated/file-display":"src/modules/shared/generated/file-display.js"},"src/modules/client-runtime/workspaces/path.js":{},"src/modules/browser/model-activity.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/browser/component-picker.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/composer-files":"src/modules/shared/composer-files.js"},"src/modules/shared/composer-files.js":{"./runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/browser/headless-preview.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"}};
+const __dependencies = {"src/modules/browser/index.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/workspace-dock":"src/modules/shared/workspace-dock.js","./Browser.css":"src/modules/browser/Browser.css","./file-display/FilePane.css":"src/modules/browser/file-display/FilePane.css","./file-display/FilePane":"src/modules/browser/file-display/FilePane.js","./file-display/client":"src/modules/browser/file-display/client.js","../shared/generated/file-display":"src/modules/shared/generated/file-display.js","./model-activity":"src/modules/browser/model-activity.js","./component-picker":"src/modules/browser/component-picker.js","./headless-preview":"src/modules/browser/headless-preview.js"},"src/modules/shared/runtime-types.js":{},"src/modules/shared/workspace-dock.js":{},"src/modules/browser/Browser.css":{},"src/modules/browser/file-display/FilePane.css":{},"src/modules/browser/file-display/FilePane.js":{"../../shared/generated/file-display":"src/modules/shared/generated/file-display.js","../../shared/file-types":"src/modules/shared/file-types.js","./DiffPreview":"src/modules/browser/file-display/DiffPreview.js","./client":"src/modules/browser/file-display/client.js","./ImagePreview":"src/modules/browser/file-display/ImagePreview.js","./FittedImagePreview":"src/modules/browser/file-display/FittedImagePreview.js","./PdfPreview":"src/modules/browser/file-display/PdfPreview.js"},"src/modules/shared/generated/file-display.js":{},"src/modules/shared/file-types.js":{},"src/modules/browser/file-display/DiffPreview.js":{"./diff":"src/modules/browser/file-display/diff.js"},"src/modules/browser/file-display/diff.js":{"../../shared/diff/hunks":"src/modules/shared/diff/hunks.js"},"src/modules/shared/diff/hunks.js":{},"src/modules/browser/file-display/client.js":{"../../shared/file-inspection":"src/modules/shared/file-inspection.js","../../client-runtime/workspaces/path":"src/modules/client-runtime/workspaces/path.js","../../shared/file-types":"src/modules/shared/file-types.js","../../shared/generated/file-display":"src/modules/shared/generated/file-display.js"},"src/modules/shared/file-inspection.js":{"./generated/file-display":"src/modules/shared/generated/file-display.js"},"src/modules/client-runtime/workspaces/path.js":{},"src/modules/browser/file-display/ImagePreview.js":{},"src/modules/browser/file-display/FittedImagePreview.js":{"./client":"src/modules/browser/file-display/client.js","./ImagePreview":"src/modules/browser/file-display/ImagePreview.js"},"src/modules/browser/file-display/PdfPreview.js":{},"src/modules/browser/model-activity.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/browser/component-picker.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/composer-files":"src/modules/shared/composer-files.js"},"src/modules/shared/composer-files.js":{"./runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/browser/headless-preview.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

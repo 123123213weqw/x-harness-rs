@@ -209,6 +209,7 @@ impl BasicHost {
                         parent_session_id,
                         invocation_id,
                         task,
+                        ..
                     } => Some((parent_session_id, invocation_id, task)),
                     _ => None,
                 });
@@ -233,6 +234,17 @@ impl BasicHost {
                         "source has an unsettled turn; reconcile it before reverting".into(),
                     );
                 }
+                let policy = xharness_session::agent_policy(&source_session)
+                    .map(|state| {
+                        if state.policy.remaining_ms(now_ms())? == Some(0) {
+                            return Err(
+                                "agent timeout_seconds budget exceeded; revert cannot renew it"
+                                    .into(),
+                            );
+                        }
+                        state.for_revert()
+                    })
+                    .transpose()?;
                 let prefix = checkpoint(&source_session, seq)?;
                 let route = crate::restore::restored_route(&prefix, &self.config);
                 let current_route = crate::restore::restored_route(&source_session, &self.config);
@@ -280,6 +292,7 @@ impl BasicHost {
                         parent_session_id: caller.into(),
                         invocation_id: id.into(),
                         task: task.clone(),
+                        policy,
                     }
                     .into(),
                 );

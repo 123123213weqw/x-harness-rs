@@ -4343,6 +4343,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "xharness-sdk"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "futures",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-util",
+ "xharness-agent",
+ "xharness-compaction",
+ "xharness-core",
+ "xharness-host",
+ "xharness-prompt",
+ "xharness-session",
+ "xharness-session-jsonl",
+ "xharness-tools",
+]
+
+[[package]]
 name = "xharness-server"
 version = "0.1.0"
 dependencies = [

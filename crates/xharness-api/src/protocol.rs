@@ -149,6 +149,8 @@ pub struct SessionPromptParams {
 pub struct SessionAttachmentParams {
     pub session_id: String,
     pub attachment_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -577,6 +579,14 @@ pub struct SessionPromptResponse {
 pub struct SessionAttachmentResponse {
     pub attachment: Value,
     pub data: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<AttachmentThumbnailSize>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AttachmentThumbnailSize {
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

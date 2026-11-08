@@ -203,6 +203,103 @@ pub(crate) async fn read_rpc(
         .map_err(|e| RpcError::internal(e.to_string()))
 }
 
+/// Derive only after the existing runtime has authorized/read the workspace file.
+pub(crate) async fn image_rpc(
+    host: &BasicHost,
+    payload: &Value,
+    cancellation: CancellationToken,
+) -> Result<Value, RpcError> {
+    use base64::Engine as _;
+    use xharness_api::display::{DisplayImage, DisplayImageRead};
+    let request: DisplayImageRead = serde_json::from_value(payload.clone())
+        .map_err(|_| RpcError::bad_request("invalid image preview request", json!([])))?;
+    if request.max_width == 0
+        || request.max_height == 0
+        || request.max_width > 4096
+        || request.max_height > 4096
+        || u64::from(request.max_width) * u64::from(request.max_height) > 4 * 1024 * 1024
+        || request
+            .expected_source_id
+            .as_ref()
+            .is_some_and(|id| id.len() > 128)
+    {
+        return Err(RpcError::bad_request(
+            "invalid image preview budget",
+            json!([]),
+        ));
+    }
+    let file = host
+        .read_display_file(
+            DisplayRead {
+                session_id: request.session_id,
+                path: request.path,
+                relative_to: request.relative_to,
+                git_diff: None,
+            },
+            cancellation.clone(),
+        )
+        .await?;
+    let DisplayFile::Image {
+        path,
+        media_type,
+        data_base64,
+        ..
+    } = file
+    else {
+        return Err(RpcError::bad_request("not an image", json!([])));
+    };
+    if data_base64.len() > xharness_api::display::MAX_DISPLAY_IMAGE_BYTES.div_ceil(3) * 4 {
+        return Err(RpcError::bad_request("oversized preview image", json!([])));
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data_base64)
+        .map_err(|_| RpcError::bad_request("invalid image bytes", json!([])))?;
+    let source = xharness_attachments::validate_preview_image(xharness_attachments::Upload {
+        media_type,
+        data: bytes,
+    })
+    .map_err(|_| RpcError::bad_request("invalid preview image", json!([])))?;
+    let source_id = source.reference.id.clone();
+    if request.expected_source_id.is_some_and(|id| id != source_id) {
+        return Err(RpcError::bad_request(
+            "image changed; refresh preview",
+            json!([]),
+        ));
+    }
+    let result = if request.original {
+        let (width, height) = xharness_attachments::thumbnail::oriented_dimensions(&source)
+            .map_err(|_| RpcError::bad_request("invalid image orientation", json!([])))?;
+        DisplayImage {
+            path,
+            media_type: source.reference.media_type.clone(),
+            data_base64: base64::engine::general_purpose::STANDARD.encode(source.data.as_slice()),
+            width,
+            height,
+            source_width: width,
+            source_height: height,
+            source_id,
+            original: true,
+        }
+    } else {
+        let small = tokio::select! {biased; _=cancellation.cancelled()=>return Err(RpcError::bad_request("image preview cancelled",json!([]))), result=xharness_attachments::thumbnail::preview(source,request.max_width,request.max_height)=>result.map_err(|_|RpcError::bad_request("image preview unavailable; retry or open original",json!([])))?};
+        DisplayImage {
+            path,
+            media_type: "image/png".into(),
+            data_base64: base64::engine::general_purpose::STANDARD.encode(small.data),
+            width: small.width,
+            height: small.height,
+            source_width: small.source_width,
+            source_height: small.source_height,
+            source_id,
+            original: false,
+        }
+    };
+    if cancellation.is_cancelled() {
+        return Err(RpcError::bad_request("image preview cancelled", json!([])));
+    }
+    serde_json::to_value(result).map_err(|e| RpcError::internal(e.to_string()))
+}
+
 pub(crate) async fn inspect_rpc(
     host: &BasicHost,
     payload: &Value,
@@ -259,6 +356,9 @@ mod tests {
             self.reads.fetch_add(1, Ordering::SeqCst);
             if let Some(token) = &self.cancel_on_read {
                 token.cancel();
+            }
+            if path.ends_with("controlled.png") {
+                return Ok(DisplayFile::Image{path:path.to_string_lossy().into_owned(),media_type:"image/png".into(),data_base64:"iVBORw0KGgoAAAANSUhEUgAAAAgAAAAECAYAAACzzX7wAAAAEklEQVR4nGPgUbLww4cZaK8AAMAPFoF7ifbsAAAAAElFTkSuQmCC".into(),width:8,height:4});
             }
             // No await: cancellation and successful completion can become
             // Ready in this very poll, without any timers or scheduler race.
@@ -352,6 +452,104 @@ mod tests {
         assert_eq!(runtime.reads.load(Ordering::SeqCst), 1);
     }
 
+    #[tokio::test]
+    async fn adaptive_image_rpc_is_authorized_snapshot_bound_and_byte_exact_on_original() {
+        let (host, runtime) = ready_host(None).await;
+        let request = json!({"sessionId":"s","path":"controlled.png","maxWidth":4,"maxHeight":4});
+        let small = image_rpc(&host, &request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(
+            (small["width"].as_u64(), small["height"].as_u64()),
+            (Some(4), Some(2))
+        );
+        assert_eq!(
+            (
+                small["sourceWidth"].as_u64(),
+                small["sourceHeight"].as_u64()
+            ),
+            (Some(8), Some(4))
+        );
+        assert_eq!(small["original"], false);
+        let mut original = request.clone();
+        original["original"] = json!(true);
+        original["expectedSourceId"] = small["sourceId"].clone();
+        let full = image_rpc(&host, &original, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(full["original"], true);
+        assert_eq!(full["mediaType"], "image/png");
+        assert_eq!(full["sourceId"], small["sourceId"]);
+        let file = host
+            .read_display_file(
+                DisplayRead {
+                    path: "controlled.png".into(),
+                    ..request_for_image()
+                },
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let DisplayFile::Image { data_base64, .. } = file else {
+            panic!("expected controlled image")
+        };
+        assert_eq!(
+            full["dataBase64"], data_base64,
+            "explicit original preserves exact source bytes"
+        );
+        original["expectedSourceId"] = json!("stale-source");
+        assert_eq!(
+            image_rpc(&host, &original, CancellationToken::new())
+                .await
+                .unwrap_err()
+                .message,
+            "image changed; refresh preview"
+        );
+        assert_eq!(runtime.reads.load(Ordering::SeqCst), 4);
+    }
+    fn request_for_image() -> DisplayRead {
+        DisplayRead {
+            session_id: "s".into(),
+            path: "controlled.png".into(),
+            relative_to: None,
+            git_diff: None,
+        }
+    }
+    #[tokio::test]
+    async fn image_rpc_refuses_invalid_budget_unknown_session_fields_and_cancellation_before_read()
+    {
+        let (host, runtime) = ready_host(None).await;
+        for bad in [
+            json!({"sessionId":"s","path":"controlled.png","maxWidth":0,"maxHeight":1}),
+            json!({"sessionId":"s","path":"controlled.png","maxWidth":4096,"maxHeight":4096}),
+            json!({"sessionId":"s","path":"controlled.png","maxWidth":4,"maxHeight":4,"owner":"other"}),
+            json!({"sessionId":"other","path":"controlled.png","maxWidth":4,"maxHeight":4}),
+        ] {
+            assert!(image_rpc(&host, &bad, CancellationToken::new())
+                .await
+                .is_err());
+        }
+        let token = CancellationToken::new();
+        token.cancel();
+        assert!(image_rpc(
+            &host,
+            &json!({"sessionId":"s","path":"controlled.png","maxWidth":4,"maxHeight":4}),
+            token
+        )
+        .await
+        .is_err());
+        assert_eq!(runtime.reads.load(Ordering::SeqCst), 0);
+        let token = CancellationToken::new();
+        let (host, runtime) = ready_host(Some(token.clone())).await;
+        assert!(image_rpc(
+            &host,
+            &json!({"sessionId":"s","path":"controlled.png","maxWidth":4,"maxHeight":4}),
+            token
+        )
+        .await
+        .is_err());
+        assert_eq!(runtime.reads.load(Ordering::SeqCst), 1);
+    }
     #[test]
     fn resource_parent_is_lexical_and_no_root_escape() {
         assert_eq!(

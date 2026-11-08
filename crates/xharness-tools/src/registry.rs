@@ -60,6 +60,22 @@ impl ToolRegistry {
             .collect()
     }
 
+    /// A detached, narrower capability set. Existing registries and their
+    /// handlers are never mutated, so sibling sessions cannot gain/lose tools.
+    pub async fn restricted(&self, names: &std::collections::BTreeSet<String>) -> Self {
+        Self {
+            tools: Arc::new(RwLock::new(
+                self.tools
+                    .read()
+                    .await
+                    .iter()
+                    .filter(|(name, _)| names.contains(*name))
+                    .map(|(name, spec)| (name.clone(), spec.clone()))
+                    .collect(),
+            )),
+        }
+    }
+
     pub async fn len(&self) -> usize {
         self.tools.read().await.len()
     }

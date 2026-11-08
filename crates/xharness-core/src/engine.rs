@@ -744,7 +744,14 @@ impl Runner {
             };
         }
 
-        let outcome = self.run_inner().await;
+        let outcome = self.run_with_execution_deadline().await;
+        let budget_timeout = matches!(&outcome, Err(RunFailure::ExecutionTimeout))
+            || (self.cancellation.is_cancelled()
+                && self.request.execution_deadline_ms.is_some_and(|deadline| {
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .is_ok_and(|now| now.as_millis() >= u128::from(deadline))
+                }));
         let mut provider_failure = None;
         let (mut status, mut error, phase) = match outcome {
             Ok(status) => {
@@ -775,6 +782,15 @@ impl Runner {
                     })
                     .await;
                 (LoopStatus::Failed, Some(message), "failed")
+            }
+            Err(RunFailure::ExecutionTimeout) => {
+                let message = "execution timeout_seconds budget exceeded; work stopped without automatic replay".to_owned();
+                let _ = self
+                    .emit(LoopEventKind::RunFailed {
+                        error: message.clone(),
+                    })
+                    .await;
+                (LoopStatus::Failed, Some(message), "execution_timeout")
             }
             Err(RunFailure::Provider { message, failure }) => {
                 provider_failure = Some(failure);
@@ -813,7 +829,7 @@ impl Runner {
         };
 
         if let Err(journal_error) = self
-            .finalize_journal(status, error.as_deref(), provider_failure)
+            .finalize_journal(status, error.as_deref(), provider_failure, budget_timeout)
             .await
         {
             status = LoopStatus::Failed;
@@ -848,6 +864,42 @@ impl Runner {
         }
     }
 
+    async fn run_with_execution_deadline(&mut self) -> Result<LoopStatus, RunFailure> {
+        let Some(deadline) = self.request.execution_deadline_ms else {
+            return self.run_inner().await;
+        };
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| RunFailure::Failed("execution deadline clock is unavailable".into()))?;
+        let now = u64::try_from(now.as_millis())
+            .map_err(|_| RunFailure::Failed("execution deadline clock overflow".into()))?;
+        let wait = Duration::from_millis(deadline.saturating_sub(now));
+        let cancellation = self.cancellation.clone();
+        if wait.is_zero() {
+            cancellation.cancel();
+            return match self.run_inner().await {
+                Err(RunFailure::Stopped(_)) | Ok(_) => Err(RunFailure::ExecutionTimeout),
+                Err(error) => Err(error),
+            };
+        }
+        let running = self.run_inner();
+        tokio::pin!(running);
+        tokio::select! {
+            biased;
+            _ = tokio::time::sleep(wait) => {
+                cancellation.cancel();
+                // Never drop the future and pretend a side effect stopped. The
+                // existing cancellation path drains tool cleanup and the caller
+                // still owns final journal settlement after this scope returns.
+                match running.await {
+                    Err(RunFailure::Stopped(_)) | Ok(_) => Err(RunFailure::ExecutionTimeout),
+                    Err(error) => Err(error),
+                }
+            }
+            result = &mut running => result,
+        }
+    }
+
     async fn run_inner(&mut self) -> Result<LoopStatus, RunFailure> {
         let has_authoritative_input = self.journal.is_some();
         self.restore_messages().await?;
@@ -859,6 +911,8 @@ impl Runner {
         if has_authoritative_input {
             self.emit(LoopEventKind::InputCommitted).await?;
         }
+
+        self.ensure_running()?;
 
         if let Some(command_id) = self.request.manual_compaction_command_id.clone() {
             return self.run_manual_compaction(&command_id).await;
@@ -4376,6 +4430,7 @@ impl Runner {
         status: LoopStatus,
         error: Option<&str>,
         provider_failure: Option<xharness_session::ProviderFailure>,
+        budget_timeout: bool,
     ) -> Result<(), String> {
         if self.journal.is_none() {
             if status == LoopStatus::Cancelled && self.user_interrupted {
@@ -4384,6 +4439,42 @@ impl Runner {
                 self.messages.push(marker);
             }
             return Ok(());
+        }
+        if budget_timeout {
+            let journal = self.journal.as_ref().expect("journal checked above");
+            let session = journal
+                .store
+                .load(&journal.session_id)
+                .await
+                .map_err(|error| error.to_string())?
+                .ok_or_else(|| "session disappeared during execution timeout".to_owned())?;
+            let mut recovery = Vec::new();
+            for approval in session.pending_tool_approvals() {
+                recovery.push(
+                    SessionEventData::ApprovalDecided {
+                        id: approval.id,
+                        outcome: ApprovalOutcome::Cancelled,
+                    }
+                    .into(),
+                );
+                recovery.push(
+                    SessionEventData::ToolResult {
+                        turn: approval.turn,
+                        step: approval.step,
+                        result: ToolResultData::error(
+                            approval.call_id,
+                            "Tool not executed: child timeout expired before approval.",
+                        ),
+                    }
+                    .into(),
+                );
+            }
+            recovery.extend(session.outcome_unknown_recovery());
+            if !recovery.is_empty() {
+                self.journal_append_events(recovery, true)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
         }
         // Settle orphaned call/result pairs before projecting the interruption marker.
         // Cancellation can stop the batch before its final result commit. Reuse
@@ -4430,7 +4521,7 @@ impl Runner {
         if let Some(journal) = self.journal.as_mut() {
             journal.turn_open = false;
         }
-        if status == LoopStatus::Cancelled && self.user_interrupted {
+        if (status == LoopStatus::Cancelled && self.user_interrupted) || budget_timeout {
             self.reload_journal_messages()
                 .await
                 .map_err(|error| error.to_string())?;
@@ -5886,6 +5977,45 @@ impl Runner {
         for (order, recovered) in recovery.calls.into_iter().enumerate() {
             match recovered.approval {
                 Some(approval) => {
+                    // A restored approval cannot resurrect a revoked capability.
+                    // UnknownTool can fail before the runtime approval bridge is
+                    // entered, so close its durable identity explicitly here.
+                    let unavailable = match &self.request.tool_executor {
+                        Some(executor) => executor
+                            .registry()
+                            .get(&recovered.call.name)
+                            .await
+                            .is_none(),
+                        None => false,
+                    };
+                    if unavailable {
+                        self.journal_approval_decided(&approval.id, ApprovalOutcome::Cancelled)
+                            .await?;
+                        self.emit(LoopEventKind::ToolApprovalResolved {
+                            approval_id: approval.id,
+                            call: recovered.call.clone(),
+                            approved: false,
+                            cancelled: true,
+                            reason: Some("tool capability is no longer available".into()),
+                        })
+                        .await?;
+                        let result = ToolResult::failure(
+                            "Tool not executed: capability is no longer available.",
+                        );
+                        self.emit(LoopEventKind::ToolCompleted {
+                            call: recovered.call.clone(),
+                            result: result.clone(),
+                        })
+                        .await?;
+                        completed[order] = Some(ToolExecution {
+                            order,
+                            call: recovered.call,
+                            outcome: ToolOutcome::Error,
+                            result,
+                            model_text: String::new(),
+                        });
+                        continue;
+                    }
                     recovered_approvals.insert(recovered.call.id.clone(), approval.id);
                     pending.push((order, recovered.call));
                 }
@@ -6172,6 +6302,8 @@ struct ToolExecution {
 
 #[derive(Debug, thiserror::Error)]
 enum RunFailure {
+    #[error("execution timeout_seconds budget exceeded")]
+    ExecutionTimeout,
     #[error("run stopped: {0:?}")]
     Stopped(StopReason),
     #[error("{0}")]
