@@ -96,12 +96,21 @@ fn path_key(component: &str) -> String {
 
 /// Native adapters must additionally certify the destination filesystem's own
 /// name rules. Unsupported names fail capture; they must never be omitted.
-fn validate_path(path: &str) -> CloudResult<()> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CapturePathClass {
+    Include,
+    Exclude,
+}
+
+/// Fixed personal capture policy: validate the original spelling, classify
+/// exclusions BEFORE any native open, and never rewrite the path for I/O.
+pub fn classify_capture_path(path: &str) -> CloudResult<CapturePathClass> {
     if path.is_empty() || path.len() > 4096 || path.split('/').count() > MAX_SYNC_PATH_COMPONENTS {
         return Err(invalid(
             "workspace sync requires a bounded portable relative path",
         ));
     }
+    let mut excluded = false;
     for part in path.split('/') {
         if part.is_empty()
             || part == "."
@@ -157,12 +166,23 @@ fn validate_path(path: &str) -> CloudResult<()> {
                 .iter()
                 .any(|s| lower.ends_with(s))
         {
-            return Err(invalid(
-                "workspace sync contains a protected or excluded path",
-            ));
+            excluded = true;
         }
     }
-    Ok(())
+    Ok(if excluded {
+        CapturePathClass::Exclude
+    } else {
+        CapturePathClass::Include
+    })
+}
+
+fn validate_path(path: &str) -> CloudResult<()> {
+    match classify_capture_path(path)? {
+        CapturePathClass::Include => Ok(()),
+        CapturePathClass::Exclude => Err(invalid(
+            "workspace sync contains a protected or excluded path",
+        )),
+    }
 }
 
 /// Immutable regular-file manifest. Capture adapters apply exclusions BEFORE
@@ -271,17 +291,35 @@ impl Serialize for WorkspaceManifest {
 }
 
 fn validate_tree<'a>(paths: impl IntoIterator<Item = &'a str>) -> CloudResult<()> {
+    validate_tree_entries(paths.into_iter().map(|path| (path, false)), false)
+}
+
+/// Validate directories too, including empty ones which are absent from a
+/// regular-file manifest. bool=true denotes a directory, not a file.
+pub fn validate_capture_tree<'a>(
+    paths: impl IntoIterator<Item = (&'a str, bool)>,
+) -> CloudResult<()> {
+    validate_tree_entries(paths, true)
+}
+
+fn validate_tree_entries<'a>(
+    paths: impl IntoIterator<Item = (&'a str, bool)>,
+    validate_names: bool,
+) -> CloudResult<()> {
     struct Node {
         spelling: String,
         file: bool,
         children: BTreeMap<String, Node>,
     }
     let mut roots = BTreeMap::<String, Node>::new();
-    for path in paths {
+    for (path, directory) in paths {
+        if validate_names {
+            validate_path(path)?;
+        }
         let mut parts = path.split('/').peekable();
         let mut siblings = &mut roots;
         while let Some(part) = parts.next() {
-            let file = parts.peek().is_none();
+            let file = parts.peek().is_none() && !directory;
             let node = siblings.entry(path_key(part)).or_insert_with(|| Node {
                 spelling: part.into(),
                 file,

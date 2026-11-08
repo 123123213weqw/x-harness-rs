@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Add bounded read-only native inventory, isolated POSIX directory FFI, fixed pre-open policy/full-hash provenance and additive native fault CI; enroll every new seam in compiler error fences.",
+  "compatibility": "No dependency versions/lock changes or existing tool/wire/UI/execution ownership changes. No writes, deletions or migration. Linux/macOS require native coverage; Windows unavailable. Additive CI only, no gate weakened.",
+  "paths": {
+    ".github/workflows/ci.yml": {
+      "before": "e3225ff2919dae2015dcbeb6d436319a784c8041f67ae6551fffb549b2543371",
+      "after": "7d6e6e4ce47b2651687a2d7b0c2e49237028496f2151176a0414ca56cd427877"
+    },
+    "crates/xharness-fs/Cargo.toml": {
+      "before": "c21bc89973bc9dc8373bc5278c7335d7113b1c45b50145f9efb1e6e0f1fc6a78",
+      "after": "82efbdca114a7861ecae42c4ede3abe3cb3d831b9bb40d8c6ba34ffe67193697"
+    },
+    "crates/xharness-fs/src/directory_stream.rs": {
+      "before": null,
+      "after": "876b9ae4eb2c6a141bfbc414056b8134b5877c9938ae89540f14680209359226"
+    },
+    "crates/xharness-fs/src/inventory.rs": {
+      "before": null,
+      "after": "becfb5e6010571412c769c658880d28610c0b67a13c5f48fa7c76c6187ae7e78"
+    },
+    "crates/xharness-fs/src/lib.rs": {
+      "before": "695730eef060ddf0c95d1006caee5537bd1d12fc96a618dbfb134b7580cb8794",
+      "after": "7b1c3662156bc61ba67afcb7cbc69d4e3b9b47c181c5f709b479b39c303e904c"
+    },
+    "crates/xharness-fs/tests/inventory.rs": {
+      "before": null,
+      "after": "d2ad9666e38644e46c189cedbe90dce90990b6bfe8f8355081d4eca4e4e16e8f"
+    },
+    "scripts/regression/check-architecture.py": {
+      "before": "f53e17f22e6e106e47e9f0c299a5aa0cfe442424671618b5af025fd7e6c0622c",
+      "after": "88bae732d2c2e61c8a345153004ff650047bda61dbc3669799ee78eb93b6780a"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}
