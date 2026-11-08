@@ -603,7 +603,8 @@ impl SessionToolFactory for NativeToolFactory {
         // Host UI exists on Web as well as desktop, even with no plugin store,
         // external MCP runtime or native-browser bridge configured.
         if builtin_ui.is_some()
-            || self.mcp.get().is_some() && (enabled_mcp || self.native_browser.get().is_some())
+            || self.native_browser.get().is_some()
+            || self.mcp.get().is_some() && enabled_mcp
         {
             let binding = plugin_mcp::bind(
                 self.plugins.get().cloned(),
@@ -620,6 +621,7 @@ impl SessionToolFactory for NativeToolFactory {
                 }),
             );
             specs.push(binding.spec);
+            specs.extend(binding.native_specs);
             guards.push(binding.guard);
         }
         if let Some(questions) = &self.questions {

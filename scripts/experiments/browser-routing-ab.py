@@ -23,6 +23,7 @@ STATE = 'crates/xharness-host/src/state.rs'
 MCP = 'crates/xharness-host-app/src/plugin_mcp.rs'
 NATIVE = 'crates/xharness-host-app/src/native_browser.rs'
 BOUNDARY = 'crates/xharness-host-app/src/plugin_mcp/browser_boundary.rs'
+CONTRACT = 'crates/xharness-host-app/src/plugin_mcp/contract.rs'
 ENDPOINT = 'https://api.deepseek.com/chat/completions'
 URL = 'https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr'
 
@@ -60,13 +61,57 @@ def mcp_description(tail, boundary=None):
     return base + literal(boundary, 'const GUIDANCE: &str = ')
 
 
+def mcp_parameters(tail, delegated=None):
+    """Read the actual parameter argument, not a later unrelated json! call.
+
+    Only literal schemas or the source-owned envelope_schema delegation are
+    supported. Unknown Rust expressions fail closed; no Rust is evaluated.
+    """
+    expression = tail.lstrip()
+    decoder = json.JSONDecoder()
+    if expression.startswith('"'):
+        _, end = decoder.raw_decode(expression)
+        suffix = expression[end:]
+        comma = re.match(r'\s*,\s*', suffix)
+    else:
+        prefix = re.match(r'format!\(\s*"\{\}\{\}"\s*,\s*', expression)
+        if not prefix:
+            raise ValueError('Unsupported MCP description before schema')
+        body = expression[prefix.end():]
+        _, end = decoder.raw_decode(body)
+        suffix = body[end:]
+        comma = re.match(r'\s*,\s*browser_boundary::GUIDANCE\s*\)\s*,\s*', suffix)
+    if not comma:
+        raise ValueError('Missing MCP parameter argument')
+    parameters = suffix[comma.end():]
+    if parameters.startswith('json!('):
+        return literal(parameters, 'json!(')
+    if not re.match(r'contract::envelope_schema\(\)\s*,', parameters) or delegated is None:
+        raise ValueError('Unsupported MCP schema expression or missing contract source')
+    marker = 'pub(super) fn envelope_schema() -> Value {'
+    body = delegated.split(marker, 1)[1]
+    # Leading comments are annotations, not expressions. The function must return
+    # its single literal directly, rather than modifying it after extraction.
+    body = body.lstrip()
+    while body.startswith('//'):
+        body = body.split('\n', 1)[1].lstrip()
+    if not body.startswith('json!('):
+        raise ValueError('Delegated MCP schema must be a direct JSON literal')
+    value, end = decoder.raw_decode(body[len('json!('):].lstrip())
+    remainder = body[len('json!('):].lstrip()[end:]
+    if not re.match(r'\s*\)\s*}', remainder):
+        raise ValueError('Unexpected expression after delegated MCP schema')
+    return value
+
+
 def contract(revision=None):
     state, mcp, native = (source(path, revision) for path in (STATE, MCP, NATIVE))
     marker = '"plugin_mcp",'
     tail = mcp[mcp.index(marker) + len(marker):]
     boundary = source(BOUNDARY, revision) if 'browser_boundary::embedded_capability()' in mcp else None
+    delegated = source(CONTRACT, revision) if 'contract::envelope_schema()' in tail else None
     definition = {'name': 'plugin_mcp', 'description': mcp_description(tail, boundary),
-                  'parameters': literal(tail, 'json!(')}
+                  'parameters': mcp_parameters(tail, delegated)}
     policy = literal(state, 'let browser = ') if 'let browser = ' in state else ''
     base_system = '\n\n'.join([source('crates/xharness-host/prompts/default-agent.txt', revision).strip(),
                                 literal(state, 'let workflow = '), literal(state, 'let background_jobs = ')])

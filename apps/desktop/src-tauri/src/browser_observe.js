@@ -69,7 +69,7 @@
     const area = args.scope === "main" ? document.querySelector("main")
       : args.scope === "dialog" ? modal || Array.from(document.querySelectorAll('dialog[open],[role="dialog"]')).reverse().find(visible)
         : document.body;
-    if (!area) return JSON.stringify({ error: "observation scope is not present; observe page again" });
+    if (!area) return JSON.stringify({ error: "observation scope is not present; observe page again", code: args.scope === "page" ? "page_not_ready" : "scope_not_found" });
     const selector = 'button,input,textarea,select,a[href],summary,[role="button"],[role="checkbox"],[role="tab"],[contenteditable="true"]';
     const candidates = area.querySelectorAll(selector);
     const targets = new Map();
@@ -131,7 +131,7 @@
     snapshot.next_node_offset = next < candidates.length ? next : null;
     snapshot.next_text_offset = snapshot.text_offset + snapshot.text.length < text.length ? snapshot.text_offset + snapshot.text.length : null;
     snapshot.truncated = snapshot.next_node_offset !== null || snapshot.next_text_offset !== null || snapshot.source_text_truncated;
-    if (bytes() > 6144) return JSON.stringify({ error: "observation exceeds byte budget" });
+    if (bytes() > 6144) return JSON.stringify({ error: "observation exceeds byte budget", code: "observation_too_large" });
     for (const node of snapshot.nodes) {
       const element = candidates[Number(node.ref.slice(1))];
       const options = element.tagName === "SELECT" ? new Map((node.options || []).map((option, i) => [option.value, element.options[node.option_offset + i]])) : null;
@@ -140,6 +140,6 @@
     window[slot] = { id: args.frame_id, area, targets };
     return JSON.stringify(snapshot);
   } catch (_) {
-    return JSON.stringify({ error: "guest-page observation failed; page evidence is untrusted" });
+    return JSON.stringify({ error: "guest-page observation failed; page evidence is untrusted", code: "observation_script_failed" });
   }
 })

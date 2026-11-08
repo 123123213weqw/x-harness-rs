@@ -14,6 +14,9 @@ use tokio::sync::{oneshot, Mutex};
 
 use crate::browser::{ensure_main, BrowserState};
 
+#[path = "browser_observation_error.rs"]
+mod observation_error;
+
 pub(super) const SCRIPT: &str = include_str!("browser_observe.js");
 pub(super) const MAX_CALLBACK_BYTES: usize = 32 * 1024;
 const MAX_OBSERVATION_BYTES: usize = 8 * 1024;
@@ -199,8 +202,8 @@ pub(super) fn decode_callback(raw: &str) -> Result<Value, String> {
 
 fn decode(raw: &str, frame: &str) -> Result<Value, String> {
     let snapshot = decode_callback(raw)?;
-    if snapshot.get("error").is_some() {
-        return Err("guest-page observation unavailable; re-observe page scope".into());
+    if let Some(error) = observation_error::decode_error(&snapshot) {
+        return Err(error);
     }
     if snapshot.get("frame_id").and_then(Value::as_str) != Some(frame)
         || !snapshot.get("nodes").is_some_and(Value::is_array)

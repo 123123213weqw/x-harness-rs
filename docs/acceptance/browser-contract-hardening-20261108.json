@@ -1,0 +1,488 @@
+{
+  "schema": 1,
+  "kind": "manual-browser-contract-acceptance",
+  "date": "2026-11-08",
+  "base_commit": "a24de9a1651f6aff7b5f110a9f21b36df225acd3",
+  "scope": {
+    "executor": "Production ToolExecutor and plugin_mcp binding, driven by an external Chat Completions loop",
+    "model": "Real official deepseek-flash API; max reasoning (configured xhigh mapping), temperature=0",
+    "browser": "Isolated Linux system Chromium and exact fixed browser_observe.js",
+    "bridge": "Test-only framed TCP adapter, not the desktop native callback; exact Rust observation error decoder tested separately",
+    "fixture": "Two local HTML templates, with/without <main>; unique case markers. No user transcripts, profiles or login state."
+  },
+  "method": {
+    "arms": [
+      "baseline",
+      "hardened_legacy",
+      "hardened_typed"
+    ],
+    "normal_tasks_per_arm": 8,
+    "injected_recovery_cases_per_arm": 3,
+    "round_limit": 16,
+    "order": "Interleaved and rotated by case",
+    "success": "Requires actual observation of the expected marker and correct final answer. All normal cases additionally audited for a successful open of the exact requested case URL.",
+    "setup": "Recovery cases start with a preconditioned open page and one deliberately failed call; identical setup is excluded from model-produced call/error counts.",
+    "token_counts": "Upstream usage, not estimates",
+    "ablation": "Legacy hardening is a combined change; typed arm isolates the added fixed-tool interface, not each individual validation/diagnostic change."
+  },
+  "results": {
+    "baseline": {
+      "task_successes": 8,
+      "task_count": 8,
+      "recovery_successes": 3,
+      "recovery_count": 3,
+      "first_recovery_call_valid": 3,
+      "total_tool_calls": 88,
+      "tool_failures": 16,
+      "median_seconds": 10.299,
+      "prompt_tokens": 186045,
+      "completion_tokens": 10147
+    },
+    "hardened_legacy": {
+      "task_successes": 8,
+      "task_count": 8,
+      "recovery_successes": 3,
+      "recovery_count": 3,
+      "first_recovery_call_valid": 3,
+      "total_tool_calls": 49,
+      "tool_failures": 0,
+      "median_seconds": 6.227,
+      "prompt_tokens": 110683,
+      "completion_tokens": 5994
+    },
+    "hardened_typed": {
+      "task_successes": 8,
+      "task_count": 8,
+      "recovery_successes": 3,
+      "recovery_count": 3,
+      "first_recovery_call_valid": 3,
+      "total_tool_calls": 19,
+      "tool_failures": 0,
+      "median_seconds": 2.979,
+      "prompt_tokens": 120527,
+      "completion_tokens": 2219
+    }
+  },
+  "reductions_vs_baseline_pct": {
+    "total_tool_calls": 78.41,
+    "median_seconds": 71.07,
+    "prompt_tokens": 35.22,
+    "completion_tokens": 78.13
+  },
+  "typed_input_increase_vs_hardened_legacy_pct": 8.89,
+  "pilot": {
+    "runs": 21,
+    "round_limit": 8,
+    "note": "Preserved pilot found that baseline could exhaust its round budget. Wider-budget confirmation allows all arms to complete; results demonstrate efficiency, not that baseline can never succeed."
+  },
+  "checks": {
+    "remote_rust": {
+      "command": "cargo test --locked -p xharness-host -p xharness-host-app --all-targets",
+      "passed": 962,
+      "failed": 0,
+      "ignored": 19
+    },
+    "remote_clippy": "cargo clippy --locked -p xharness-host -p xharness-host-app --all-targets -- -D warnings (exit 0)",
+    "system_chromium_dom_checks": 247,
+    "schema_parity": {
+      "passed": true,
+      "scope": "standards-based JSON Schema parity; source constraints retained, not a live API test",
+      "native_argument_cases": 425,
+      "valid_cases": 38,
+      "invalid_cases": 387,
+      "envelope_valid_cases": 6,
+      "envelope_invalid_cases": 10,
+      "routing_checks": 10,
+      "native_definition_bytes_v1": 14398,
+      "native_definition_bytes_v2": 9322,
+      "definition_byte_reduction_pct": 35.25
+    },
+    "schema_parity_location": "Existing local Python jsonschema; no Rust compilation on the Mac.",
+    "architecture_mutation_tests": 34,
+    "precommit_compiler_mutations": {
+      "business_cases": 49,
+      "business_protected_sources": 40,
+      "unsafe_cases": 2,
+      "unsafe_protected_sources": 9,
+      "passed": true,
+      "source_bytes_restored": true
+    },
+    "source_extraction": {
+      "offline_checks": 14,
+      "schema_equivalent_to_live_run": true,
+      "canonical_envelope_sha256": "9e97bf611a9a90dee8d50f1b337ead8a6060269a0da8eed315be509817f85156",
+      "note": "The envelope was made a direct JSON literal for source-only offline extraction. This representation-only change preserves the live-evaluated schema; historical inline contracts are still supported."
+    }
+  },
+  "per_case_metrics": [
+    {
+      "arm": "baseline",
+      "case": "confirm16-normal-0",
+      "path": "no-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 11.976,
+      "tool_calls": 9,
+      "tool_failures": 2,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "hardened_legacy",
+      "case": "confirm16-normal-0",
+      "path": "no-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 6.455,
+      "tool_calls": 5,
+      "tool_failures": 0,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "hardened_typed",
+      "case": "confirm16-normal-0",
+      "path": "no-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 3.224,
+      "tool_calls": 2,
+      "tool_failures": 0,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "hardened_legacy",
+      "case": "confirm16-normal-1",
+      "path": "with-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 6.311,
+      "tool_calls": 5,
+      "tool_failures": 0,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "hardened_typed",
+      "case": "confirm16-normal-1",
+      "path": "with-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 3.236,
+      "tool_calls": 2,
+      "tool_failures": 0,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "baseline",
+      "case": "confirm16-normal-1",
+      "path": "with-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 9.216,
+      "tool_calls": 7,
+      "tool_failures": 1,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "hardened_typed",
+      "case": "confirm16-normal-2",
+      "path": "no-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 3.269,
+      "tool_calls": 2,
+      "tool_failures": 0,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "baseline",
+      "case": "confirm16-normal-2",
+      "path": "no-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 10.766,
+      "tool_calls": 8,
+      "tool_failures": 1,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "hardened_legacy",
+      "case": "confirm16-normal-2",
+      "path": "no-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 5.27,
+      "tool_calls": 5,
+      "tool_failures": 0,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "baseline",
+      "case": "confirm16-normal-3",
+      "path": "with-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 10.299,
+      "tool_calls": 9,
+      "tool_failures": 2,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "hardened_legacy",
+      "case": "confirm16-normal-3",
+      "path": "with-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 6.227,
+      "tool_calls": 5,
+      "tool_failures": 0,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "hardened_typed",
+      "case": "confirm16-normal-3",
+      "path": "with-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 2.979,
+      "tool_calls": 2,
+      "tool_failures": 0,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "hardened_legacy",
+      "case": "confirm16-normal-4",
+      "path": "no-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 6.272,
+      "tool_calls": 5,
+      "tool_failures": 0,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "hardened_typed",
+      "case": "confirm16-normal-4",
+      "path": "no-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 2.381,
+      "tool_calls": 2,
+      "tool_failures": 0,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "baseline",
+      "case": "confirm16-normal-4",
+      "path": "no-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 13.772,
+      "tool_calls": 10,
+      "tool_failures": 3,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "hardened_typed",
+      "case": "confirm16-normal-5",
+      "path": "with-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 3.349,
+      "tool_calls": 2,
+      "tool_failures": 0,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "baseline",
+      "case": "confirm16-normal-5",
+      "path": "with-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 9.927,
+      "tool_calls": 8,
+      "tool_failures": 1,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "hardened_legacy",
+      "case": "confirm16-normal-5",
+      "path": "with-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 6.989,
+      "tool_calls": 5,
+      "tool_failures": 0,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "baseline",
+      "case": "confirm16-normal-6",
+      "path": "no-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 9.07,
+      "tool_calls": 8,
+      "tool_failures": 1,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "hardened_legacy",
+      "case": "confirm16-normal-6",
+      "path": "no-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 6.709,
+      "tool_calls": 5,
+      "tool_failures": 0,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "hardened_typed",
+      "case": "confirm16-normal-6",
+      "path": "no-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 2.881,
+      "tool_calls": 2,
+      "tool_failures": 0,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "hardened_legacy",
+      "case": "confirm16-normal-7",
+      "path": "with-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 6.059,
+      "tool_calls": 5,
+      "tool_failures": 0,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "hardened_typed",
+      "case": "confirm16-normal-7",
+      "path": "with-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 3.16,
+      "tool_calls": 2,
+      "tool_failures": 0,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "baseline",
+      "case": "confirm16-normal-7",
+      "path": "with-main",
+      "forced_error": null,
+      "success": true,
+      "seconds": 8.394,
+      "tool_calls": 7,
+      "tool_failures": 1,
+      "first_recovery_call_valid": null
+    },
+    {
+      "arm": "baseline",
+      "case": "confirm16-recovery-missing_tool",
+      "path": "no-main",
+      "forced_error": "missing_tool",
+      "success": true,
+      "seconds": 11.431,
+      "tool_calls": 8,
+      "tool_failures": 1,
+      "first_recovery_call_valid": true
+    },
+    {
+      "arm": "hardened_legacy",
+      "case": "confirm16-recovery-missing_tool",
+      "path": "no-main",
+      "forced_error": "missing_tool",
+      "success": true,
+      "seconds": 5.47,
+      "tool_calls": 5,
+      "tool_failures": 0,
+      "first_recovery_call_valid": true
+    },
+    {
+      "arm": "hardened_typed",
+      "case": "confirm16-recovery-missing_tool",
+      "path": "no-main",
+      "forced_error": "missing_tool",
+      "success": true,
+      "seconds": 1.938,
+      "tool_calls": 1,
+      "tool_failures": 0,
+      "first_recovery_call_valid": true
+    },
+    {
+      "arm": "hardened_legacy",
+      "case": "confirm16-recovery-unknown_tool",
+      "path": "no-main",
+      "forced_error": "unknown_tool",
+      "success": true,
+      "seconds": 5.235,
+      "tool_calls": 3,
+      "tool_failures": 0,
+      "first_recovery_call_valid": true
+    },
+    {
+      "arm": "hardened_typed",
+      "case": "confirm16-recovery-unknown_tool",
+      "path": "no-main",
+      "forced_error": "unknown_tool",
+      "success": true,
+      "seconds": 2.701,
+      "tool_calls": 1,
+      "tool_failures": 0,
+      "first_recovery_call_valid": true
+    },
+    {
+      "arm": "baseline",
+      "case": "confirm16-recovery-unknown_tool",
+      "path": "no-main",
+      "forced_error": "unknown_tool",
+      "success": true,
+      "seconds": 11.374,
+      "tool_calls": 9,
+      "tool_failures": 2,
+      "first_recovery_call_valid": true
+    },
+    {
+      "arm": "hardened_typed",
+      "case": "confirm16-recovery-invalid_scope",
+      "path": "no-main",
+      "forced_error": "invalid_scope",
+      "success": true,
+      "seconds": 2.482,
+      "tool_calls": 1,
+      "tool_failures": 0,
+      "first_recovery_call_valid": true
+    },
+    {
+      "arm": "baseline",
+      "case": "confirm16-recovery-invalid_scope",
+      "path": "no-main",
+      "forced_error": "invalid_scope",
+      "success": true,
+      "seconds": 6.937,
+      "tool_calls": 5,
+      "tool_failures": 1,
+      "first_recovery_call_valid": true
+    },
+    {
+      "arm": "hardened_legacy",
+      "case": "confirm16-recovery-invalid_scope",
+      "path": "no-main",
+      "forced_error": "invalid_scope",
+      "success": true,
+      "seconds": 1.698,
+      "tool_calls": 1,
+      "tool_failures": 0,
+      "first_recovery_call_valid": true
+    }
+  ],
+  "limits": [
+    "Controlled small fixture set, not universal site/model success evidence.",
+    "The live model driver is not DurableLoopAgentRuntime or a production GUI session.",
+    "No macOS native GUI or other provider live acceptance was performed in this manual run.",
+    "CI and the existing architecture/compiler gates remain required; no dependency or lockfile upgrade is included."
+  ]
+}

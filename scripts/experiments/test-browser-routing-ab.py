@@ -48,6 +48,23 @@ class RoutingTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             ab.mcp_description('format!("{}{}", "base", browser_boundary::GUIDANCE),')
 
+    def test_schema_reads_literal_or_same_source_delegation_not_later_json(self):
+        self.assertEqual(ab.mcp_parameters('"description", json!({"type":"object"}),'), {'type': 'object'})
+        tail = ab.source(ab.MCP).split('"plugin_mcp",', 1)[1]
+        schema = ab.mcp_parameters(tail, ab.source(ab.CONTRACT))
+        self.assertEqual(schema, self.c['definition']['parameters'])
+        self.assertEqual(len(schema['oneOf']), 5)
+        self.assertTrue(all(branch['additionalProperties'] is False for branch in schema['oneOf']))
+        url_schema = 'pub(super) fn envelope_schema() -> Value {\n// source note\njson!({"type":"object","description":"https://example.com"})\n}'
+        self.assertEqual(ab.mcp_parameters('"description", contract::envelope_schema(),', url_schema)['description'], 'https://example.com')
+        for expression in ['schema(), json!({"wrong":"later"})', 'contract::envelope_schema(), json!({})']:
+            with self.subTest(expression=expression), self.assertRaises(ValueError):
+                ab.mcp_parameters('"description", ' + expression)
+        for body in ['build_schema()', 'json!({"type":"object"}); change_it()']:
+            with self.subTest(body=body), self.assertRaises(ValueError):
+                ab.mcp_parameters('"description", contract::envelope_schema(),',
+                                  'pub(super) fn envelope_schema() -> Value { ' + body + ' }')
+
     def test_extracted_boundary_uses_the_same_revision_as_other_contract_sources(self):
         current_source = ab.source
         reads = []
@@ -58,6 +75,7 @@ class RoutingTest(unittest.TestCase):
             extracted = ab.contract('captured-revision')
         self.assertEqual(extracted, self.c)
         self.assertIn((ab.BOUNDARY, 'captured-revision'), reads)
+        self.assertIn((ab.CONTRACT, 'captured-revision'), reads)
         self.assertTrue(all(revision == 'captured-revision' for _, revision in reads))
 
     def test_wire_envelopes_preserve_lazy_discovery_and_native_result_boundaries(self):
