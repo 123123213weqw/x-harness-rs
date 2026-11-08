@@ -10613,3 +10613,6 @@ fn manual_compaction_focus_enforces_utf8_boundaries_and_cannot_leak_into_automat
         "automatic compaction cannot inherit a manual focus"
     );
 }
+
+#[path = "cases/execution_deadline.rs"]
+mod execution_deadline;

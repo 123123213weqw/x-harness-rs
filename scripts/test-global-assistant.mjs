@@ -11,7 +11,7 @@ const require=createRequire(resolve('ui/package.json')),esbuild=require('esbuild
 function load(path){const module={exports:{}};const code=esbuild.buildSync({entryPoints:[path],bundle:true,platform:'node',format:'cjs',write:false,external:['immer']}).outputFiles[0].text;vm.runInNewContext(code,{module,exports:module.exports,require:name=>{assert.equal(name,'immer');return{produce(){throw Error('Unused immer update invoked')}}},console,Error,Event,window:{dispatchEvent(){}},queueMicrotask});return module.exports}
 const {GlobalAssistant,ASSISTANT_SESSION:id}=load('ui/src/modules/assistant/service.ts')
 const {assistantReference}=load('ui/src/modules/assistant/contracts.ts')
-const {pullReference}=load('ui/src/modules/code-review/assistant-reference.ts')
+const {pullReference}=load('ui/src/modules/assistant/pull-reference.ts')
 const {plugin}=harness(compile().test)
 function fixture({exists=true}={}){
  let sends=0,refreshes=0;const created=[],opened=[]

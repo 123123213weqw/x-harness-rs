@@ -30,13 +30,16 @@ impl AgentTool {
     pub fn spec(runtime: Arc<dyn DelegationRuntime>, caller: impl Into<String>) -> ToolSpec {
         let caller = caller.into();
         ToolSpec::new(ToolDefinition::new("agent",
-            "Delegate independent work. If a child is requested, start it instead of doing its task yourself.\nstart(task,label?,provider?,model?,reasoning_effort?), send(agent_id,message), inspect(optional agent_id), stop(agent_id). Inherit model/effort; overrides require the human's explicit request and Host confirmation. Do not choose overrides from task complexity or cost. For model choice copy provider+model together from inspect models[].start_selectors; candidates are not availability guarantees. Selectors are start-only; changed routes use target default effort unless explicit.\nSupply context; children cannot delegate or ask the human. Answer via send. start/send acknowledge admission, not success; completion/failure arrives automatically. On failure inspect last_settlement.outcome.provider_failure; no polling/blind retries. stop parks pending work with history; resumption requires the user. Do not parallelize dependent edits or replay unchecked side effects.\nParent-only revert(agent_id,checkpoint_seq,message): inspect a safe checkpoint; source idle/unpaused, no pending work or unresolved operations. NEW child preserves history, never undoes files or external effects; use its returned agent_id. No automatic revert or invented reasoning.",
+            "If a child is requested, start it instead of doing its task yourself.\nstart(task,label?,provider?,model?,reasoning_effort?,max_steps?,timeout_seconds?,tool_allowlist?), send(agent_id,message), inspect(optional agent_id), stop(agent_id), revert(agent_id,checkpoint_seq,message).\nInherit model/effort; overrides require the human's explicit request and Host confirmation. Do not choose overrides from task complexity or cost. Copy provider+model from models[].start_selectors; not availability guarantees.\nLimits opt-in, no defaults: max_steps is cumulative model/tool cycles, not turns/tool count; timeout_seconds is wall time from admission including queue/network/approval. send/restart do not reset. tool_allowlist only narrows inherited tools; [] means none, omitted inherits. Existing approval/OS permissions remain.\nstart/send mean admission, not success; completion/failure arrives automatically. Inspect last_settlement.outcome.provider_failure; no polling/blind retries. stop parks work; resumption requires the user. Do not parallelize dependent edits.\nParent-only revert: source idle/unpaused, no pending work or unresolved operations. New child keeps history and remaining budgets, never undoes files or external effects; use its returned agent_id. No automatic revert or invented reasoning. Children cannot delegate or ask the human; answer via send.",
             json!({"type":"object","properties":{
                 "action":{"type":"string","enum":["start","send","inspect","stop","revert"]},
                 "task":{"type":"string"},"label":{"type":"string"},
                 "provider":{"type":"string","description":"Configured provider ID. Copy together with model from inspect models[].start_selectors when the user requests a model choice; omitted provider inherits the parent provider. Changes require human confirmation."},
                 "model":{"type":"string","description":"Configured model ID, not a provider/model concatenation. Copy together with provider from the same inspect models[].start_selectors candidate when the user requests a model choice. Changes require human confirmation."},
                 "reasoning_effort":{"type":"string","description":"Supported effort ID for the selected model. Omit unless explicitly requested by the user; changes require human confirmation."},
+                "max_steps":{"type":"integer","minimum":1,"maximum":10000,"description":"Optional cumulative step limit for this child task; not user turns, tool count or a money budget. No default limit."},
+                "timeout_seconds":{"type":"integer","minimum":1,"maximum":86400,"description":"Optional wall timeout from admission, including queued waits. No default; cannot be reset by send, restart or revert."},
+                "tool_allowlist":{"type":"array","maxItems":128,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[A-Za-z0-9_-]+$"},"description":"Optional subset of tools currently available to the parent. [] means no tools; omitted inherits. Cannot add capabilities."},
                 "agent_id":{"type":"string"},"message":{"type":"string"},"checkpoint_seq":{"type":"integer","minimum":0,"description":"Exact safe checkpoint seq returned by inspect; revert only."}},
                 "required":["action"],"additionalProperties":false})), move |context| {
             let runtime = runtime.clone(); let caller = caller.clone();
@@ -192,26 +195,9 @@ impl BasicHost {
                 self.execute_agent_tasks(caller, invocation, swarm_id, command)
                     .await
             }
-            AgentOperation::Start {
-                task,
-                label,
-                provider,
-                model,
-                reasoning_effort,
-            } => {
-                self.create_delegated(
-                    caller,
-                    invocation,
-                    &key,
-                    task,
-                    label,
-                    model_selection::ModelOverride {
-                        provider,
-                        model,
-                        reasoning_effort,
-                    },
-                )
-                .await
+            operation @ AgentOperation::Start { .. } => {
+                self.create_delegated(caller, invocation, &key, operation)
+                    .await
             }
             AgentOperation::Inspect { agent_id } => {
                 let state = self.state.read().await;
@@ -242,6 +228,10 @@ impl BasicHost {
                         .as_ref()
                         .map(revert::checkpoints)
                         .unwrap_or_else(|| json!([]));
+                    result["execution_policy"] = session.as_ref().and_then(xharness_session::agent_policy).map(|state| json!({
+                        "policy":state.policy,"steps_used":state.steps_used,"remaining_steps":state.remaining_steps(),
+                        "scope":"child_task; sends, restart and revert do not replenish budgets"
+                    })).unwrap_or(Value::Null);
                     result["last_settlement"] = session
                         .as_ref()
                         .and_then(|session| settlement::latest_notice(id, session))
@@ -296,10 +286,35 @@ impl BasicHost {
         caller: &str,
         invocation: &str,
         id: &str,
-        task: String,
-        label: Option<String>,
-        overrides: model_selection::ModelOverride,
+        operation: AgentOperation,
     ) -> Result<Value, String> {
+        let AgentOperation::Start {
+            task,
+            label,
+            provider,
+            model,
+            reasoning_effort,
+            max_steps,
+            timeout_seconds,
+            tool_allowlist,
+        } = operation.clone()
+        else {
+            return Err("expected an agent start operation".into());
+        };
+        let overrides = model_selection::ModelOverride {
+            provider,
+            model,
+            reasoning_effort,
+        };
+        if (max_steps.is_some() || timeout_seconds.is_some() || tool_allowlist.is_some())
+            && (!self.agent_runtime.has_authoritative_sessions()
+                || !self.agent_runtime.supports_child_execution_policy())
+        {
+            return Err(
+                "child limits require an authoritative runtime with execution-policy enforcement"
+                    .into(),
+            );
+        }
         // This is a creation fence, not an execution queue. Actual work stays in Inbox.
         let _creation = self.lock_admission("agent-creation").await;
         // Admission only: never hold this lock while waiting for confirmation.
@@ -364,6 +379,16 @@ impl BasicHost {
                 if session.events().iter().any(|e| matches!(e.data(), EventData::AgentDelegated { task: prior, .. } if prior != &task)) {
                     return Err("invocation id already used for a different task".into());
                 }
+                let admitted_policy = xharness_session::agent_policy(&session);
+                let prior = admitted_policy.as_ref().map(|state| state.policy);
+                if prior.and_then(|p| p.max_steps) != max_steps
+                    || prior.and_then(|p| p.timeout_seconds) != timeout_seconds
+                    || prior.and_then(|p| p.tool_allowlist.as_ref()) != tool_allowlist.as_ref()
+                {
+                    return Err(
+                        "invocation id already used for different child limits or tools".into(),
+                    );
+                }
                 // Compare explicit selectors with the original admission, not
                 // today's parent settings or later user changes to the child.
                 // Old journals without a model admission remain retryable for
@@ -395,7 +420,7 @@ impl BasicHost {
                         &parent_session,
                         caller,
                         invocation,
-                        &overrides.operation(&task, &label),
+                        &operation,
                         &parent_model,
                         &model,
                     )?;
@@ -414,6 +439,22 @@ impl BasicHost {
                     route.provider, route.model, route.reasoning_effort
                 ));
             }
+            if let Some(names) = &tool_allowlist {
+                let parent_tools = self
+                    .agent_runtime
+                    .available_tool_names(caller, &cwd, permission)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                if names.iter().any(|name| !parent_tools.contains(name)) {
+                    return Err("tool_allowlist contains a tool unavailable to the parent".into());
+                }
+            }
+            let policy = xharness_session::AgentExecutionPolicy::admit(
+                max_steps,
+                timeout_seconds,
+                tool_allowlist,
+                crate::state::now_ms(),
+            )?;
             crate::rpc::session_lifecycle::create_with_visibility(
                 self,
                 &json!({"sessionId":id,"cwd":cwd}),
@@ -458,6 +499,7 @@ impl BasicHost {
                     parent_session_id: caller.into(),
                     invocation_id: id.into(),
                     task: task.clone(),
+                    policy,
                 }
                 .into(),
             );
@@ -730,6 +772,7 @@ impl BasicHost {
 
 #[cfg(test)]
 mod tests {
+    mod child_policy_tests;
     mod description_tests;
     mod model_confirmation_tests;
     mod model_selection_tests;
@@ -828,6 +871,9 @@ mod tests {
             provider: None,
             model: None,
             reasoning_effort: None,
+            max_steps: None,
+            timeout_seconds: None,
+            tool_allowlist: None,
         }
     }
     async fn settled(host: &BasicHost, id: &str) {
@@ -1021,6 +1067,7 @@ mod tests {
                         parent_session_id: "cold-parent".into(),
                         invocation_id: "old-call".into(),
                         task: "inspect".into(),
+                        policy: None,
                     }
                     .into(),
                     EventData::AgentInboxSpliced {

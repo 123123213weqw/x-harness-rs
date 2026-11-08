@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Add a bounded, session-authorized optional UI thumbnail derivative; preserve original attachments and model context while refusing oversized code tokenization.",
+  "compatibility": "Keep existing RPC names, default original attachment response, durable journal references, model requests, fork authorization, dependency and lockfile versions unchanged. Only explicit thumbnail reads return bounded PNG derivatives with a distinguishable optional marker; old Hosts fall back to an explicit original-open placeholder rather than full image auto-decode. Retain all native, wire, architecture and Windows CI gates; native footprint benefit remains unproven on the installed Mac.",
+  "paths": {
+    "crates/xharness-api/src/protocol.rs": {
+      "before": "99027beb4eda6992281d2a7430e9e56a1ffbaf4c733a3e419295da5ff4b4e9e2",
+      "after": "ae0dab92df69cef775d52facfec0c1a41d145d1ee9f09251f44c0eb90ffda456"
+    }
+  },
+  "regressions": [
+    "native",
+    "windows",
+    "wire"
+  ]
+}

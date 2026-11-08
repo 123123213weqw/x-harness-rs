@@ -77,7 +77,9 @@ pub struct NativeToolFactory {
     retired_sessions: RwLock<HashSet<String>>,
     debug: DebugRecorder,
     questions: Option<Arc<DurableQuestionHub>>,
-    schedules: Option<Arc<ScheduleManager>>,
+    // Preserve the compatibility constructor's owner lifetime without ever
+    // querying it to populate model tools.
+    _schedule_owner: Option<Arc<ScheduleManager>>,
     job_continuations:
         std::sync::OnceLock<Arc<xharness_host::job_continuation::JobContinuationController>>,
     agent_host: std::sync::OnceLock<std::sync::Weak<xharness_host::BasicHost>>,
@@ -107,7 +109,7 @@ impl NativeToolFactory {
             retired_sessions: RwLock::new(HashSet::new()),
             debug,
             questions: None,
-            schedules: None,
+            _schedule_owner: None,
             agent_host: std::sync::OnceLock::new(),
             job_continuations: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
@@ -130,7 +132,7 @@ impl NativeToolFactory {
             retired_sessions: RwLock::new(HashSet::new()),
             debug,
             questions: Some(questions),
-            schedules: None,
+            _schedule_owner: None,
             agent_host: std::sync::OnceLock::new(),
             job_continuations: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
@@ -140,6 +142,8 @@ impl NativeToolFactory {
         })
     }
 
+    /// Compatibility constructor for deployments that also own a scheduler.
+    /// Scheduling stays on the Host/UI control plane, not in the model registry.
     pub fn new_with_questions_and_schedules(
         web: WebRuntime,
         debug: DebugRecorder,
@@ -154,7 +158,7 @@ impl NativeToolFactory {
             retired_sessions: RwLock::new(HashSet::new()),
             debug,
             questions: Some(questions),
-            schedules: Some(schedules),
+            _schedule_owner: Some(schedules),
             agent_host: std::sync::OnceLock::new(),
             job_continuations: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
@@ -547,9 +551,6 @@ impl SessionToolFactory for NativeToolFactory {
                 spec
             };
             specs.push(spec);
-        }
-        if let Some(schedules) = &self.schedules {
-            specs.extend(schedules.specs(session_id));
         }
         if let Some(plugins) = self.plugins.get() {
             let available = plugins.enabled_skills().await;
@@ -1403,7 +1404,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn production_factory_projects_one_automation_tool() {
+    async fn production_factory_retires_automation_without_disabling_saved_schedule_controls() {
+        use serde_json::json;
+        use xharness_schedule::AutomationCommand;
+        use xharness_tools::{ToolFailureKind, ToolRequest};
+
         let workspace = TempWorkspace::new();
         let store: Arc<dyn xharness_session::Store> =
             Arc::new(xharness_session::MemorySessionStore::default());
@@ -1417,30 +1422,104 @@ mod tests {
             WebRuntime::default(),
             DebugRecorder::disabled(),
             questions,
-            schedules,
+            schedules.clone(),
         );
+        assert!(Arc::ptr_eq(
+            factory._schedule_owner.as_ref().unwrap(),
+            &schedules
+        ));
+        let created = schedules
+            .execute(
+                "schedules",
+                "existing-native-schedule",
+                serde_json::from_value(json!({
+                    "action":"create", "prompt":"saved reminder",
+                    "after_seconds":86400, "idempotency_key":"existing"
+                }))
+                .unwrap(),
+            )
+            .await;
+        let id = created["id"].as_str().expect("native schedule created");
+        for permission in PermissionPreset::ALL {
+            let executor = factory
+                .executor("schedules", &workspace.0.to_string_lossy(), permission)
+                .await
+                .unwrap();
+            let names = executor
+                .registry()
+                .definitions()
+                .await
+                .into_iter()
+                .map(|definition| definition.name)
+                .collect::<std::collections::BTreeSet<_>>();
+            for name in [
+                "automation",
+                "schedule_create",
+                "schedule_list",
+                "schedule_delete",
+            ] {
+                assert!(
+                    !names.contains(name),
+                    "retired model adapter exposed: {name}"
+                );
+                let result = executor
+                    .execute(ToolRequest::new(name, "{\"action\":\"list\"}"))
+                    .await;
+                assert_eq!(
+                    result.failure.expect("retired tool cannot execute").kind,
+                    ToolFailureKind::UnknownTool
+                );
+            }
+            assert!(names.contains("read"));
+            assert!(names.contains("job_output"));
+            assert!(names.contains("job_kill"));
+        }
+        // Existing saved schedules are still visible and controllable through
+        // the same domain seam used by native UI/RPC, without invoking a model.
+        let view = schedules
+            .execute("schedules", "native-list", AutomationCommand::List {})
+            .await;
+        assert_eq!(view.as_array().unwrap().len(), 1);
+        assert_eq!(view[0]["id"], id);
+        let paused = schedules
+            .execute(
+                "schedules",
+                "native-pause",
+                AutomationCommand::Pause { id: id.into() },
+            )
+            .await;
+        assert_eq!(paused["state"], "paused");
+        let deleted = schedules
+            .execute(
+                "schedules",
+                "native-delete",
+                AutomationCommand::Delete { id: id.into() },
+            )
+            .await;
+        assert_eq!(deleted["deleted"], true);
+        let view = schedules
+            .execute("schedules", "native-list-empty", AutomationCommand::List {})
+            .await;
+        assert_eq!(view, json!([]));
+    }
+
+    #[tokio::test]
+    async fn explicit_allowlist_cannot_restore_retired_automation() {
+        let workspace = TempWorkspace::new();
+        let factory = NativeToolFactory::new(WebRuntime::default());
+        factory
+            .restrict_tools(tool_allowlist::ToolAllowlist::parse("automation").unwrap())
+            .unwrap();
         let executor = factory
             .executor(
-                "schedules",
+                "retired-allowlist",
                 &workspace.0.to_string_lossy(),
                 PermissionPreset::DangerFullAccess,
             )
             .await
             .unwrap();
-        let names = executor
-            .registry()
-            .definitions()
-            .await
-            .into_iter()
-            .map(|definition| definition.name)
-            .collect::<std::collections::BTreeSet<_>>();
-        assert!(names.contains("automation"));
-        for name in ["schedule_create", "schedule_list", "schedule_delete"] {
-            assert!(
-                !names.contains(name),
-                "legacy adapter still exposed: {name}"
-            );
-        }
+        assert!(executor.registry().definitions().await.is_empty());
+        assert!(factory.validate_executor(&executor).await.is_err());
     }
 
     #[tokio::test]

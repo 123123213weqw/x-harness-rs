@@ -310,11 +310,24 @@ async fn admit_prompt_content(
 pub(super) async fn attachment(host: &BasicHost, payload: &Value) -> Result<Value, RpcError> {
     let session_id = required_string(payload, "sessionId")?;
     let attachment_id = required_string(payload, "attachmentId")?;
+    let thumbnail = match payload.get("thumbnail") {
+        None | Some(Value::Bool(false)) => false,
+        Some(Value::Bool(true)) => true,
+        _ => return Err(bad_request("thumbnail must be a boolean")),
+    };
     let attachment = resolve_attachment(host, &session_id, &attachment_id).await?;
     let r = &attachment.reference;
-    Ok(
-        json!({"attachment": {"attachmentId":r.id,"mediaType":r.media_type,"bytes":r.bytes,"width":(r.width>0).then_some(r.width),"height":(r.height>0).then_some(r.height)}, "data":attachment.base64()}),
-    )
+    let reference = json!({"attachmentId":r.id,"mediaType":r.media_type,"bytes":r.bytes,"width":(r.width>0).then_some(r.width),"height":(r.height>0).then_some(r.height)});
+    if thumbnail {
+        let small = xharness_attachments::thumbnail::thumbnail(attachment)
+            .await
+            .map_err(|_| bad_request("thumbnail unavailable; retry or open original"))?;
+        use base64::Engine;
+        return Ok(
+            json!({"attachment":reference,"data":base64::engine::general_purpose::STANDARD.encode(small.data),"thumbnail":{"width":small.width,"height":small.height}}),
+        );
+    }
+    Ok(json!({"attachment":reference,"data":attachment.base64()}))
 }
 
 async fn resolve_attachment(

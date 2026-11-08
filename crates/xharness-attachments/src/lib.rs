@@ -1,4 +1,5 @@
 //! Provider-neutral, session-scoped attachments. Logs contain references only.
+pub mod thumbnail;
 use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use image::{ImageFormat, ImageReader};

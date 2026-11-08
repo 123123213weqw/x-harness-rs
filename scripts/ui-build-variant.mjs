@@ -9,7 +9,10 @@ export function isFixtureSource(source) {
   return /(?:^|\/)(?:fixtures?|demos?)(?:[-.]|\/|$)/i.test(source)
 }
 export function assertProductionSources(sources) {
-  for (const source of sources) if (isFixtureSource(source)) throw Error(`Fixture/demo input is forbidden in production: ${source}`)
+  for (const source of sources) {
+    if (isFixtureSource(source)) throw Error(`Fixture/demo input is forbidden in production: ${source}`)
+    if (source.startsWith('src/modules/code-review/')) throw Error(`Retired Code Review input is forbidden in production: ${source}`)
+  }
 }
 export function moduleRowsForVariant(rows, variant) {
   assertVariant(variant)

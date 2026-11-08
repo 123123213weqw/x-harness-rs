@@ -1,4 +1,5 @@
-/** Real React + production CodeReview + IndexedDB; deterministic slow provider.
+// Historical UI regression only: this module is no longer admitted in production.
+/** Real React + historical CodeReview + IndexedDB; deterministic slow provider.
  * No user data, credentials, model calls or GitHub mutations.
  */
 import assert from 'node:assert/strict'
@@ -11,7 +12,7 @@ const {chromium,webkit}=require('playwright'),engine=process.env.UI_TEST_BROWSER
 const {buildSync}=createRequire(new URL('../ui/package.json',import.meta.url))('esbuild')
 const idleSource=buildSync({entryPoints:[new URL('../ui/src/modules/code-review/idle.ts',import.meta.url).pathname],bundle:true,write:false,format:'iife',globalName:'IdleFixture',platform:'browser'}).outputFiles[0].text
 const browser=await({chromium,webkit}[engine]).launch({headless:true})
-const moduleSource=compileSourceModules(new URL('../ui',import.meta.url).pathname,[{id:'@xlang/xharness-client-ui-code-review',source:'src/modules/code-review/index.tsx'},{id:'@xharness/dsh-client-ui-conversation',source:'src/modules/conversation/index.ts'}]).get('@xlang/xharness-client-ui-code-review').bytes.toString()
+const moduleSource=compileSourceModules(new URL('../ui',import.meta.url).pathname,[{id:'@xlang/xharness-client-ui-code-review',source:'src/modules/code-review/index.tsx'},{id:'@xharness/dsh-client-ui-conversation',source:'src/modules/conversation/index.ts'}],{variant:'fixture'}).get('@xlang/xharness-client-ui-code-review').bytes.toString()
 try{
  const page=await browser.newPage({viewport:{width:1180,height:780},locale:'en-US'}),errors=[]
  page.on('pageerror',error=>{if(error.message!=='owned feature fixture: stop Host boot')errors.push(error.message)})
