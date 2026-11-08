@@ -32,11 +32,11 @@ test('session back/forward, duplicates and a new visit prune only the forward br
 })
 test('all center pages use one route stream; replay is presentation, never open-intent',async()=>{
  const f=fixture(),intents=[],projections=[]
- for(const page of ['plugins','work','review','assistant'])f.target.addEventListener(`xharness:${page}:open`,()=>intents.push(page))
+ for(const page of ['plugins','work','swarm','assistant'])f.target.addEventListener(`xharness:${page}:open`,()=>intents.push(page))
  f.target.addEventListener('xharness:shell-route-changed',event=>projections.push(event.detail.page))
- for(const page of ['plugins','work','review','assistant'])await f.page(page)
- f.nav.back();assert.equal(f.nav.getSnapshot().route.page,'review');f.nav.back();assert.equal(f.nav.getSnapshot().route.page,'work');f.nav.forward();assert.equal(f.nav.getSnapshot().route.page,'review')
- assert.deepEqual(intents,['plugins','work','review','assistant']);assert.deepEqual(projections.slice(-3),['review','work','review']);assert.equal(f.writes.length,0);f.dispose()
+ for(const page of ['plugins','work','swarm','assistant'])await f.page(page)
+ f.nav.back();assert.equal(f.nav.getSnapshot().route.page,'swarm');f.nav.back();assert.equal(f.nav.getSnapshot().route.page,'work');f.nav.forward();assert.equal(f.nav.getSnapshot().route.page,'swarm')
+ assert.deepEqual(intents,['plugins','work','swarm','assistant']);assert.deepEqual(projections.slice(-3),['swarm','work','swarm']);assert.equal(f.writes.length,0);f.dispose()
 })
 test('same gesture page+session selection records one route regardless of listener order',async()=>{
  for(const before of [true,false]){
@@ -83,10 +83,10 @@ test('cleanup cancels queued visits; remount observes current state with one sub
 
 test('initial offline Host never gates local pages or back/forward and binding retains history',async()=>{
  const f=fixture({pending:true,current:null});f.set({...f.list.getSnapshot(),current:undefined,ids:[],byId:{}});await tick()
- for(const page of ['plugins','work','review','assistant']){await f.page(page);assert.equal(f.nav.getSnapshot().route.page,page)}
- f.nav.back();assert.equal(f.nav.getSnapshot().route.page,'review');f.nav.back();assert.equal(f.nav.getSnapshot().route.page,'work');f.nav.forward();assert.equal(f.nav.getSnapshot().route.page,'review');assert.deepEqual(f.writes,[])
+ for(const page of ['plugins','work','swarm','assistant']){await f.page(page);assert.equal(f.nav.getSnapshot().route.page,page)}
+ f.nav.back();assert.equal(f.nav.getSnapshot().route.page,'swarm');f.nav.back();assert.equal(f.nav.getSnapshot().route.page,'work');f.nav.forward();assert.equal(f.nav.getSnapshot().route.page,'swarm');assert.deepEqual(f.writes,[])
  f.set({...f.list.getSnapshot(),phase:'ready',current:'a',ids:['a','b'],byId:{a:{},b:{}}});await tick()
- assert.deepEqual(json(f.nav.getSnapshot().route),{page:'review',sessionId:'a'});assert.equal(f.nav.getSnapshot().canForward,true)
+ assert.deepEqual(json(f.nav.getSnapshot().route),{page:'swarm',sessionId:'a'});assert.equal(f.nav.getSnapshot().canForward,true)
  f.nav.forward();assert.equal(f.nav.getSnapshot().route.page,'assistant');assert.deepEqual(f.writes,[])
  f.nav.back();f.nav.back();f.nav.back();f.nav.back();assert.deepEqual(json(f.nav.getSnapshot().route),{page:'chat',sessionId:'a'});assert.equal(f.nav.getSnapshot().canBack,false);assert.deepEqual(f.writes,[]);f.dispose()
 })
@@ -102,8 +102,8 @@ test('pending reconnect permits same-session page navigation without selection w
 })
 
 test('remounted navigation markers request a projection, not another feature open',async()=>{
- const f=fixture(),projections=[],intents=[];f.target.addEventListener('xharness:shell-route-changed',e=>projections.push(e.detail.page));f.target.addEventListener('xharness:review:open',()=>intents.push('review'))
- await f.page('review');const before=json(f.nav.getSnapshot());f.target.dispatchEvent(new Event('xharness:shell-route-requested'));assert.deepEqual(projections,['review','review']);assert.deepEqual(intents,['review']);assert.deepEqual(f.writes,[]);assert.deepEqual(json(f.nav.getSnapshot()),before);f.dispose();f.target.dispatchEvent(new Event('xharness:shell-route-requested'));assert.equal(projections.length,2)
+ const f=fixture(),projections=[],intents=[];f.target.addEventListener('xharness:shell-route-changed',e=>projections.push(e.detail.page));f.target.addEventListener('xharness:swarm:open',()=>intents.push('swarm'))
+ await f.page('swarm');const before=json(f.nav.getSnapshot());f.target.dispatchEvent(new Event('xharness:shell-route-requested'));assert.deepEqual(projections,['swarm','swarm']);assert.deepEqual(intents,['swarm']);assert.deepEqual(f.writes,[]);assert.deepEqual(json(f.nav.getSnapshot()),before);f.dispose();f.target.dispatchEvent(new Event('xharness:shell-route-requested'));assert.equal(projections.length,2)
 })
 
 test('Swarm is an opt-in presentation route; close/replay never starts or interrupts work',async()=>{
@@ -111,4 +111,20 @@ test('Swarm is an opt-in presentation route; close/replay never starts or interr
  f.target.dispatchEvent(new Event('xharness:swarm:close'));await tick();assert.equal(f.nav.getSnapshot().route.page,'chat');assert.deepEqual(f.writes,[])
  f.nav.back();assert.equal(f.nav.getSnapshot().route.page,'swarm');assert.deepEqual(f.writes,[])
  f.dispose();f.target.dispatchEvent(new Event('xharness:swarm:close'));await tick();assert.equal(f.nav.getSnapshot().route.page,'swarm')
+})
+
+
+test('retired review intent falls back to current chat without a blank page or session command',async()=>{
+ const f=fixture();await f.page('assistant');await f.page('review')
+ assert.deepEqual(json(f.nav.getSnapshot().route),{page:'chat',sessionId:'a'});assert.deepEqual(f.writes,[])
+ f.nav.back();assert.equal(f.nav.getSnapshot().route.page,'assistant')
+ f.nav.forward();assert.equal(f.nav.getSnapshot().route.page,'chat')
+ await f.page('review');assert.equal(f.nav.getSnapshot().canForward,false);assert.deepEqual(f.writes,[])
+ f.dispose();await f.page('review');assert.equal(f.listeners.size,0)
+})
+test('retired review fallback remains local while Host is offline; cleanup removes the listener',async()=>{
+ const f=fixture({pending:true,current:null});await f.page('plugins');await f.page('review')
+ assert.equal(f.nav.getSnapshot().route.page,'chat');assert.deepEqual(f.writes,[])
+ await f.page('work');f.dispose();await f.page('review');assert.equal(f.nav.getSnapshot().route.page,'work')
+ const off=f.nav.mount(f.target);await f.page('review');assert.equal(f.nav.getSnapshot().route.page,'chat');off()
 })

@@ -5,8 +5,8 @@
   "compatibility": "Existing wire/journal schemas, execution permits and all lint fences remain unchanged. One immutable upstream per browser origin; no task replay or session ownership transfer.",
   "paths": {
     "scripts/regression/check-architecture.py": {
-      "before": "12eaedb46fa276be2bf680189fbff404c9bc0386d841d92672db866478e34763",
-      "after": "78c18b1aa05b78bff35bdc65c2293927965baf347e45a2efd42528ab5f4f0641"
+      "before": "98aae2b2dc84459148e5759c3a1dd104f48b674360b5936ec91d5c14018ca3f0",
+      "after": "dbc74e34a1d9dde5bf60f9d204643d8f8881e1ea74634dbd80cfd60a35b70400"
     },
     ".github/workflows/ci.yml": {
       "before": "ef3ba90de15b6731bd41d83c51958ec021d7e7b6b661e029a50608dd97847a68",

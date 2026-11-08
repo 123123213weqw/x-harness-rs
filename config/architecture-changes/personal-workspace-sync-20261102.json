@@ -5,8 +5,8 @@
   "compatibility": "Existing wire, journal, permission and execution protocols remain unchanged. This seam produces metadata proposals only and cannot mutate files, migrate sessions or acknowledge native quiescence.",
   "paths": {
     "scripts/regression/check-architecture.py": {
-      "before": "78c18b1aa05b78bff35bdc65c2293927965baf347e45a2efd42528ab5f4f0641",
-      "after": "a0cae1b3f209fec81b021f200d23a6ee18496610c11b16f71f6cc5b4bb754526"
+      "before": "dbc74e34a1d9dde5bf60f9d204643d8f8881e1ea74634dbd80cfd60a35b70400",
+      "after": "d87e89ab3d135fa599b65c7cb0ce03e35cd02156a2da426cff87c3f22f49a417"
     }
   },
   "regressions": [

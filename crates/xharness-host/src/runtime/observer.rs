@@ -327,6 +327,14 @@ impl DurableRunningTurn {
                 self.terminal = true;
             }
         } else {
+            // Preparation can fail before its transient Error broadcast reaches
+            // this observer. The immutable budget is enough to reject *unclaimed*
+            // work, never evidence of a successful or cancelled execution.
+            if let Err(error) = super::child_policy::admission_wait(Some(&session)) {
+                self.result = Some(Self::failed_result(error));
+                self.terminal = true;
+                return Ok(());
+            }
             let pending = self.receipt.pending(&self.target_input_id);
             let idle = self.handle.status() == xharness_agent::AgentStatus::Idle;
             // A durable cancellation is sufficient even if a different turn is

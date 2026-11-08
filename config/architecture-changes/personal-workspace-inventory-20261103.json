@@ -29,8 +29,8 @@
       "after": "d2ad9666e38644e46c189cedbe90dce90990b6bfe8f8355081d4eca4e4e16e8f"
     },
     "scripts/regression/check-architecture.py": {
-      "before": "65798b5acd1ef580cbaddfb671e6b4b7b6bda554c62e7d91b56ce9d10ee7750d",
-      "after": "e33de0287114c7fed567c159d5cd8cbd74a7c3356c34d3c31f0132a75cb730c0"
+      "before": "f53e17f22e6e106e47e9f0c299a5aa0cfe442424671618b5af025fd7e6c0622c",
+      "after": "88bae732d2c2e61c8a345153004ff650047bda61dbc3669799ee78eb93b6780a"
     }
   },
   "regressions": [

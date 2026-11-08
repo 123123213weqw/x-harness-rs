@@ -1625,11 +1625,13 @@ exports.imageAttachmentRefSchema = zod_1.z.object({
 exports.sessionAttachmentRequestSchema = zod_1.z.object({
     sessionId: exports.sessionIdSchema,
     attachmentId: exports.attachmentIdSchema,
+    thumbnail: zod_1.z.boolean().optional(),
 });
 /** session.attachment response value. */
 exports.sessionAttachmentValueSchema = zod_1.z.object({
     attachment: exports.imageAttachmentRefSchema,
     data: zod_1.z.string(),
+    thumbnail: zod_1.z.object({ width: zod_1.z.number().int().positive().max(480), height: zod_1.z.number().int().positive().max(480) }).optional(),
 });
 /** session.updateQueue request payload. */
 exports.sessionUpdateQueueRequestSchema = zod_1.z.object({

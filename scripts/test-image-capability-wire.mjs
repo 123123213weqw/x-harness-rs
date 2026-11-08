@@ -11,7 +11,13 @@ function schemas(file) {
   vm.runInNewContext(code,{module,exports:module.exports,require})
   return module.exports
 }
-const {modelCatalogModelSchema} = schemas('sessions')
+const {modelCatalogModelSchema,sessionAttachmentRequestSchema,sessionAttachmentValueSchema} = schemas('sessions')
+const imageRef={attachmentId:'a',mediaType:'image/png',bytes:123,width:3200,height:2000}
+assert.equal(sessionAttachmentRequestSchema.parse({sessionId:'s',attachmentId:'a',thumbnail:true}).thumbnail,true)
+assert.equal(sessionAttachmentRequestSchema.safeParse({sessionId:'s',attachmentId:'a',thumbnail:'yes'}).success,false)
+assert.equal(sessionAttachmentValueSchema.parse({attachment:imageRef,data:'base64',thumbnail:{width:480,height:300}}).thumbnail.width,480)
+assert.equal(sessionAttachmentValueSchema.parse({attachment:imageRef,data:'base64'}).thumbnail,undefined,'legacy original response remains readable')
+for(const thumbnail of [{width:481,height:300},{width:0,height:1},{width:1.5,height:1},{width:480,height:Infinity}])assert.equal(sessionAttachmentValueSchema.safeParse({attachment:imageRef,data:'base64',thumbnail}).success,false)
 const {discoveredModelViewSchema} = schemas('llm')
 for (const schema of [modelCatalogModelSchema,discoveredModelViewSchema]) {
   for (const imageInput of [true,false]) {
