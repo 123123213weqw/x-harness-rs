@@ -22,6 +22,44 @@ subprocess watchdog. An individual Apple Event can overrun a soft deadline.
 Missing AX controls in custom-rendered apps still require a visual fallback;
 this optimization does not manufacture semantic controls.
 
+## Bounded semantic-level search
+
+This iteration changes traversal only, not the binding UI or tool arguments.
+An already-selected window is the search domain; selection still follows the
+foreground/region policy above. It does not bind an arbitrary URL or permanently
+capture input from an application.
+
+Within each root, FIFO queues visit effective semantic levels before descending
+one branch. Anonymous `AXGroup` wrappers without a meaningful subrole, label,
+identifier, value, focus/selection state or interaction action do not spend
+semantic depth. Only `AXScrollToVisible` / generic `AXShowMenu` actions qualify:
+context-menu targets and branching groups keep their original records, bounds,
+actions and IDs. Only inert single-child wrappers without a context-menu action
+are omitted, connecting children to the nearest retained ancestor. Named,
+state-bearing and interactive groups are never folded. Invisible containers
+are not a signal to prune visible descendants.
+
+`accessibility.search` identifies the policy and depth metric. `max_depth` now
+limits semantic depth; each node's additive `semantic_depth` records that level.
+The existing `depth` and internal native `path` continue to describe the **raw**
+tree. Paths are never renumbered: input must follow original window/child indices,
+not the compressed presentation. Old snapshots without these additive fields
+still decode.
+
+Independent hard traversal caps remain: raw path depth 64, visited nodes at most
+`max_nodes * 5`, pending queue entries at most `max_nodes * 5`, and the existing
+node/time/watchdog limits. Report queue, visit, raw-depth, semantic-depth and
+child-read failures explicitly as partial results. Completed records survive a
+later soft-deadline expiry; no half-read target is published. A hard subprocess
+watchdog failure remains an explicitly degraded observation, not a recovered
+partial tree. Secure input values and their
+descendants are not read. The native child-list getter can itself overrun a soft
+budget; a bounded queue is not a claim of an OS-wide allocation or latency cap.
+
+These bounds improve target discovery, not atomic snapshot identity or proof of
+an action's effect. Window recreation, UI mutation and occlusion still require
+fresh observation and separate input-effect verification.
+
 ## Multiple displays and screenshots
 
 Input coordinates and AX bounds are global **logical desktop points**. Displays

@@ -49,7 +49,22 @@ pub(crate) struct AxNode {
     pub(crate) visible: bool,
     pub(crate) bounds: Option<WindowBounds>,
     pub(crate) actions: Vec<String>,
+    /// Original native-tree depth; raw paths are never rewritten by search.
     pub(crate) depth: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) semantic_depth: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct AccessibilitySearch {
+    pub(crate) policy: String,
+    pub(crate) depth_metric: String,
+    pub(crate) max_raw_depth: usize,
+    pub(crate) max_visited: usize,
+    pub(crate) max_pending: usize,
+    pub(crate) peak_pending: usize,
+    pub(crate) transparent_layout_nodes: usize,
+    pub(crate) compressed_layout_nodes: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,6 +83,8 @@ pub(crate) struct AccessibilitySnapshot {
     pub(crate) scope: Option<String>,
     #[serde(default)]
     pub(crate) inventory_complete: bool,
+    #[serde(default)]
+    pub(crate) search: Option<AccessibilitySearch>,
 }
 
 impl AccessibilitySnapshot {
@@ -83,6 +100,7 @@ impl AccessibilitySnapshot {
             elapsed_ms: 0,
             scope: None,
             inventory_complete: false,
+            search: None,
         }
     }
 }
@@ -247,6 +265,65 @@ mod tests {
     }
 
     #[test]
+    fn production_jxa_generated_fixture_decodes_with_original_target_paths() {
+        // The Node regression compares this fixture with the actual JXA output.
+        let snapshot: AccessibilitySnapshot =
+            serde_json::from_str(include_str!("../tests/fixtures/semantic-search.json")).unwrap();
+        assert_eq!(snapshot.nodes.len(), 2);
+        assert!(!snapshot.truncated);
+        assert_eq!(snapshot.max_depth, 1);
+        let search = snapshot.search.as_ref().unwrap();
+        assert_eq!(search.compressed_layout_nodes, 48);
+        assert_eq!(search.transparent_layout_nodes, 48);
+        assert_eq!(search.max_raw_depth, 64);
+        assert_eq!(search.peak_pending, 1);
+        for node in &snapshot.nodes {
+            assert_eq!(node.depth, 25);
+            assert_eq!(node.semantic_depth, Some(1));
+            assert_eq!(node.path, vec![0; 25]);
+            assert_eq!(node.actions, ["AXPress"]);
+            assert_eq!(node.root_kind, "window");
+        }
+    }
+
+    #[test]
+    fn semantic_search_metadata_is_additive_and_raw_paths_are_preserved() {
+        let input = json!({"windows":[],"nodes":[{
+            "node_id":"ax:42:w1:0.0.0.0", "parent_id":"window:42:1", "surface_id":"mac:42:1",
+            "pid":42, "root_kind":"window", "root_index":1, "path":[0,0,0,0],
+            "role":"AXButton", "subrole":null, "label":"Save", "description":null,
+            "identifier":null, "value":null, "enabled":true, "focused":false,
+            "selected":false, "visible":true, "bounds":null, "actions":["AXPress"],
+            "depth":4,"semantic_depth":1
+        }],"truncated":false,"visited":4,"max_nodes":80,"max_depth":1,
+        "search":{"policy":"semantic_breadth_first","depth_metric":"semantic",
+          "max_raw_depth":64,"max_visited":400,"max_pending":400,"peak_pending":1,
+          "transparent_layout_nodes":3,"compressed_layout_nodes":3}});
+        let snapshot: AccessibilitySnapshot = serde_json::from_value(input).unwrap();
+        let search = snapshot.search.as_ref().unwrap();
+        assert_eq!(search.policy, "semantic_breadth_first");
+        assert_eq!(search.depth_metric, "semantic");
+        assert_eq!(search.max_raw_depth, 64);
+        assert_eq!(search.max_visited, 400);
+        assert_eq!(search.max_pending, 400);
+        assert_eq!(search.peak_pending, 1);
+        assert_eq!(search.transparent_layout_nodes, 3);
+        assert_eq!(search.compressed_layout_nodes, 3);
+        let node = &snapshot.nodes[0];
+        assert_eq!(node.depth, 4);
+        assert_eq!(node.semantic_depth, Some(1));
+        assert_eq!(node.path, vec![0, 0, 0, 0]);
+        let projected = serde_json::to_value(node).unwrap();
+        assert_eq!(projected["depth"], 4);
+        assert_eq!(projected["semantic_depth"], 1);
+        assert!(projected.get("path").is_none());
+        assert_eq!(
+            serde_json::to_value(search).unwrap()["policy"],
+            "semantic_breadth_first"
+        );
+    }
+
+    #[test]
     fn soft_budget_preserves_completed_targets_and_old_snapshots_decode() {
         let plan = plan(json!({"action":"observe"}));
         let legacy = json!({"windows":[],"nodes":[],"truncated":false,"visited":0,"max_nodes":80,"max_depth":4});
@@ -255,6 +332,7 @@ mod tests {
         assert_eq!(snapshot.elapsed_ms, 0);
         assert_eq!(snapshot.scope, None);
         assert!(!snapshot.inventory_complete);
+        assert!(snapshot.search.is_none());
         assert_eq!(
             (snapshot.visited, snapshot.max_nodes, snapshot.max_depth),
             (0, 80, 4)
@@ -286,5 +364,6 @@ mod tests {
         let projected = serde_json::to_value(&snapshot.nodes[0]).unwrap();
         assert!(projected.get("path").is_none());
         assert!(projected.get("pid").is_none());
+        assert!(projected.get("semantic_depth").is_none());
     }
 }

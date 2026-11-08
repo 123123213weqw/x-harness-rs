@@ -425,6 +425,7 @@ impl MacComputer {
                 "elapsed_ms": snapshot.elapsed_ms,
                 "scope": snapshot.scope,
                 "inventory_complete": snapshot.inventory_complete,
+                "search": snapshot.search,
                 "error": accessibility_error.map(|error| json!({
                     "code": error.code, "message": error.message, "retryable": error.retryable
                 }))
