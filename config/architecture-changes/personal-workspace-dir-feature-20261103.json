@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Enable only the existing nix 0.30.1 dir Cargo feature after explicit user agreement for native directory-API evaluation.",
+  "compatibility": "No version, package, lockfile, production Rust caller, wire API, UI capability, sync write or deletion changes. Directory enumeration is not certified as a complete workspace inventory by this feature toggle.",
+  "paths": {
+    "crates/xharness-fs/Cargo.toml": {
+      "before": "c21bc89973bc9dc8373bc5278c7335d7113b1c45b50145f9efb1e6e0f1fc6a78",
+      "after": "82efbdca114a7861ecae42c4ede3abe3cb3d831b9bb40d8c6ba34ffe67193697"
+    }
+  },
+  "regressions": [
+    "native",
+    "windows"
+  ]
+}

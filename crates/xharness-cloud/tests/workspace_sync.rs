@@ -451,3 +451,55 @@ fn serialized_plan_contains_no_grant_or_completion_claim() {
     assert_eq!(value["scope"]["local_environment"], "mac");
     assert_eq!(value["scope"]["cloud_environment"], "cloud");
 }
+#[test]
+fn native_capture_policy_classifies_exclusions_without_weakening_manifest_validation() {
+    use xharness_cloud::workspace_sync::{classify_capture_path, CapturePathClass};
+    for name in [
+        ".env",
+        ".ENV.local",
+        "src/private.KEY",
+        ".git",
+        "node_modules",
+        "auth.json",
+        "private.pfx",
+    ] {
+        assert_eq!(
+            classify_capture_path(name).unwrap(),
+            CapturePathClass::Exclude
+        );
+        assert!(
+            WorkspaceManifest::new([(name.into(), SyncFile::from_bytes(b"", false).unwrap())])
+                .is_err()
+        );
+    }
+    assert_eq!(
+        classify_capture_path("中文/source.rs").unwrap(),
+        CapturePathClass::Include
+    );
+    for name in [
+        "../private",
+        "CON",
+        "bad:name",
+        "bad\\name",
+        "bad\nname",
+        "name.",
+    ] {
+        assert!(classify_capture_path(name).is_err());
+    }
+}
+
+#[test]
+fn capture_tree_checks_empty_directory_aliases_and_file_directory_conflicts() {
+    use xharness_cloud::workspace_sync::validate_capture_tree;
+    assert!(
+        validate_capture_tree([("dir", true), ("dir/empty", true), ("dir/file", false)]).is_ok()
+    );
+    for paths in [
+        vec![("Alpha", true), ("alpha", true)],
+        vec![("é", true), ("e\u{301}", true)],
+        vec![("dir", false), ("dir/child", true)],
+        vec![("dir/file", false), ("dir", false)],
+    ] {
+        assert!(validate_capture_tree(paths).is_err());
+    }
+}
