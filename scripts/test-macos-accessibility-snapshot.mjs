@@ -11,7 +11,7 @@ function fixture(options = {}, config = {}) {
   function read(value, kind='node') { reads[kind] = (reads[kind] || 0)+1; now += cost; return value; }
   function node(role='AXButton', children=[]) {
     return {
-      role:()=>{ if(config.slowRole) now+=500; return read(role); }, subrole:()=>read(null),
+      role:()=>{ if(config.slowRole) now+=500; if(config.slowMenuRole && role==='AXMenuBar') now+=1000; return read(role); }, subrole:()=>read(null),
       title:()=>read(role==='AXUnknown'?'':'Save'), name:()=>read('','name'), description:()=>read(''), help:()=>read('','help'),
       attributes:{byName:()=>({value:()=>read('')})}, actions:()=>read([]),
       position:()=>read(role==='AXUnknown'?null:[10,20]), size:()=>read([30,40]),
@@ -29,7 +29,7 @@ function fixture(options = {}, config = {}) {
   }));
   const processes = [1,2].map(pid=>({
     _frontmost:pid===2, frontmost:()=>read(pid===2,'frontmost'), unixId:()=>read(pid,'process'), name:()=>read(`App ${pid}`,'process'),
-    windows:()=>read(windows(pid),'window'), menuBars:()=>read([],'menus')
+    windows:()=>read(windows(pid),'window'), menuBars:()=>read(config.menus ? [node('AXMenuBar',Array.from({length:config.menuCount ?? 1000},()=>node('AXMenuItem')))] : [],'menus')
   }));
   const se = {applicationProcesses:{whose:criteria=>()=>read(processes.filter(p=>criteria.frontmost===undefined || p._frontmost===criteria.frontmost),'processes')}};
   const context = vm.createContext({Date:{now:()=>now}, Application:()=>se});
@@ -151,4 +151,28 @@ test('scoped background controls are read before the remaining window inventory'
   assert.equal(result.nodes[0].node_id,'ax:1:w1:0');
   assert.equal(result.inventory_complete,false);
   assert.deepEqual(result.truncation_reasons,['time_budget']);
+});
+
+test('large menu trees cannot consume the remaining foreground observation budget',()=>{
+  const {result}=fixture({max_nodes:80},{cost:10,count:1,menus:true});
+  assert.deepEqual(result.truncation_reasons,['menu_budget']);
+  assert.equal(result.nodes.filter(n=>n.root_kind==='window').length,2);
+  assert.ok(result.nodes.some(n=>n.root_kind==='menu_bar'));
+  assert.ok(result.elapsed_ms<2500,result.elapsed_ms);
+  assert.equal(result.inventory_complete,true);
+  assert.equal(result.windows.length,4);
+});
+test('one slow menu property preserves window targets and resumes window inventory',()=>{
+  const {result}=fixture({max_nodes:80},{count:1,menus:true,slowMenuRole:true});
+  assert.deepEqual(result.truncation_reasons,['menu_budget']);
+  assert.equal(result.nodes.length,2);
+  assert.ok(result.nodes.every(n=>n.root_kind==='window'));
+  assert.equal(result.inventory_complete,true);
+  assert.equal(result.windows.length,4);
+});
+test('small complete menu trees retain paths without a false budget warning',()=>{
+  const {result}=fixture({max_nodes:80},{count:1,menus:true,menuCount:2});
+  assert.equal(result.truncated,false);
+  assert.equal(result.nodes.filter(n=>n.root_kind==='menu_bar').length,3);
+  assert.deepEqual(result.nodes.find(n=>n.root_kind==='menu_bar' && n.depth===1).path,[0]);
 });

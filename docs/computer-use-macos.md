@@ -4,7 +4,10 @@
 
 A normal observation prioritizes controls in the frontmost application's
 windows and menu bar. It does not traverse every background application's
-controls. Background window metadata has a separate, soft one-second budget;
+controls. Optional menu traversal has a separate 750 ms soft budget; a truncated menu
+is explicitly reported as `menu_budget`, rather than consuming the rest of the
+observation on hidden submenu items. Background window metadata has a separate,
+soft one-second budget;
 `window/list` retains the full inventory-only budget without reading controls.
 Use `accessibility.scope`, `inventory_complete`, `truncated` and
 `truncation_reasons`, not the absence of a target, to interpret a partial result.

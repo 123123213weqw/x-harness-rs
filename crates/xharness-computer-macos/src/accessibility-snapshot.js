@@ -65,6 +65,20 @@ function run(argv) {
     result.truncated = true;
     if (!result.truncation_reasons.includes(reason)) result.truncation_reasons.push(reason);
   }
+  function withBudget(milliseconds, reason, work) {
+    const previous = deadline;
+    deadline = Math.min(previous, Date.now() + milliseconds);
+    try {
+      work();
+    } catch (error) {
+      // A sub-budget may discard only its unfinished optional record. Never
+      // swallow the independent overall deadline or any other script error.
+      if (error !== budgetReached || Date.now() >= totalDeadline) throw error;
+      truncated(reason);
+    } finally {
+      deadline = previous;
+    }
+  }
   function full() {
     if (result.nodes.length >= maxNodes) { truncated('node_limit'); return true; }
     if (result.visited >= maxVisited) { truncated('visit_limit'); return true; }
@@ -169,8 +183,12 @@ function run(argv) {
         }
       }
       if (includeNodes && entry.frontmost && !region && !full()) {
-        const menuBars = safe(() => process.menuBars(),[]);
-        for (let index=0; index<menuBars.length; index++) visitRoot({element:menuBars[index], context:{pid,root_kind:'menu_bar',root_index:index+1,surface_id:`mac:${pid}:menu`}, parent:`application:${pid}`});
+        // Menus are useful secondary targets, but a large hidden submenu tree
+        // must not consume every remaining millisecond after window controls.
+        withBudget(750, 'menu_budget', () => {
+          const menuBars = safe(() => process.menuBars(),[]);
+          for (let index=0; index<menuBars.length; index++) visitRoot({element:menuBars[index], context:{pid,root_kind:'menu_bar',root_index:index+1,surface_id:`mac:${pid}:menu`}, parent:`application:${pid}`});
+        });
       }
     }
     result.inventory_complete = true;
