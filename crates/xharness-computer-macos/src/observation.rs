@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use xharness_computer::{ComputerAction, ComputerError, ComputerRequest};
+use xharness_computer::{ComputerAction, ComputerError, ComputerRequest, Region};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct WindowInfo {
@@ -16,7 +16,7 @@ pub(crate) struct WindowInfo {
     pub(crate) bounds: WindowBounds,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub(crate) struct WindowBounds {
     pub(crate) x: f64,
     pub(crate) y: f64,
@@ -64,6 +64,10 @@ pub(crate) struct AccessibilitySnapshot {
     pub(crate) truncation_reasons: Vec<String>,
     #[serde(default)]
     pub(crate) elapsed_ms: u64,
+    #[serde(default)]
+    pub(crate) scope: Option<String>,
+    #[serde(default)]
+    pub(crate) inventory_complete: bool,
 }
 
 impl AccessibilitySnapshot {
@@ -77,6 +81,8 @@ impl AccessibilitySnapshot {
             max_depth,
             truncation_reasons: Vec::new(),
             elapsed_ms: 0,
+            scope: None,
+            inventory_complete: false,
         }
     }
 }
@@ -89,6 +95,7 @@ pub(crate) struct ObservationPlan {
     pub(crate) include_nodes: bool,
     pub(crate) max_nodes: usize,
     pub(crate) max_depth: usize,
+    pub(crate) region: Option<Region>,
 }
 
 impl ObservationPlan {
@@ -101,6 +108,7 @@ impl ObservationPlan {
             include_nodes: !window_list && request.include_accessibility,
             max_nodes,
             max_depth,
+            region: request.region,
         }
     }
 
@@ -110,7 +118,8 @@ impl ObservationPlan {
             "max_depth": self.max_depth,
             "include_nodes": self.include_nodes,
             // Leave headroom under the independent 12s subprocess watchdog.
-            "time_budget_ms": 8_000
+            "time_budget_ms": 8_000,
+            "region": self.region
         })
     }
 }
@@ -189,6 +198,17 @@ mod tests {
     }
 
     #[test]
+    fn region_is_forwarded_to_ax_without_rebasing_negative_origins() {
+        let region = json!({"x":-1400.0,"y":80.0,"width":64.0,"height":64.0});
+        let options = plan(json!({"action":"observe","region":region})).options();
+        assert_eq!(options["region"], region);
+        assert_eq!(
+            plan(json!({"action":"observe"})).options()["region"],
+            Value::Null
+        );
+    }
+
+    #[test]
     fn detail_budgets_remain_compatible() {
         assert_eq!(accessibility_budget(Some("low")), (80, 4));
         assert_eq!(accessibility_budget(None), (220, 8));
@@ -233,6 +253,8 @@ mod tests {
         let snapshot: AccessibilitySnapshot = serde_json::from_value(legacy.clone()).unwrap();
         assert!(snapshot.truncation_reasons.is_empty());
         assert_eq!(snapshot.elapsed_ms, 0);
+        assert_eq!(snapshot.scope, None);
+        assert!(!snapshot.inventory_complete);
         assert_eq!(
             (snapshot.visited, snapshot.max_nodes, snapshot.max_depth),
             (0, 80, 4)
@@ -241,6 +263,8 @@ mod tests {
         partial["truncated"] = json!(true);
         partial["truncation_reasons"] = json!(["time_budget"]);
         partial["elapsed_ms"] = json!(8_010);
+        partial["scope"] = json!("frontmost_windows");
+        partial["inventory_complete"] = json!(false);
         partial["nodes"] = json!([{
             "node_id":"ax:42:w1:0", "parent_id":"window:42:1", "surface_id":"mac:42:1",
             "pid":42, "root_kind":"window", "root_index":1, "path":[0],
@@ -252,6 +276,8 @@ mod tests {
         let (snapshot, error) = recover_snapshot(Ok(snapshot), plan).unwrap();
         assert!(error.is_none());
         assert_eq!(snapshot.nodes.len(), 1);
+        assert_eq!(snapshot.scope.as_deref(), Some("frontmost_windows"));
+        assert!(!snapshot.inventory_complete);
         assert_eq!(snapshot.nodes[0].path, vec![0]);
         assert_eq!(snapshot.nodes[0].pid, 42);
         assert_eq!(snapshot.nodes[0].root_kind, "window");

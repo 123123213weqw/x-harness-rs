@@ -16,9 +16,12 @@ use tokio::{process::Command, sync::Mutex};
 use tokio_util::sync::CancellationToken;
 use xharness_computer::{
     ComputerAction, ComputerDriver, ComputerError, ComputerOutput, ComputerRequest, MouseButton,
-    Point, Region, Screenshot,
+    Point, Screenshot,
 };
 
+use crate::geometry::{
+    check_display_configuration, contains_point, CapturePlan, DisplayInfo, PixelSize,
+};
 use crate::observation::{recover_snapshot, AccessibilitySnapshot, ObservationPlan, WindowBounds};
 
 static NEXT_SCREENSHOT: AtomicU64 = AtomicU64::new(1);
@@ -132,8 +135,11 @@ extern "C" {
         display_count: *mut c_uint,
     ) -> c_int;
     fn CGDisplayBounds(display: CGDirectDisplayId) -> CGRect;
-    fn CGDisplayPixelsWide(display: CGDirectDisplayId) -> usize;
-    fn CGDisplayPixelsHigh(display: CGDirectDisplayId) -> usize;
+    fn CGDisplayIsMain(display: CGDirectDisplayId) -> c_uint;
+    fn CGDisplayCopyDisplayMode(display: CGDirectDisplayId) -> *mut c_void;
+    fn CGDisplayModeGetPixelWidth(mode: *mut c_void) -> usize;
+    fn CGDisplayModeGetPixelHeight(mode: *mut c_void) -> usize;
+    fn CGDisplayModeRelease(mode: *mut c_void);
     fn CGEventSourceCreate(state_id: c_int) -> CGEventSourceRef;
     fn CGEventCreateMouseEvent(
         source: CGEventSourceRef,
@@ -180,6 +186,7 @@ impl WindowBounds {
 #[derive(Default)]
 struct ObservationState {
     frame_id: Option<String>,
+    displays: Vec<DisplayInfo>,
     nodes: BTreeMap<String, NodeTarget>,
 }
 
@@ -305,6 +312,11 @@ impl MacComputer {
         cancellation: &CancellationToken,
     ) -> Result<ComputerOutput, ComputerError> {
         let displays = display_info()?;
+        let capture_plan = if request.include_screenshot.unwrap_or(false) {
+            Some(CapturePlan::new(&displays, request.region)?)
+        } else {
+            None
+        };
         let permissions = permission_status();
         let plan = ObservationPlan::for_request(request);
         let snapshot_result = if plan.needs_snapshot && permissions.accessibility {
@@ -356,13 +368,13 @@ impl MacComputer {
                 },
             );
         }
-        let screenshot = if request.include_screenshot.unwrap_or(false) {
+        let screenshot = if let Some(capture_plan) = &capture_plan {
             if !permissions.screen_recording {
                 return Err(ComputerError::unavailable(
                     "permission_required: enable Screen Recording for XHarness in System Settings > Privacy & Security",
                 ));
             }
-            Some(capture_png(request.region, cancellation).await?)
+            Some(capture_png(capture_plan, cancellation).await?)
         } else {
             None
         };
@@ -372,10 +384,16 @@ impl MacComputer {
                 "computer observation cancelled",
             ));
         }
+        let screenshot_geometry = match (&capture_plan, &screenshot) {
+            (Some(plan), Some(screenshot)) => Some(plan.metadata(&screenshot.png)?),
+            _ => None,
+        };
+        check_display_configuration(&displays, &display_info()?)?;
         // Publish only a completed observation. Even a degraded observation
         // replaces old AX targets: never retain nodes from an earlier frame.
         *self.state.lock().await = ObservationState {
             frame_id: Some(frame_id.clone()),
+            displays: displays.clone(),
             nodes,
         };
         let accessibility_status = if accessibility_error.is_some() {
@@ -405,12 +423,15 @@ impl MacComputer {
                 "status": accessibility_status,
                 "truncation_reasons": snapshot.truncation_reasons,
                 "elapsed_ms": snapshot.elapsed_ms,
+                "scope": snapshot.scope,
+                "inventory_complete": snapshot.inventory_complete,
                 "error": accessibility_error.map(|error| json!({
                     "code": error.code, "message": error.message, "retryable": error.retryable
                 }))
             },
             "permissions": permissions,
-            "screenshot_included": screenshot.is_some()
+            "screenshot_included": screenshot.is_some(),
+            "screenshot": screenshot_geometry
         });
         Ok(ComputerOutput { value, screenshot })
     }
@@ -433,32 +454,49 @@ impl MacComputer {
     }
 
     async fn checked_point(&self, request: &ComputerRequest) -> Result<Point, ComputerError> {
-        if let Some(target) = self.checked_target(request).await? {
-            return target.bounds.map(WindowBounds::center).ok_or_else(|| {
+        let point = if let Some(target) = self.checked_target(request).await? {
+            target.bounds.map(WindowBounds::center).ok_or_else(|| {
                 ComputerError::retryable(
                     "node_has_no_bounds",
                     "the referenced accessibility node has no clickable bounds; observe again or use a semantic action",
                 )
-            });
-        }
-        let point = Point {
-            x: request.x.unwrap_or_default(),
-            y: request.y.unwrap_or_default(),
+            })?
+        } else {
+            Point {
+                x: request.x.unwrap_or_default(),
+                y: request.y.unwrap_or_default(),
+            }
         };
         if !point.x.is_finite() || !point.y.is_finite() {
             return Err(ComputerError::invalid("coordinates must be finite"));
         }
+        self.check_points(&[point]).await?;
         Ok(point)
+    }
+
+    async fn check_points(&self, points: &[Point]) -> Result<(), ComputerError> {
+        let state = self.state.lock().await;
+        if points
+            .iter()
+            .any(|point| !contains_point(&state.displays, *point))
+        {
+            return Err(ComputerError::retryable(
+                "point_outside_displays",
+                "input point is outside the observed displays (or in a gap); use logical desktop coordinates and observe again",
+            ));
+        }
+        Ok(())
     }
 
     async fn check_frame(&self, frame_id: Option<&str>) -> Result<(), ComputerError> {
         let state = self.state.lock().await;
-        if frame_id != state.frame_id.as_deref() {
+        if frame_id.is_none() || frame_id != state.frame_id.as_deref() {
             return Err(ComputerError::retryable(
                 "stale_frame",
                 "the referenced frame is stale; call computer observe again",
             ));
         }
+        check_display_configuration(&state.displays, &display_info()?)?;
         Ok(())
     }
 
@@ -523,6 +561,7 @@ impl MacComputer {
             }
             ComputerAction::Drag => {
                 self.check_frame(request.frame_id.as_deref()).await?;
+                self.check_points(&request.path).await?;
                 post_drag(
                     &request.path,
                     request.button,
@@ -608,6 +647,11 @@ impl ComputerDriver for MacComputer {
             }
             return Ok(output);
         }
+        // Reject an ambiguous crop before input is posted, not only when the
+        // requested post-action observation tries to capture it.
+        if request.wants_observation_after() && request.include_screenshot.unwrap_or(false) {
+            CapturePlan::new(&display_info()?, request.region)?;
+        }
         let action = self.act(&request, &cancellation).await?;
         if request.wants_observation_after() {
             let mut observation = request.clone();
@@ -639,34 +683,70 @@ fn permission_status() -> PermissionStatus {
     }
 }
 
-fn display_info() -> Result<Vec<Value>, ComputerError> {
+fn display_info() -> Result<Vec<DisplayInfo>, ComputerError> {
     let mut ids = [0_u32; 32];
     let mut count = 0_u32;
     // SAFETY: ids has capacity for max_displays entries and count is writable.
     let status = unsafe { CGGetActiveDisplayList(ids.len() as u32, ids.as_mut_ptr(), &mut count) };
-    if status != 0 {
+    if status != 0 || count as usize > ids.len() {
         return Err(ComputerError::retryable(
             "display_query_failed",
             format!("CGGetActiveDisplayList failed with status {status}"),
         ));
     }
-    Ok(ids[..count as usize]
+    ids[..count as usize]
         .iter()
-        .enumerate()
-        .map(|(index, id)| {
-            // SAFETY: IDs came directly from CGGetActiveDisplayList.
-            let bounds = unsafe { CGDisplayBounds(*id) };
-            // SAFETY: same display ID validity as above.
-            let pixels = unsafe { (CGDisplayPixelsWide(*id), CGDisplayPixelsHigh(*id)) };
-            json!({
-                "display_id": id,
-                "primary": index == 0,
-                "bounds": {"x":bounds.origin.x,"y":bounds.origin.y,"width":bounds.size.width,"height":bounds.size.height},
-                "pixels": {"width":pixels.0,"height":pixels.1},
-                "scale": if bounds.size.width > 0.0 { pixels.0 as f64 / bounds.size.width } else { 1.0 }
+        .map(|id| {
+            // SAFETY: IDs came directly from CGGetActiveDisplayList. Copy returns
+            // a retained mode; all getters below run before its single release.
+            let (bounds, primary, mode) = unsafe {
+                (
+                    CGDisplayBounds(*id),
+                    CGDisplayIsMain(*id) != 0,
+                    CGDisplayCopyDisplayMode(*id),
+                )
+            };
+            if mode.is_null() {
+                return Err(ComputerError::retryable(
+                    "display_query_failed",
+                    "display mode unavailable; observe again",
+                ));
+            }
+            // CGDisplayPixelsWide can report logical mode dimensions on Retina.
+            // Use the backing-pixel dimensions, not the legacy width/height API.
+            // SAFETY: mode is the non-null +1 object above; released exactly once.
+            let pixels = unsafe {
+                let pixels = PixelSize {
+                    width: CGDisplayModeGetPixelWidth(mode),
+                    height: CGDisplayModeGetPixelHeight(mode),
+                };
+                CGDisplayModeRelease(mode);
+                pixels
+            };
+            if bounds.size.width <= 0.0
+                || bounds.size.height <= 0.0
+                || pixels.width == 0
+                || pixels.height == 0
+            {
+                return Err(ComputerError::retryable(
+                    "display_query_failed",
+                    "empty display geometry; observe again",
+                ));
+            }
+            Ok(DisplayInfo {
+                display_id: *id,
+                primary,
+                bounds: WindowBounds {
+                    x: bounds.origin.x,
+                    y: bounds.origin.y,
+                    width: bounds.size.width,
+                    height: bounds.size.height,
+                },
+                pixels,
+                scale: pixels.width as f64 / bounds.size.width,
             })
         })
-        .collect())
+        .collect()
 }
 
 async fn accessibility_snapshot(
@@ -795,7 +875,7 @@ async fn run_osascript_with_timeout(
 }
 
 async fn capture_png(
-    region: Option<Region>,
+    plan: &CapturePlan,
     cancellation: &CancellationToken,
 ) -> Result<Screenshot, ComputerError> {
     let directory = private_runtime_directory()?;
@@ -805,7 +885,8 @@ async fn capture_png(
     ));
     let mut command = Command::new("/usr/sbin/screencapture");
     command.arg("-x").arg("-t").arg("png");
-    if let Some(region) = region {
+    if plan.cropped {
+        let region = plan.region;
         command.arg("-R").arg(format!(
             "{},{},{},{}",
             region.x.round() as i64,
@@ -813,6 +894,10 @@ async fn capture_png(
             region.width.round() as i64,
             region.height.round() as i64
         ));
+    } else {
+        // Explicitly capture one known display; never imply a multi-screen
+        // screenshot when only the primary screen's image is returned.
+        command.arg("-D").arg(plan.display_number.to_string());
     }
     command.arg(&path).stdin(Stdio::null()).kill_on_drop(true);
     let result = tokio::select! {

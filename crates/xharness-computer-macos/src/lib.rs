@@ -6,6 +6,9 @@
 #[cfg(any(target_os = "macos", test))]
 mod observation;
 
+#[cfg(any(target_os = "macos", test))]
+mod geometry;
+
 #[cfg(target_os = "macos")]
 mod macos;
 

@@ -51,8 +51,16 @@ function run(argv) {
   const includeNodes = options.include_nodes !== false;
   const start = Date.now();
   deadline = start + Math.max(1, Math.min(Number(options.time_budget_ms) || 8000, 8000));
+  const totalDeadline = deadline;
+  let inventoryDeadline = false;
   const result = {windows:[], nodes:[], truncated:false, visited:0, max_nodes:maxNodes, max_depth:maxDepth, truncation_reasons:[], elapsed_ms:0};
-  const roots = [];
+  const region = options.region || null;
+  result.scope = includeNodes ? (region ? 'intersecting_windows' : 'frontmost_windows') : 'windows_only';
+  result.inventory_complete = false;
+  function inRegion(rect) {
+    return !region || (rect.x < region.x + region.width && rect.x + rect.width > region.x &&
+      rect.y < region.y + region.height && rect.y + rect.height > region.y);
+  }
   function truncated(reason) {
     result.truncated = true;
     if (!result.truncation_reasons.includes(reason)) result.truncation_reasons.push(reason);
@@ -69,10 +77,11 @@ function run(argv) {
     if (depth > maxDepth) { truncated('depth_limit'); return; }
     const role = clipped(safe(() => element.role(), ''), 80) || 'AXUnknown';
     const subrole = clipped(safe(() => element.subrole(), ''), 80);
+    // Avoid four Apple Events when a control already has a useful title.
     const title = clipped(safe(() => element.title(), ''), 160);
-    const name = clipped(safe(() => element.name(), ''), 160);
+    const name = title ? null : clipped(safe(() => element.name(), ''), 160);
     const description = clipped(safe(() => element.description(), ''), 160);
-    const help = clipped(safe(() => element.help(), ''), 160);
+    const help = title || name || description ? null : clipped(safe(() => element.help(), ''), 160);
     const identifier = clipped(attribute(element, 'AXIdentifier', ''), 160);
     const actions = actionNames(element);
     const nodeId = `ax:${context.pid}:${context.root_kind[0]}${context.root_index}:${path.join('.') || 'root'}`;
@@ -103,17 +112,41 @@ function run(argv) {
       if (full()) return;
     }
   }
+  function visitRoot(root) {
+    if (full()) return;
+    if (root.context.root_kind === 'window') {
+      const children = safe(() => root.element.uiElements(),[]);
+      for (let index=0; index<children.length; index++) {
+        walk(children[index],root.context,root.parent,[index],1);
+        if (full()) break;
+      }
+    } else {
+      walk(root.element,root.context,root.parent,[],0);
+    }
+  }
   try {
     const se = Application('System Events');
-    // Cache frontmost once per process, rather than querying it in every sort
-    // comparator. Enumerate windows before controls so all cheap surfaces can
-    // survive a node/time limit in the expensive second phase.
-    const processes = safe(() => se.applicationProcesses.whose({visible:true})(), [])
-      .map(process => ({process, frontmost:boolValue(() => process.frontmost(),false)}));
-    processes.sort((a,b) => Number(b.frontmost)-Number(a.frontmost));
+    // Two batched process queries, not one Apple Event per process just to
+    // discover the foreground app. Read its controls before background window
+    // metadata. window/list remains the explicit inventory-only path. Partial
+    // inventories are never proof that another window is absent.
+    const foreground = safe(() => se.applicationProcesses.whose({frontmost:true})(), []);
+    const background = safe(() => se.applicationProcesses.whose({visible:true,frontmost:false})(), []);
+    const processes = foreground.map(process => ({process,frontmost:true}))
+      .concat(background.map(process => ({process,frontmost:false})));
+    const seen = new Set();
     for (const entry of processes) {
+      if (includeNodes && !region && !entry.frontmost && !inventoryDeadline) {
+        // Default observations need the active app, not every background app's
+        // controls. Cap the best-effort background inventory independently;
+        // window/list retains the full inventory budget.
+        deadline = Math.min(totalDeadline, Date.now() + 1000);
+        inventoryDeadline = true;
+      }
       const process = entry.process;
       const pid = Number(safe(() => process.unixId(),0)) || 0;
+      if (!pid || seen.has(pid)) continue;
+      seen.add(pid);
       const app = clipped(safe(() => process.name(),''),160) || '';
       const windows = safe(() => process.windows(),[]);
       for (let index=0; index<windows.length; index++) {
@@ -131,28 +164,19 @@ function run(argv) {
           minimized, bounds:windowBounds
         };
         result.windows.push(info);
-        if (includeNodes && !minimized) roots.push({element:window, context:{pid,root_kind:'window',root_index:index+1,surface_id:surfaceId}, parent:windowNodeId});
-      }
-      if (includeNodes && entry.frontmost) {
-        const menuBars = safe(() => process.menuBars(),[]);
-        for (let index=0; index<menuBars.length; index++) roots.push({element:menuBars[index], context:{pid,root_kind:'menu_bar',root_index:index+1,surface_id:`mac:${pid}:menu`}, parent:`application:${pid}`});
-      }
-    }
-    for (const root of roots) {
-      if (full()) break;
-      if (root.context.root_kind === 'window') {
-        const children = safe(() => root.element.uiElements(),[]);
-        for (let index=0; index<children.length; index++) {
-          walk(children[index],root.context,root.parent,[index],1);
-          if (full()) break;
+        if (includeNodes && !minimized && inRegion(windowBounds) && (entry.frontmost || region)) {
+          visitRoot({element:window, context:{pid,root_kind:'window',root_index:index+1,surface_id:surfaceId}, parent:windowNodeId});
         }
-      } else {
-        walk(root.element,root.context,root.parent,[],0);
+      }
+      if (includeNodes && entry.frontmost && !region && !full()) {
+        const menuBars = safe(() => process.menuBars(),[]);
+        for (let index=0; index<menuBars.length; index++) visitRoot({element:menuBars[index], context:{pid,root_kind:'menu_bar',root_index:index+1,surface_id:`mac:${pid}:menu`}, parent:`application:${pid}`});
       }
     }
+    result.inventory_complete = true;
   } catch (error) {
     if (error !== budgetReached) throw error;
-    truncated('time_budget');
+    truncated(inventoryDeadline && deadline < totalDeadline ? 'window_inventory_budget' : 'time_budget');
   }
   result.elapsed_ms = Date.now()-start;
   return JSON.stringify(result);
