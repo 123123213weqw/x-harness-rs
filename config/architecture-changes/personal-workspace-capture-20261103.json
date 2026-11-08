@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Add an opt-in read-only full-file native capture port, keep all existing filesystem tools and their sampled observation semantics unchanged, and enroll the new seam in compiler-enforced safety/error boundaries.",
+  "compatibility": "No dependency, wire, Host, permission or execution lifecycle changes. Capture does not authorize model writes, certify a complete inventory or acknowledge sync/handoff. Windows fails closed. Linux/macOS strict native paths are independently regression tested.",
+  "paths": {
+    "crates/xharness-fs/src/capture.rs": {
+      "before": null,
+      "after": "f9f3efe61c7f7ebf42d6e1b6cfa20bad02fd0bc314fe7de7936ea434cc7f8b0f"
+    },
+    "crates/xharness-fs/src/lib.rs": {
+      "before": "ce2c023c9510b92f69e7935cbf91d4a5ec3d00d7efee518590f4b30d45bf5b1a",
+      "after": "695730eef060ddf0c95d1006caee5537bd1d12fc96a618dbfb134b7580cb8794"
+    },
+    "crates/xharness-fs/tests/capture.rs": {
+      "before": null,
+      "after": "3f7c3936a1370ba99f396f86299576d9f530a3576e48e14b12025b115abc0ec5"
+    },
+    "scripts/regression/check-architecture.py": {
+      "before": "d87e89ab3d135fa599b65c7cb0ce03e35cd02156a2da426cff87c3f22f49a417",
+      "after": "f53e17f22e6e106e47e9f0c299a5aa0cfe442424671618b5af025fd7e6c0622c"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}
