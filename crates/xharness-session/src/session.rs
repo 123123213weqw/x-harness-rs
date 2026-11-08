@@ -648,7 +648,13 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                 parent_session_id,
                 invocation_id,
                 task,
+                policy,
             } => {
+                if let Some(policy) = policy {
+                    policy
+                        .validate()
+                        .map_err(|message| lifecycle_error(logged.seq, message))?;
+                }
                 if parent_session_id.trim().is_empty()
                     || invocation_id.trim().is_empty()
                     || task.trim().is_empty()

@@ -50,9 +50,11 @@ const recoveryLocales = {
  zh: {'session.recover':'恢复任务','session.recoverHint':'恢复当前空闲任务，不重发输入。请先停止正在执行的工作；其他任务和草稿不变。','session.recovering':'恢复中…','session.recovered':'已恢复','session.recoverUnavailable':'当前 Host 不支持单任务恢复。'},
 };
 function baselineProductCopy(language, locale) {
+ assert.equal(locale['image.budgetExceeded'], language === 'en' ? 'Image memory budget reached. Close other previews, then retry.' : '已达图片内存预算，请关闭其他预览后重试。');
  assert.equal(locale['xh.turn.working'], 'Working…');
  assert.equal(locale['stats.title'], language === 'en' ? 'Conversation statistics' : '对话统计', 'reviewed statistics label');
  const normalized = {...locale, 'xh.turn.working': apis[0].plugin[language]['xh.turn.working']};
+ delete normalized['image.budgetExceeded'];
  for(const [key,expected] of Object.entries(recoveryLocales[language])) {
   assert.equal(locale[key],expected,'reviewed recovery label '+key);delete normalized[key];
  }
@@ -316,6 +318,32 @@ test('historical attachment cache deduplicates, isolates sessions and invalidate
  ctx.get=()=>({list:{getSnapshot:()=>({byId:{}}),subscribe:()=>()=>{}},scopeOf(){},scope(){},open(){},fork(){},provide(){},binding:()=>({session:{readAttachment:async()=>{calls++;return{ok:true,value:{attachment:ref,data:new Uint8Array([65])}}}}})});const url=await c.resolveImage('s',ref),second=await c.resolveImage('other',ref);assert.notEqual(second,url);assert.equal(calls,3);c.releaseSessionImages('s');await tick();assert.ok(entry.revoked.includes(url));cleanup.forEach(fn=>fn());assert.ok(entry.revoked.includes(second));await assert.rejects(c.resolveImage('s',ref),/disposed/);
  }
 });
+test('source thumbnail and original caches stay distinct and share scope invalidation, not model data',async()=>{
+ const entry=apis[1],cleanup=[],requests=[]
+ const bytes=new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==','base64'))
+ let nextBytes=bytes
+ const ref={attachmentId:'preview-test',mediaType:'image/jpeg',width:3200,height:2000}
+ const ctx={effect:fn=>{cleanup.push(fn())},get:()=>({list:{getSnapshot:()=>({byId:{}}),subscribe:()=>()=>{}},scopeOf(){},scope(){},open(){},fork(){},provide(){},binding:()=>({session:{readAttachment:async(id,thumbnail)=>{requests.push([id,thumbnail]);return {ok:true,value:{attachment:ref,data:nextBytes}}}}})})}
+ const c=new entry.plugin.ConversationController(ctx,{input:{},blocks:{}})
+ const preview=await c.resolveImage('owner',ref,true),original=await c.resolveImage('owner',ref)
+ assert.notEqual(preview,original);assert.deepEqual(requests,[['preview-test',true],['preview-test',false]])
+ assert.equal(await c.resolveImage('owner',ref,true),preview);assert.equal(requests.length,2)
+ nextBytes=bytes.slice();new DataView(nextBytes.buffer).setUint32(16,3200)
+ await assert.rejects(c.resolveImage('owner',{...ref,attachmentId:'old-runtime'},true),/invalid thumbnail dimensions/,'old runtime ignoring flag must not mount large original')
+ c.releaseSessionImages('owner');await tick()
+ assert.ok(entry.revoked.includes(preview));assert.ok(entry.revoked.includes(original))
+ cleanup.forEach(fn=>fn())
+})
+test('queued historical images get a read deadline without changing file download policy',async()=>{
+ const entry=apis[1],cleanup=[],requests=[]
+ const ctx={effect:fn=>{cleanup.push(fn())},get:()=>({list:{getSnapshot:()=>({byId:{}}),subscribe:()=>()=>{}},scopeOf(){},scope(){},open(){},fork(){},provide(){},binding:()=>({session:{readAttachment:async(id,thumbnail,signal)=>{requests.push({id,thumbnail,signal});return {ok:true,value:{attachment:{mediaType:'image/png'},data:new Uint8Array([65])}}}}})})}
+ const c=new entry.plugin.ConversationController(ctx,{input:{},blocks:{}})
+ await c.resolveImage('s',{attachmentId:'image',mediaType:'image/png',width:3200,height:2000})
+ await c.resolveImage('s',{attachmentId:'download',mediaType:'application/pdf'})
+ assert.ok(requests[0].signal instanceof AbortSignal);assert.equal(requests[0].signal.aborted,false)
+ assert.equal(requests[1].signal,undefined,'file download must not inherit the raster queue deadline')
+ c.releaseSessionImages('s');await tick();cleanup.forEach(fn=>fn())
+})
 test('image-only admission is one-flight and refuses attachment mutation until the host settles',async()=>{
  for(const{plugin:api}of apis){let resolve,count=0;const pending=new Promise(r=>resolve=r);const shell=new api.SessionInputShell({actx:{},defaultSink:()=>{count++;return pending},commandImages:{serialize:async()=>[],release(){},unsupportedNotice:()=>''}});shell.addImages(['image']);shell.submit('queue');shell.submit('queue');assert.equal(count,1);assert.equal(shell.addImages(['extra']),false);shell.removeImage('image');assert.deepEqual(json(shell.snapshot.imageIds),['image']);resolve({kind:'error'});await tick();assert.deepEqual(json(shell.snapshot.imageIds),['image']);assert.equal(shell.addImages(['extra']),true);shell.dispose();}
 });

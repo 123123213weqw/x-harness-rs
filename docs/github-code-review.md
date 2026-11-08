@@ -1,3 +1,18 @@
+> **Retired (2026-11-02).** The built-in Code Review workspace and auxiliary
+> review generation are no longer part of XHarness. The sidebar entry, center
+> slot, idle GitHub warmup and production bundle have been removed. Legacy
+> `github/review-*` requests return an explicit retired error before credentials,
+> model, session or review-storage access. The desktop Host no longer configures
+> the review directory. Existing review receipts, caches and normal chats are not
+> deleted or migrated. GitHub PR reviews/CI, normal chat, Little X, subagents and
+> the shared diff viewer are unchanged.
+>
+> The remainder is a **historical implementation reference**, not instructions
+> for a currently available feature. Its TypeScript helpers and isolated browser
+> fixtures are retained as regression material, explicitly excluded from
+> production assembly. The native legacy storage API remains source-compatible
+> for explicit embedders; it is not wired into the production Host.
+
 # GitHub Code Review: read-only evidence and model review
 
 ## Boundary

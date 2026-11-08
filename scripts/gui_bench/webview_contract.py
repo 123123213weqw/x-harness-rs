@@ -23,7 +23,9 @@ class Contract:
         deadline = time.monotonic() + 5
         transient = {'native browser is hidden', 'native browser is not delegated to this session',
                      'only the active, laid-out browser tab can be inspected',
-                     'browser navigation changed during inspection; observe again'}
+                     'browser navigation changed during inspection; observe again',
+                     'browser layout is changing; observe again',
+                     'browser viewport has not settled; synchronize the pane and observe again'}
         while True:
             try:
                 snapshot = self.call('observe', dict(scope=scope, **paging))

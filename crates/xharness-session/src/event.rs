@@ -745,6 +745,8 @@ pub enum EventData {
         parent_session_id: String,
         invocation_id: String,
         task: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        policy: Option<crate::AgentExecutionPolicy>,
     },
     /// Ordinary conversation fork identity, outside model-visible history.
     #[serde(rename = "session/fork-origin")]

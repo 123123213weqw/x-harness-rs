@@ -343,7 +343,6 @@ pub struct BasicHost {
     next_id: Arc<AtomicU64>,
     delegation_listener_started: Arc<AtomicBool>,
     title_work: Arc<titles::TitleWork>,
-    review_work: Arc<github_review::ReviewWork>,
     self_ref: Arc<std::sync::OnceLock<std::sync::Weak<BasicHost>>>,
     approval_review_slots: Arc<tokio::sync::Semaphore>,
 }
@@ -440,7 +439,6 @@ impl BasicHost {
             model_settings: Arc::new(std::sync::OnceLock::new()),
             plugins: Arc::new(std::sync::OnceLock::new()),
             github: Arc::new(std::sync::OnceLock::new()),
-            review_work: Arc::new(github_review::ReviewWork::default()),
             admission_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),
             projection_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),
             background_listener_started: Arc::new(AtomicBool::new(false)),

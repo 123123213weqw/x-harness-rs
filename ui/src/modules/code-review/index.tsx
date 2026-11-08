@@ -1,3 +1,5 @@
+// Retired product entry. Retained only for isolated historical regression fixtures;
+// production assembly rejects this entire directory. No product slot loads it.
 import {observeShellPage} from '../shared/shell-route'
 /// <reference path="../shared/assets.d.ts" />
 import {useEffect,useState,useRef} from 'react'

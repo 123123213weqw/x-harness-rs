@@ -233,9 +233,9 @@ export class ConversationController extends Service implements IConversation {
    * @param attachment - durable image reference.
    * @returns browser URL valid until its rendered session is released.
    */
-  resolveImage(sessionId: SessionId, attachment: ImageAttachmentRef): Promise<string> {
+  resolveImage(sessionId: SessionId, attachment: ImageAttachmentRef, thumbnail = false): Promise<string> {
     if (this.disposed) return Promise.reject(new Error('conversation.resolveImage: service is disposed'))
-    const key = `${sessionId}:${attachment.attachmentId}`
+    const key = JSON.stringify([sessionId, attachment.attachmentId, thumbnail])
     const cached = this.imageUrls.get(key)
     if (cached !== undefined) return cached.pending
     const generation = this.imageGenerations.get(sessionId) ?? 0
@@ -243,18 +243,35 @@ export class ConversationController extends Service implements IConversation {
     if (session === undefined) {
       return Promise.reject(new Error(`conversation.resolveImage: unknown session "${sessionId}"`))
     }
-    const pending = session.readAttachment(attachment.attachmentId)
+    // Only raster reads occupy the shared image queue. Do not silently apply
+    // its deadline to durable file downloads using the same attachment API.
+    const imageRead = typeof attachment.width === 'number' && typeof attachment.height === 'number'
+    const pending = session.readAttachment(attachment.attachmentId, thumbnail,
+      imageRead ? AbortSignal.timeout(20000) : undefined)
       .then((result) => {
         if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
         if (this.disposed) throw new Error('conversation.resolveImage: service was disposed before loading completed')
         if ((this.imageGenerations.get(sessionId) ?? 0) !== generation) {
           throw new Error('historical image scope was released before loading completed')
         }
+        if (thumbnail) {
+          // Session faces supplied by older/custom runtimes may ignore the new
+          // optional flag. Do not trust such a face to enforce decoder sizing.
+          const data = result.value.data
+          if (data.byteLength < 24 || data.byteLength > 1024 * 1024
+            || [137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82].some((byte, index) => data[index] !== byte)) {
+            throw new Error('invalid thumbnail bytes')
+          }
+          const header = new DataView(data.buffer, data.byteOffset, data.byteLength)
+          const width = header.getUint32(16), height = header.getUint32(20)
+          if (width < 1 || height < 1 || width > 480 || height > 480) throw new Error('invalid thumbnail dimensions')
+        }
+        const mediaType = thumbnail ? 'image/png' : result.value.attachment.mediaType
         if (typeof URL.createObjectURL !== 'function') {
-          return `data:${result.value.attachment.mediaType};base64,${bytesToBase64(result.value.data)}`
+          return `data:${mediaType};base64,${bytesToBase64(result.value.data)}`
         }
         const bytes = Uint8Array.from(result.value.data)
-        const url = URL.createObjectURL(new Blob([bytes.buffer], { type: result.value.attachment.mediaType }))
+        const url = URL.createObjectURL(new Blob([bytes.buffer], { type: mediaType }))
         this.createdImageUrls.add(url)
         return url
       })

@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { IconCloseOutline16 } from '@xharness/dsh-client-ui-primitives'
 import { ImageLightboxCss as css } from './styles'
 import type { LightboxLabels } from './contracts'
-export function ImageLightbox({ src, alt, labels, onClose }: { src: string; alt: string; labels: LightboxLabels; onClose(): void }) {
+export function ImageLightbox({ src, alt, labels, onClose, children, onError }: { src: string | undefined; alt: string; labels: LightboxLabels; onClose(): void; children?: ReactNode; onError?(): void }) {
   const closeRef = useRef<HTMLButtonElement | null>(null), restoreRef = useRef<HTMLElement | null>(null)
   useEffect(() => {
     restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -13,7 +13,7 @@ export function ImageLightbox({ src, alt, labels, onClose }: { src: string; alt:
     return () => { window.removeEventListener('keydown', onKeyDown); restoreRef.current?.focus() }
   }, [onClose])
   return createPortal(<div className={css.backdrop} role="dialog" aria-modal="true" aria-label={labels.dialog}>
-    <div className={css.mask} aria-hidden="true" onMouseDown={onClose} /><img className={css.image} src={src} alt={alt} />
+    <div className={css.mask} aria-hidden="true" onMouseDown={onClose} />{src !== undefined ? <img className={css.image} src={src} alt={alt} onError={onError} /> : <div className={css.image}>{children}</div>}
     <button ref={closeRef} type="button" className={css.close} aria-label={labels.close} onClick={onClose}><IconCloseOutline16 size={16} /></button>
   </div>, document.body)
 }

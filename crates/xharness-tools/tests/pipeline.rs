@@ -1236,3 +1236,73 @@ async fn full_debug_records_validated_arguments_pipeline_and_final_result() {
             && event.payload["result"]["execution_id"] == "execution-debug"
     }));
 }
+
+#[tokio::test]
+async fn restricted_executor_blocks_forged_names_preserves_approval_and_does_not_mutate_siblings() {
+    use std::collections::BTreeSet;
+    let registry = Arc::new(ToolRegistry::new());
+    let calls = Arc::new(AtomicUsize::new(0));
+    for name in ["read", "write"] {
+        let calls = calls.clone();
+        registry
+            .register(ToolSpec::new(definition(name), move |_| {
+                let calls = calls.clone();
+                async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(ToolOutput::text("ok"))
+                }
+            }))
+            .await
+            .unwrap();
+    }
+    let approvals = Arc::new(AtomicUsize::new(0));
+    let original = ToolExecutor::new(registry.clone())
+        .with_approval_provider(Arc::new(CountingApproval(approvals.clone())));
+    let restricted = original
+        .clone()
+        .restrict_tools(&BTreeSet::from(["read".into(), "missing".into()]))
+        .await;
+    let blocked = restricted
+        .execute(ToolRequest::new("write", r#"{"value":"x"}"#))
+        .await;
+    assert_eq!(blocked.failure_kind(), Some(ToolFailureKind::UnknownTool));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert!(restricted
+        .execute(ToolRequest::new("read", r#"{"value":"x"}"#).requiring_approval(true))
+        .await
+        .is_ok());
+    assert_eq!(approvals.load(Ordering::SeqCst), 1);
+    assert!(original
+        .execute(ToolRequest::new("write", r#"{"value":"x"}"#))
+        .await
+        .is_ok());
+    assert_eq!(registry.len().await, 2);
+    // A later registration on the original cannot silently enlarge the child.
+    registry
+        .register(successful_spec("new_tool"))
+        .await
+        .unwrap();
+    assert!(restricted.registry().get("new_tool").await.is_none());
+    let empty = original.clone().restrict_tools(&BTreeSet::new()).await;
+    assert!(empty.registry().is_empty().await);
+    assert_eq!(
+        empty
+            .execute(ToolRequest::new("read", r#"{"value":"x"}"#))
+            .await
+            .failure_kind(),
+        Some(ToolFailureKind::UnknownTool)
+    );
+    let denied = original
+        .with_guards(vec![Arc::new(FixedGuard {
+            decision: GuardDecision::deny("denied"),
+        })])
+        .restrict_tools(&BTreeSet::from(["read".into()]))
+        .await;
+    assert_eq!(
+        denied
+            .execute(ToolRequest::new("read", r#"{"value":"x"}"#))
+            .await
+            .failure_kind(),
+        Some(ToolFailureKind::GuardDenied)
+    );
+}
