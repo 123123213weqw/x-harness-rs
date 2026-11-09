@@ -437,14 +437,14 @@ function actionFixture(config={}) {
   function element(role,label,id,children=[],position=rect) {
     const actions=()=>[];
     actions.byName=()=>({exists:()=>!config.actionMissing,perform:()=>{effects.presses++;}});
-    return {exists:()=>true,role:()=>role,subrole:()=>null,title:()=>label,name:()=>'',description:()=>'',help:()=>'',
+    return {exists:()=>true,role:()=>role,subrole:()=>null,title:()=>label,name:()=>{if(config.windowNameError && role==='AXWindow')throw new Error('unavailable');return role==='AXWindow'?label:'';},description:()=>'',help:()=>'',
       attributes:{byName:key=>key==='AXFocused'?{exists:()=>true,get value(){return ()=>focused;},set value(v){effects.focusSets++;focused=config.focusFails?false:v;}}:{exists:()=>true,value:()=>key==='AXIdentifier'?id:''}},
       position:()=>[position.x,position.y],size:()=>[position.width,position.height],enabled:()=>!config.disabled,
       actions,uiElements:()=>children,sheets:()=>config.sheet?[{}]:[]};
   }
   const button=element(config.role||'AXButton',config.label||'Save',config.identifier||'save');
   const sheet=element('AXSheet','Sheet',null,[button]);
-  const window=element('AXWindow','Window',null,config.insideSheet?[sheet]:config.missingPath?[]:[button],windowRect);
+  const window=element('AXWindow',config.windowTitle??'Window',null,config.insideSheet?[sheet]:config.missingPath?[]:[button],windowRect);
   const process={windows:()=>config.missingWindow?[]:[window],menuBars:()=>[],get frontmost(){return ()=>!config.background;},set frontmost(value){if(value)effects.activations++;}};
   const request={pid:42,root_kind:'window',root_index:1,path:config.insideSheet?[0,0]:[0],node_id:'ax:42:w1:0',operation:'AXPress',window_id:77,foreground_window_id:77,window_bounds:windowRect,bounds:rect,
     windows:[{pid:42,id:config.replacedWindow?78:77,bounds:windowRect}],identity:{role:'AXButton',subrole:null,label:'Save',identifier:'save'},...config.request};
@@ -532,4 +532,21 @@ test('foreground PID extraction never reads nullable LaunchServices launchDate',
     assert.deepEqual(JSON.parse(vm.runInContext(foregroundSource+'\nrun()',context)),{pid:42});
   }
   assert.equal(reads,0);
+});
+
+test('window roots revalidate the same 240-character and empty-title contract as surfaces',()=>{
+  for(const length of [0,120,160,161,200,240,260]) {
+    const title='W'.repeat(length);
+    const label=length<=240?title:title.slice(0,240)+'…';
+    const {result,effects}=actionFixture({windowTitle:title,request:{path:[],bounds:{x:-940,y:0,width:640,height:500},identity:{role:'AXWindow',subrole:null,label,identifier:null},operation:'validate'}});
+    assert.equal(result.ok,true,'title length '+length);
+    assert.deepEqual(effects,{activations:0,presses:0,focusSets:0});
+  }
+});
+test('changed or unreadable window names still fail before activation/input',()=>{
+  for(const config of [{windowTitle:'Other'},{windowNameError:true}]) {
+    const {result,effects}=actionFixture({...config,request:{path:[],bounds:{x:-940,y:0,width:640,height:500},identity:{role:'AXWindow',subrole:null,label:'Window',identifier:null},operation:'validate'}});
+    assert.equal(result.ok,false);assert.equal(result.error.code,'stale_node');
+    assert.deepEqual(effects,{activations:0,presses:0,focusSets:0});
+  }
 });

@@ -31,8 +31,9 @@ function run(argv) {
     if (role==='AXSheet' || role==='AXDialog') insideSheet=true;
   }
   const identity=identityOf(current),expected=request.identity;
-  const identityMatches=expected && (root && request.path.length===0
-    ? identity.role==='AXWindow' && identity.label===expected.label
+  const windowLabel=root && request.path.length===0 ? windowIdentityLabel(current) : null;
+  const identityMatches=expected && (windowLabel
+    ? identity.role==='AXWindow' && windowLabel.known && windowLabel.value===expected.label
     : ['role','subrole','label','identifier'].every(k => identity[k]===expected[k]));
   if (!identityMatches ||
       !sameBounds(bounds(current),request.bounds)) return failure('stale_node','target control changed; observe again');

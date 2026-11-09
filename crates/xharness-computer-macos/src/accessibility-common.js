@@ -48,3 +48,11 @@ function identityOf(element) {
   return {role, subrole, label:title || name || description || help || identifier || null,
     description, identifier, layout_label_known:explicitDescription.known};
 }
+
+// Window surfaces expose up to 240 characters, unlike 160-character control
+// labels. Reuse the exact accessor, limit and empty-name normalization for
+// revalidation; a failed read must not masquerade as a known empty title.
+function windowIdentityLabel(window) {
+  const read = safe(() => ({value:window.name()}), null);
+  return read === null ? {known:false,value:''} : {known:true,value:clipped(read.value,240) || ''};
+}

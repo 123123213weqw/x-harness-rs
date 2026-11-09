@@ -210,7 +210,7 @@ function run(argv) {
         const minimized = boolValue(() => window.attributes.byName('AXMinimized').value(),false);
         const info = {
           surface_id:surfaceId, node_id:windowNodeId, app, pid, window_index:index+1,
-          title:clipped(safe(() => window.name(),''),240) || '',
+          title:windowIdentityLabel(window).value,
           frontmost:entry.frontmost,
           focused:boolValue(() => window.attributes.byName('AXFocused').value(),false),
           minimized, bounds:windowBounds
