@@ -58,6 +58,7 @@ export class WorkspaceRuntime implements IWorkspaces {
   private readonly connecting = new Map<WorkspaceId, Promise<SessionId>>()
   /** Guards the runtime-owned one-shot initial-selection subscription. */
   private initialSelectionStarted = false
+  private environmentCreationOnly = false
 
   /**
    * @param ctx - client root context.
@@ -74,6 +75,9 @@ export class WorkspaceRuntime implements IWorkspaces {
     this.sessions.list.subscribe(() => { this.project() })
     ctx.reflect.provide('workspaces', this, undefined)
   }
+
+  /** Connection bootstrap owns this policy; it never changes an existing binding. */
+  configureEnvironmentCreation(enabled: boolean): void { this.environmentCreationOnly = enabled }
 
   /**
    * Resolve the session a New Session flow lands in once this Workspace is
@@ -137,7 +141,7 @@ export class WorkspaceRuntime implements IWorkspaces {
       if (!workspace.baselinesReady) return
       const current = this.sessions.list.getSnapshot().current
       const target = workspace.recentWorkspaceId
-      if (current !== undefined || target === undefined) {
+      if (current !== undefined || target === undefined || this.environmentCreationOnly) {
         state = 'done'
         return
       }
@@ -176,6 +180,7 @@ export class WorkspaceRuntime implements IWorkspaces {
    * @param workspaceId - explicit target Workspace for scoped actions.
    */
   startSession(workspaceId?: WorkspaceId): void {
+    if (this.environmentCreationOnly) { this.sessions.clear(); return }
     const workspace = this.list.getSnapshot()
     const current = this.sessions.list.getSnapshot().current
     const currentWorkspaceId = current === undefined
