@@ -16,7 +16,7 @@ def main():
     if sys.platform != 'darwin':
         parser.error('native macOS required; this is not a simulated AX test')
     source = Path(__file__).resolve().parents[1] / 'crates/xharness-computer-macos/src/accessibility-snapshot.js'
-    script = source.read_text()
+    script = (source.parent / 'accessibility-common.js').read_text() + '\n' + source.read_text()
     cases = [
         ('windows', {'include_nodes': False}),
         ('low', {'max_nodes': 80, 'max_depth': 4}),

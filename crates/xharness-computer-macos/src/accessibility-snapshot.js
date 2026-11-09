@@ -14,35 +14,6 @@ function safe(f, d) {
     return d;
   }
 }
-function clipped(value, limit) {
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'boolean' || typeof value === 'number') return value;
-  const text = String(value).replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
-  if (!text) return null;
-  return text.length <= limit ? text : text.slice(0, limit) + '…';
-}
-function boolValue(f, fallback) {
-  const value = safe(f, fallback);
-  return value === null || value === undefined ? fallback : Boolean(value);
-}
-function attribute(element, name, fallback) {
-  return safe(() => element.attributes.byName(name).value(), fallback);
-}
-function bounds(element) {
-  const position = safe(() => element.position(), null);
-  const size = safe(() => element.size(), null);
-  if (!position || !size) return null;
-  const result = {x:Number(position[0]), y:Number(position[1]), width:Number(size[0]), height:Number(size[1])};
-  return Object.values(result).every(Number.isFinite) ? result : null;
-}
-function actionNames(element, fallback = []) {
-  return safe(() => element.actions().map(action => clipped(action.name(), 80)).filter(Boolean), fallback);
-}
-function safeValue(element, role, subrole) {
-  if (role === 'AXSecureTextField' || subrole === 'AXSecureTextField') return '<redacted>';
-  if (role === 'AXTextField' || role === 'AXTextArea' || role === 'AXComboBox') return null;
-  return clipped(safe(() => element.value(), null), 160);
-}
 function run(argv) {
   const options = argv.length ? JSON.parse(argv[0]) : {};
   const maxNodes = Math.max(1, Math.floor(Math.min(Number(options.max_nodes) || 220, 600)));
@@ -134,14 +105,7 @@ function run(argv) {
       result.visited++;
       const {element,parentId,path,depth} = task;
       const context = root.context;
-      const role = clipped(safe(() => element.role(), ''), 80) || 'AXUnknown';
-      const subrole = clipped(safe(() => element.subrole(), ''), 80);
-      const title = clipped(safe(() => element.title(), ''), 160);
-      const name = title ? null : clipped(safe(() => element.name(), ''), 160);
-      const description = clipped(safe(() => element.description(), ''), 160);
-      const help = title || name || description ? null : clipped(safe(() => element.help(), ''), 160);
-      const identifier = clipped(attribute(element, 'AXIdentifier', ''), 160);
-      const label = title || name || description || help || identifier || null;
+      const {role,subrole,label,description,identifier,layout_label_known} = identityOf(element);
       const readActions = actionNames(element,null);
       const actions = readActions || [];
       let children;
@@ -152,7 +116,7 @@ function run(argv) {
       // groups get zero semantic cost. Only inert single-child wrappers disappear.
       // Meaningful subroles and interaction actions are preserved. A generic
       // context-menu action keeps its original target record and raw path.
-      if (context.root_kind === 'window' && role === 'AXGroup' && !subrole &&
+      if (context.root_kind === 'window' && role === 'AXGroup' && layout_label_known && !subrole &&
           !label && !identifier && readActions !== null &&
           actions.every(action => action === 'AXScrollToVisible' || action === 'AXShowMenu')) {
         children = childrenOf(element);
@@ -209,8 +173,17 @@ function run(argv) {
     // discover the foreground app. Read its controls before background window
     // metadata. window/list remains the explicit inventory-only path. Partial
     // inventories are never proof that another window is absent.
-    const foreground = safe(() => se.applicationProcesses.whose({frontmost:true})(), []);
-    const background = safe(() => se.applicationProcesses.whose({visible:true,frontmost:false})(), []);
+    // The Host's NSWorkspace foreground identity also covers accessory apps
+    // whose System Events frontmost flag can lag or remain false. Never fall
+    // back to another app's controls when an explicitly selected PID is missing.
+    const selectedPid=Number.isSafeInteger(options.frontmost_pid) && options.frontmost_pid>0 ? options.frontmost_pid : null;
+    const foreground = safe(() => selectedPid
+      ? se.applicationProcesses.whose({unixId:selectedPid})()
+      : se.applicationProcesses.whose({frontmost:true})(), []);
+    const selectedAvailable=!selectedPid || foreground.length===1;
+    if (!selectedAvailable) truncated('foreground_unavailable');
+    const background = safe(() => se.applicationProcesses.whose(selectedPid
+      ? {visible:true} : {visible:true,frontmost:false})(), []);
     const processes = foreground.map(process => ({process,frontmost:true}))
       .concat(background.map(process => ({process,frontmost:false})));
     const seen = new Set();
@@ -243,7 +216,7 @@ function run(argv) {
           minimized, bounds:windowBounds
         };
         result.windows.push(info);
-        if (includeNodes && !minimized && inRegion(windowBounds) && (entry.frontmost || region)) {
+        if (includeNodes && selectedAvailable && !minimized && inRegion(windowBounds) && (entry.frontmost || region)) {
           visitRoot({element:window, context:{pid,root_kind:'window',root_index:index+1,surface_id:surfaceId}, parent:windowNodeId});
         }
       }

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import test from 'node:test';
-const source = fs.readFileSync(new URL('../crates/xharness-computer-macos/src/accessibility-snapshot.js', import.meta.url), 'utf8');
+const common = fs.readFileSync(new URL('../crates/xharness-computer-macos/src/accessibility-common.js', import.meta.url), 'utf8');
+const source = common + '\n' + fs.readFileSync(new URL('../crates/xharness-computer-macos/src/accessibility-snapshot.js', import.meta.url), 'utf8');
 
 function fixture(options = {}, config = {}) {
   let now = 0;
@@ -17,7 +18,7 @@ function fixture(options = {}, config = {}) {
       title:()=>read(prop('title',role==='AXUnknown'?'':'Save')),
       name:()=>read(prop('name',''),'name'), description:()=>read(prop('description','')),
       help:()=>read(prop('help',''),'help'),
-      attributes:{byName:()=>({value:()=>read(prop('identifier',''))})},
+      attributes:{byName:key=>({exists:()=>{ if(properties.descriptionError && key==='AXDescription') throw new Error('unavailable'); return read(true); },value:()=>read(key==='AXDescription' ? prop('explicitDescription',prop('description','')) : prop('identifier',''))})},
       actions:()=>{
         if(properties.actionsError) throw new Error('fixture property unavailable');
         return read(prop('actions',[]).map(name=>({name:()=>read(name)})));
@@ -45,7 +46,7 @@ function fixture(options = {}, config = {}) {
     _frontmost:pid===2, frontmost:()=>read(pid===2,'frontmost'), unixId:()=>read(pid,'process'), name:()=>read(`App ${pid}`,'process'),
     windows:()=>read(windows(pid),'window'), menuBars:()=>read(config.menus ? [node('AXMenuBar',Array.from({length:config.menuCount ?? 1000},()=>node('AXMenuItem')))] : [],'menus')
   }));
-  const se = {applicationProcesses:{whose:criteria=>()=>read(processes.filter(p=>criteria.frontmost===undefined || p._frontmost===criteria.frontmost),'processes')}};
+  const se = {applicationProcesses:{whose:criteria=>()=>read(processes.filter(p=>(criteria.frontmost===undefined || p._frontmost===criteria.frontmost) && (criteria.unixId===undefined || p.unixId()===criteria.unixId)),'processes')}};
   const context = vm.createContext({Date:{now:()=>now}, Application:()=>se});
   const result = JSON.parse(vm.runInContext(`${source}\nrun([${JSON.stringify(JSON.stringify(options))}])`, context));
   function resolve(target) {
@@ -398,5 +399,125 @@ test('seeded mixed trees keep every budget, parent domain and raw path invariant
         assert.ok(parent.depth<node.depth);
       }
     }
+  }
+});
+
+
+test('generic localized role descriptions are not business labels; explicit descriptions still are',()=>{
+  for (const description of ['group','组','Gruppe','arbitrary localized role']) {
+    const {result}=fixture({max_depth:1,max_nodes:80},{children:n=>{
+      let tree=n('AXButton',[],{title:'Deep target',actions:['AXPress']});
+      for(let i=0;i<24;i++) tree=layout(n,[tree],{description,explicitDescription:''});
+      return [tree];
+    }});
+    assert.equal(result.truncated,false);
+    assert.equal(result.nodes.length,2);
+    assert.ok(result.nodes.every(n=>n.depth===25 && n.semantic_depth===1));
+  }
+  for (const explicitDescription of ['Navigation','项目分组']) {
+    const {result}=fixture({max_depth:1,max_nodes:80},{children:n=>[layout(n,[n()],{description:'group',explicitDescription})]});
+    assert.equal(result.search.compressed_layout_nodes,0);
+    assert.ok(result.nodes.every(n=>n.label===explicitDescription));
+    assert.ok(result.truncation_reasons.includes('depth_limit'));
+  }
+});
+
+test('an unreadable explicit group label never becomes transparent',()=>{
+  const {result}=fixture({max_depth:1,max_nodes:80},{children:n=>[layout(n,[n()],{descriptionError:true})]});
+  assert.equal(result.search.transparent_layout_nodes,0);
+  assert.ok(result.truncation_reasons.includes('depth_limit'));
+});
+
+const actionSource=common+'\n'+fs.readFileSync(new URL('../crates/xharness-computer-macos/src/accessibility-node-action.js',import.meta.url),'utf8');
+function actionFixture(config={}) {
+  const effects={activations:0,presses:0,focusSets:0};
+  const rect={x:-900,y:20,width:180,height:32};
+  const windowRect={x:-940,y:0,width:640,height:500};
+  let focused=false;
+  function element(role,label,id,children=[],position=rect) {
+    const actions=()=>[];
+    actions.byName=()=>({exists:()=>!config.actionMissing,perform:()=>{effects.presses++;}});
+    return {exists:()=>true,role:()=>role,subrole:()=>null,title:()=>label,name:()=>'',description:()=>'',help:()=>'',
+      attributes:{byName:key=>key==='AXFocused'?{exists:()=>true,get value(){return ()=>focused;},set value(v){effects.focusSets++;focused=config.focusFails?false:v;}}:{exists:()=>true,value:()=>key==='AXIdentifier'?id:''}},
+      position:()=>[position.x,position.y],size:()=>[position.width,position.height],enabled:()=>!config.disabled,
+      actions,uiElements:()=>children,sheets:()=>config.sheet?[{}]:[]};
+  }
+  const button=element(config.role||'AXButton',config.label||'Save',config.identifier||'save');
+  const sheet=element('AXSheet','Sheet',null,[button]);
+  const window=element('AXWindow','Window',null,config.insideSheet?[sheet]:config.missingPath?[]:[button],windowRect);
+  const process={windows:()=>config.missingWindow?[]:[window],menuBars:()=>[],get frontmost(){return ()=>!config.background;},set frontmost(value){if(value)effects.activations++;}};
+  const request={pid:42,root_kind:'window',root_index:1,path:config.insideSheet?[0,0]:[0],node_id:'ax:42:w1:0',operation:'AXPress',window_id:77,foreground_window_id:77,window_bounds:windowRect,bounds:rect,
+    windows:[{pid:42,id:config.replacedWindow?78:77,bounds:windowRect}],identity:{role:'AXButton',subrole:null,label:'Save',identifier:'save'},...config.request};
+  if(config.ambiguous)request.windows.push({pid:42,id:78,bounds:windowRect});
+  const se={applicationProcesses:{whose:()=>()=>config.missingProcess?[]:[process]}};
+  const context=vm.createContext({Application:()=>se});
+  const result=JSON.parse(vm.runInContext(actionSource+'\nrun(['+JSON.stringify(JSON.stringify(request))+'])',context));
+  return {result,effects};
+}
+test('native action validates a unique OS window and exact node before real dispatch',()=>{
+  const {result,effects}=actionFixture();
+  assert.equal(result.ok,true);assert.equal(result.effect_verified,false);
+  assert.deepEqual(effects,{activations:1,presses:1,focusSets:0});
+});
+test('coordinate fallback validation cannot activate or press a target',()=>{
+  const {result,effects}=actionFixture({request:{operation:'validate'}});
+  assert.equal(result.ok,true);assert.deepEqual(effects,{activations:0,presses:0,focusSets:0});
+});
+for(const [name,config,code] of [
+  ['recreated same-title same-bounds window',{replacedWindow:true},'stale_node'],
+  ['ambiguous overlapping windows',{ambiguous:true},'stale_node'],
+  ['missing process',{missingProcess:true},'stale_node'],
+  ['missing window',{missingWindow:true},'stale_node'],
+  ['missing child path',{missingPath:true},'stale_node'],
+  ['same path now belongs to another control',{identifier:'delete'},'stale_node'],
+  ['changed role',{role:'AXCheckBox'},'stale_node'],
+  ['changed label',{label:'Delete'},'stale_node'],
+  ['disabled control',{disabled:true},'target_disabled'],
+  ['modal parent target',{sheet:true},'target_obscured'],
+  ['removed action',{actionMissing:true},'stale_node'],
+  ['missing OS window identity',{request:{window_id:null}},'stale_node'],
+  ['moved window',{request:{window_bounds:{x:0,y:0,width:640,height:500}}},'stale_node'],
+  ['moved control',{request:{bounds:{x:0,y:0,width:180,height:32}}},'stale_node']
+])test('rejects '+name+' before activation or input',()=>{
+  const {result,effects}=actionFixture(config);
+  assert.equal(result.ok,false);assert.equal(result.error.code,code);
+  assert.deepEqual(effects,{activations:0,presses:0,focusSets:0});
+});
+test('controls inside the modal sheet remain usable',()=>{
+  const {result,effects}=actionFixture({sheet:true,insideSheet:true});
+  assert.equal(result.ok,true);assert.equal(effects.presses,1);
+});
+test('focus must be acknowledged before text can be posted',()=>{
+  assert.equal(actionFixture({request:{operation:'focus'}}).result.ok,true);
+  const {result,effects}=actionFixture({focusFails:true,request:{operation:'focus'}});
+  assert.equal(result.ok,false);assert.equal(effects.presses,0);assert.equal(effects.focusSets,1);
+});
+
+test('coordinate fallback refuses background or covered windows without activation',()=>{
+  for(const config of [{background:true},{request:{foreground_window_id:78}}]) {
+    const {result,effects}=actionFixture({...config,request:{...config.request,operation:'validate'}});
+    assert.equal(result.ok,false);assert.equal(result.error.code,'target_obscured');
+    assert.deepEqual(effects,{activations:0,presses:0,focusSets:0});
+  }
+});
+
+test('a successfully read null AXDescription is an absent label, not a read failure',()=>{
+  const {result}=fixture({max_depth:1,max_nodes:80},{children:n=>[layout(n,[n()],{description:'group',explicitDescription:null})]});
+  assert.equal(result.truncated,false);assert.equal(result.search.compressed_layout_nodes,2);
+});
+
+test('Host-selected PID takes precedence over stale System Events foreground flags',()=>{
+  const {result}=fixture({frontmost_pid:1},{count:1});
+  assert.ok(result.nodes.length>0);
+  assert.ok(result.nodes.every(n=>n.pid===1));
+  assert.equal(result.windows[0].pid,1);
+  assert.ok(result.windows[0].frontmost);
+});
+test('a missing explicitly selected app never falls back to another apps controls',()=>{
+  for(const region of [null,{x:0,y:0,width:100,height:100}]) {
+    const {result}=fixture({frontmost_pid:999,region},{count:1});
+    assert.equal(result.nodes.length,0);
+    assert.ok(result.truncation_reasons.includes('foreground_unavailable'));
+    assert.ok(result.windows.every(w=>!w.frontmost));
   }
 });

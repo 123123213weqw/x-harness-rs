@@ -108,3 +108,38 @@ a check. A successful input acknowledgement is not proof of task completion.
 
 No dependency changes, permission resets, coordinate replay, installation,
 production process restart, or browser/Host lifecycle changes are required.
+
+## Input admission and stale targets
+
+The Host supplies NSWorkspace's foreground PID to AX traversal, rather than
+trusting a potentially stale System Events `frontmost` flag. If that explicit
+process is unavailable, return partial `foreground_unavailable`; never substitute
+another application's controls. This is per-observation scope, not a binding UI.
+
+Every macOS physical input now requires the latest frame, including raw typing,
+keypress and scroll without a position. The opaque frame ID does not repeat
+between per-turn executors. A frame also captures the foreground process launch
+identity and its front normal WindowServer window ID/bounds. Raw input rejects a
+changed foreground application, process instance, window or geometry. Window
+management remains the explicit separate `window` route; observe again after it.
+
+AXGroup business labels use the explicit AXDescription, not System Events'
+localized generic role description. A successfully read null means no explicit
+label; an unreadable attribute is not permission to fold a group. Existing
+subrole, identifier, value, state and action preservation rules still apply.
+
+Node operations re-resolve the raw path and compare role, subrole, label,
+identifier and bounds. Window roots additionally require a unique matching
+WindowServer ID captured before observation and still present afterward.
+Identical overlapping windows are ambiguous, not guessed. Missing identities,
+changed windows/controls, disabled targets and modal parent sheets fail before
+activation/input. Targets within a sheet remain usable. Coordinate fallback
+also requires the intended app/window to be foreground. This is not a per-pixel
+occlusion test. Focus must be acknowledged, and the intended process
+must own foreground focus before Unicode delivery.
+
+These are conservative preflight checks, not an atomic desktop lock, durable
+application binding, or proof that a task succeeded. Concurrent UI changes can
+still race a final check. Input acknowledgements expose `effect_verified:false`;
+verify task-specific state with a subsequent observation, never blindly replay an
+uncertain input. No general automatic effect verifier or AX speed-up is claimed.
