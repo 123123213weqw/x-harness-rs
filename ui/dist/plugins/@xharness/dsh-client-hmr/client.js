@@ -104,25 +104,40 @@ function apply(ctx) {
         }
     };
     ctx.effect(() => {
-        const source = new EventSource(events_1.EVENTS_ENDPOINT);
-        source.addEventListener('message', (event) => {
-            let value;
-            try {
-                value = JSON.parse(event.data);
-            }
-            catch {
-                // Wire boundary: a malformed dev-channel frame is dropped loudly.
-                ctx.logger.warn(`client-hmr: unparseable event frame: ${event.data}`);
+        let disposed = false;
+        let source;
+        const controller = new AbortController();
+        const timer = setTimeout(() => { controller.abort(); }, 2000);
+        // HMR is an optional development capability. Native/Gateway SPA fallback
+        // can return HTML for this path: never interpret that document as SSE.
+        void fetch(events_1.EVENTS_ENDPOINT, { method: 'HEAD', credentials: 'same-origin', cache: 'no-store', signal: controller.signal }).then(response => {
+            clearTimeout(timer);
+            if (disposed || !response.ok || response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'text/event-stream')
                 return;
-            }
-            const frame = (0, events_1.parsePluginsEventFrame)(value);
-            if (frame === undefined) {
-                ctx.logger.warn(`client-hmr: invalid event frame: ${event.data}`);
-                return;
-            }
-            handle(frame);
+            source = new EventSource(events_1.EVENTS_ENDPOINT);
+            source.addEventListener('message', (event) => {
+                let value;
+                try {
+                    value = JSON.parse(event.data);
+                }
+                catch {
+                    // Wire boundary: a malformed dev-channel frame is dropped loudly.
+                    ctx.logger.warn(`client-hmr: unparseable event frame: ${event.data}`);
+                    return;
+                }
+                const frame = (0, events_1.parsePluginsEventFrame)(value);
+                if (frame === undefined) {
+                    ctx.logger.warn(`client-hmr: invalid event frame: ${event.data}`);
+                    return;
+                }
+                handle(frame);
+            });
+        }).catch(() => {
+            clearTimeout(timer);
+            if (!disposed)
+                ctx.logger.warn('client-hmr: optional development event stream unavailable');
         });
-        return () => { source.close(); };
+        return () => { disposed = true; clearTimeout(timer); controller.abort(); source?.close(); };
     }, 'client-hmr: event source');
 }
 
