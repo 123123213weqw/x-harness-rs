@@ -1,0 +1,204 @@
+{
+  "windows": [
+    {
+      "surface_id": "mac:2:1",
+      "node_id": "window:2:1",
+      "app": "App 2",
+      "pid": 2,
+      "window_index": 1,
+      "title": "Window 0",
+      "frontmost": true,
+      "focused": true,
+      "minimized": false,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 500,
+        "height": 500
+      }
+    },
+    {
+      "surface_id": "mac:2:2",
+      "node_id": "window:2:2",
+      "app": "App 2",
+      "pid": 2,
+      "window_index": 2,
+      "title": "Window 1",
+      "frontmost": true,
+      "focused": true,
+      "minimized": false,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 500,
+        "height": 500
+      }
+    },
+    {
+      "surface_id": "mac:1:1",
+      "node_id": "window:1:1",
+      "app": "App 1",
+      "pid": 1,
+      "window_index": 1,
+      "title": "Window 0",
+      "frontmost": false,
+      "focused": true,
+      "minimized": false,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 500,
+        "height": 500
+      }
+    },
+    {
+      "surface_id": "mac:1:2",
+      "node_id": "window:1:2",
+      "app": "App 1",
+      "pid": 1,
+      "window_index": 2,
+      "title": "Window 1",
+      "frontmost": false,
+      "focused": true,
+      "minimized": false,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 500,
+        "height": 500
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "node_id": "ax:2:w1:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0",
+      "parent_id": "window:2:1",
+      "surface_id": "mac:2:1",
+      "pid": 2,
+      "root_kind": "window",
+      "root_index": 1,
+      "path": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "role": "AXButton",
+      "subrole": null,
+      "label": "Save",
+      "description": null,
+      "identifier": null,
+      "value": "value",
+      "enabled": true,
+      "focused": false,
+      "selected": false,
+      "visible": true,
+      "bounds": {
+        "x": 10,
+        "y": 20,
+        "width": 30,
+        "height": 40
+      },
+      "actions": [
+        "AXPress"
+      ],
+      "depth": 25,
+      "semantic_depth": 1
+    },
+    {
+      "node_id": "ax:2:w2:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0",
+      "parent_id": "window:2:2",
+      "surface_id": "mac:2:2",
+      "pid": 2,
+      "root_kind": "window",
+      "root_index": 2,
+      "path": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "role": "AXButton",
+      "subrole": null,
+      "label": "Save",
+      "description": null,
+      "identifier": null,
+      "value": "value",
+      "enabled": true,
+      "focused": false,
+      "selected": false,
+      "visible": true,
+      "bounds": {
+        "x": 10,
+        "y": 20,
+        "width": 30,
+        "height": 40
+      },
+      "actions": [
+        "AXPress"
+      ],
+      "depth": 25,
+      "semantic_depth": 1
+    }
+  ],
+  "truncated": false,
+  "visited": 50,
+  "max_nodes": 80,
+  "max_depth": 1,
+  "truncation_reasons": [],
+  "elapsed_ms": 0,
+  "search": {
+    "policy": "semantic_breadth_first",
+    "depth_metric": "semantic",
+    "max_raw_depth": 64,
+    "max_visited": 400,
+    "max_pending": 400,
+    "peak_pending": 1,
+    "transparent_layout_nodes": 48,
+    "compressed_layout_nodes": 48
+  },
+  "scope": "frontmost_windows",
+  "inventory_complete": true
+}

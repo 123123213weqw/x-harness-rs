@@ -16,46 +16,28 @@ use tokio::{process::Command, sync::Mutex};
 use tokio_util::sync::CancellationToken;
 use xharness_computer::{
     ComputerAction, ComputerDriver, ComputerError, ComputerOutput, ComputerRequest, MouseButton,
-    Point, Region, Screenshot,
+    Point, Screenshot,
 };
 
+use crate::geometry::{
+    check_display_configuration, contains_point, CapturePlan, DisplayInfo, PixelSize,
+};
+use crate::input_guard::{
+    check_frame_id, check_input_context, foreground_pid, frame_bound, same_bounds, window_id,
+    InputContext, NativeWindow,
+};
 use crate::observation::{recover_snapshot, AccessibilitySnapshot, ObservationPlan, WindowBounds};
+use crate::process_identity::process_start;
 
 static NEXT_SCREENSHOT: AtomicU64 = AtomicU64::new(1);
+static NEXT_FRAME: AtomicU64 = AtomicU64::new(1);
 
 const ACCESSIBILITY_SNAPSHOT_SCRIPT: &str = include_str!("accessibility-snapshot.js");
 
-const NODE_ACTION_SCRIPT: &str = r#"
-function fail(message) { throw new Error(message); }
-function run(argv) {
-  const request = JSON.parse(argv[0]);
-  const se = Application('System Events');
-  const matches = se.applicationProcesses.whose({unixId: request.pid})();
-  if (matches.length !== 1) fail('target process is no longer available');
-  const process = matches[0];
-  process.frontmost = true;
-  let current;
-  if (request.root_kind === 'window') current = process.windows()[request.root_index - 1];
-  else if (request.root_kind === 'menu_bar') current = process.menuBars()[request.root_index - 1];
-  else fail('unsupported accessibility root');
-  if (!current || !current.exists()) fail('accessibility root is no longer available');
-  for (const index of request.path) {
-    const children = current.uiElements();
-    current = children[index];
-    if (!current || !current.exists()) fail('accessibility node is stale');
-  }
-  if (request.operation === 'focus') {
-    const focused = current.attributes.byName('AXFocused');
-    if (!focused.exists()) fail('node does not support focus');
-    focused.value = true;
-  } else {
-    const action = current.actions.byName(request.operation);
-    if (!action.exists()) fail(`node does not support ${request.operation}`);
-    action.perform();
-  }
-  return JSON.stringify({ok: true, node_id: request.node_id, operation: request.operation});
-}
-"#;
+const ACCESSIBILITY_COMMON_SCRIPT: &str = include_str!("accessibility-common.js");
+const NODE_ACTION_SCRIPT: &str = include_str!("accessibility-node-action.js");
+
+const FOREGROUND_SCRIPT: &str = include_str!("foreground-process.js");
 
 const WINDOW_ACTION_SCRIPT: &str = r#"
 function fail(message) { throw new Error(message); }
@@ -132,8 +114,11 @@ extern "C" {
         display_count: *mut c_uint,
     ) -> c_int;
     fn CGDisplayBounds(display: CGDirectDisplayId) -> CGRect;
-    fn CGDisplayPixelsWide(display: CGDirectDisplayId) -> usize;
-    fn CGDisplayPixelsHigh(display: CGDirectDisplayId) -> usize;
+    fn CGDisplayIsMain(display: CGDirectDisplayId) -> c_uint;
+    fn CGDisplayCopyDisplayMode(display: CGDirectDisplayId) -> *mut c_void;
+    fn CGDisplayModeGetPixelWidth(mode: *mut c_void) -> usize;
+    fn CGDisplayModeGetPixelHeight(mode: *mut c_void) -> usize;
+    fn CGDisplayModeRelease(mode: *mut c_void);
     fn CGEventSourceCreate(state_id: c_int) -> CGEventSourceRef;
     fn CGEventCreateMouseEvent(
         source: CGEventSourceRef,
@@ -155,12 +140,27 @@ extern "C" {
         wheel_count: c_uint,
         ...
     ) -> CGEventRef;
+    fn CGWindowListCopyWindowInfo(option: u32, relative: u32) -> *const c_void;
+    static kCGWindowOwnerPID: *const c_void;
+    static kCGWindowNumber: *const c_void;
+    static kCGWindowBounds: *const c_void;
+    static kCGWindowLayer: *const c_void;
+    static kCGWindowIsOnscreen: *const c_void;
+    fn CFBooleanGetValue(value: *const c_void) -> bool;
+    fn CFArrayGetCount(array: *const c_void) -> isize;
+    fn CFArrayGetValueAtIndex(array: *const c_void, index: isize) -> *const c_void;
+    fn CFDictionaryGetValue(dict: *const c_void, key: *const c_void) -> *const c_void;
+    fn CFNumberGetValue(number: *const c_void, kind: isize, value: *mut c_void) -> bool;
+    fn CGRectMakeWithDictionaryRepresentation(dict: *const c_void, rect: *mut CGRect) -> bool;
     fn CFRelease(object: *const c_void);
 }
 
 #[derive(Clone, Debug)]
 struct NodeTarget {
     bounds: Option<WindowBounds>,
+    window_id: Option<u32>,
+    window_bounds: Option<WindowBounds>,
+    identity: Value,
     pid: i64,
     root_kind: String,
     root_index: u32,
@@ -180,6 +180,8 @@ impl WindowBounds {
 #[derive(Default)]
 struct ObservationState {
     frame_id: Option<String>,
+    input_context: Option<InputContext>,
+    displays: Vec<DisplayInfo>,
     nodes: BTreeMap<String, NodeTarget>,
 }
 
@@ -282,7 +284,6 @@ impl Drop for Event {
 
 pub struct MacComputer {
     state: Mutex<ObservationState>,
-    next_frame: AtomicU64,
 }
 
 impl Default for MacComputer {
@@ -295,7 +296,6 @@ impl MacComputer {
     pub fn new() -> Self {
         Self {
             state: Mutex::new(ObservationState::default()),
-            next_frame: AtomicU64::new(1),
         }
     }
 
@@ -304,11 +304,21 @@ impl MacComputer {
         request: &ComputerRequest,
         cancellation: &CancellationToken,
     ) -> Result<ComputerOutput, ComputerError> {
+        // A failed/cancelled replacement observation must not leave its old
+        // frame/targets usable. Only publish a new state after all checks pass.
+        *self.state.lock().await = ObservationState::default();
         let displays = display_info()?;
+        let native_windows = native_window_inventory()?;
+        let input_context = read_input_context(&native_windows, cancellation).await?;
+        let capture_plan = if request.include_screenshot.unwrap_or(false) {
+            Some(CapturePlan::new(&displays, request.region)?)
+        } else {
+            None
+        };
         let permissions = permission_status();
         let plan = ObservationPlan::for_request(request);
         let snapshot_result = if plan.needs_snapshot && permissions.accessibility {
-            accessibility_snapshot(plan, cancellation).await
+            accessibility_snapshot(plan, input_context.pid, cancellation).await
         } else if plan.needs_snapshot {
             Err(ComputerError::unavailable(
                 "permission_required: enable Accessibility for XHarness in System Settings > Privacy & Security",
@@ -325,9 +335,20 @@ impl MacComputer {
                 "computer observation cancelled",
             ));
         }
+        // Opaque, non-repeating across executor instances and Host restarts.
+        let epoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| {
+                ComputerError::retryable(
+                    "clock_unavailable",
+                    "cannot create an observation identity",
+                )
+            })?;
         let frame_id = format!(
-            "mac-frame-{}",
-            self.next_frame.fetch_add(1, Ordering::Relaxed)
+            "mac-frame-{}-{}-{}",
+            std::process::id(),
+            epoch.as_nanos(),
+            NEXT_FRAME.fetch_add(1, Ordering::Relaxed)
         );
         let mut nodes = BTreeMap::new();
         for window in &snapshot.windows {
@@ -335,6 +356,9 @@ impl MacComputer {
                 window.node_id.clone(),
                 NodeTarget {
                     bounds: Some(window.bounds),
+                    window_id: window_id(&native_windows,window.pid,window.bounds),
+                    window_bounds: Some(window.bounds),
+                    identity: json!({"role":"AXWindow","subrole":null,"label":window.title,"identifier":null}),
                     pid: window.pid,
                     root_kind: "window".into(),
                     root_index: window.window_index,
@@ -344,10 +368,18 @@ impl MacComputer {
             );
         }
         for node in &snapshot.nodes {
+            let window = snapshot.windows.iter().find(|window| {
+                window.pid == node.pid
+                    && window.window_index == node.root_index
+                    && node.root_kind == "window"
+            });
             nodes.insert(
                 node.node_id.clone(),
                 NodeTarget {
                     bounds: node.bounds,
+                    window_id: window.and_then(|w| window_id(&native_windows,w.pid,w.bounds)),
+                    window_bounds: window.map(|w| w.bounds),
+                    identity: json!({"role":node.role,"subrole":node.subrole,"label":node.label,"identifier":node.identifier}),
                     pid: node.pid,
                     root_kind: node.root_kind.clone(),
                     root_index: node.root_index,
@@ -356,13 +388,13 @@ impl MacComputer {
                 },
             );
         }
-        let screenshot = if request.include_screenshot.unwrap_or(false) {
+        let screenshot = if let Some(capture_plan) = &capture_plan {
             if !permissions.screen_recording {
                 return Err(ComputerError::unavailable(
                     "permission_required: enable Screen Recording for XHarness in System Settings > Privacy & Security",
                 ));
             }
-            Some(capture_png(request.region, cancellation).await?)
+            Some(capture_png(capture_plan, cancellation).await?)
         } else {
             None
         };
@@ -372,10 +404,39 @@ impl MacComputer {
                 "computer observation cancelled",
             ));
         }
+        let screenshot_geometry = match (&capture_plan, &screenshot) {
+            (Some(plan), Some(screenshot)) => Some(plan.metadata(&screenshot.png)?),
+            _ => None,
+        };
+        check_display_configuration(&displays, &display_info()?)?;
+        let current_windows = native_window_inventory()?;
+        if read_input_context(&current_windows, cancellation).await? != input_context {
+            return Err(ComputerError::retryable(
+                "stale_frame",
+                "foreground application or window changed during observation; observe again",
+            ));
+        }
+        // Optional background window inventory is not an atomic snapshot. Only
+        // roots whose controls were actually traversed may invalidate this frame.
+        for (_, target) in nodes
+            .iter()
+            .filter(|(id, target)| id.starts_with("ax:") && target.root_kind == "window")
+        {
+            if let (Some(id), Some(rect)) = (target.window_id, target.window_bounds) {
+                if window_id(&current_windows, target.pid, rect) != Some(id) {
+                    return Err(ComputerError::retryable(
+                        "stale_node",
+                        "window changed during observation; observe again",
+                    ));
+                }
+            }
+        }
         // Publish only a completed observation. Even a degraded observation
         // replaces old AX targets: never retain nodes from an earlier frame.
         *self.state.lock().await = ObservationState {
             frame_id: Some(frame_id.clone()),
+            input_context: Some(input_context),
+            displays: displays.clone(),
             nodes,
         };
         let accessibility_status = if accessibility_error.is_some() {
@@ -405,12 +466,16 @@ impl MacComputer {
                 "status": accessibility_status,
                 "truncation_reasons": snapshot.truncation_reasons,
                 "elapsed_ms": snapshot.elapsed_ms,
+                "scope": snapshot.scope,
+                "inventory_complete": snapshot.inventory_complete,
+                "search": snapshot.search,
                 "error": accessibility_error.map(|error| json!({
                     "code": error.code, "message": error.message, "retryable": error.retryable
                 }))
             },
             "permissions": permissions,
-            "screenshot_included": screenshot.is_some()
+            "screenshot_included": screenshot.is_some(),
+            "screenshot": screenshot_geometry
         });
         Ok(ComputerOutput { value, screenshot })
     }
@@ -432,33 +497,56 @@ impl MacComputer {
         Ok(None)
     }
 
-    async fn checked_point(&self, request: &ComputerRequest) -> Result<Point, ComputerError> {
-        if let Some(target) = self.checked_target(request).await? {
-            return target.bounds.map(WindowBounds::center).ok_or_else(|| {
+    async fn checked_point(
+        &self,
+        request: &ComputerRequest,
+        cancellation: &CancellationToken,
+    ) -> Result<Point, ComputerError> {
+        let point = if let Some(target) = self.checked_target(request).await? {
+            node_action(
+                request.node_id.as_deref().unwrap_or_default(),
+                &target,
+                "validate",
+                cancellation,
+            )
+            .await?;
+            target.bounds.map(WindowBounds::center).ok_or_else(|| {
                 ComputerError::retryable(
                     "node_has_no_bounds",
                     "the referenced accessibility node has no clickable bounds; observe again or use a semantic action",
                 )
-            });
-        }
-        let point = Point {
-            x: request.x.unwrap_or_default(),
-            y: request.y.unwrap_or_default(),
+            })?
+        } else {
+            Point {
+                x: request.x.unwrap_or_default(),
+                y: request.y.unwrap_or_default(),
+            }
         };
         if !point.x.is_finite() || !point.y.is_finite() {
             return Err(ComputerError::invalid("coordinates must be finite"));
         }
+        self.check_points(&[point]).await?;
         Ok(point)
+    }
+
+    async fn check_points(&self, points: &[Point]) -> Result<(), ComputerError> {
+        let state = self.state.lock().await;
+        if points
+            .iter()
+            .any(|point| !contains_point(&state.displays, *point))
+        {
+            return Err(ComputerError::retryable(
+                "point_outside_displays",
+                "input point is outside the observed displays (or in a gap); use logical desktop coordinates and observe again",
+            ));
+        }
+        Ok(())
     }
 
     async fn check_frame(&self, frame_id: Option<&str>) -> Result<(), ComputerError> {
         let state = self.state.lock().await;
-        if frame_id != state.frame_id.as_deref() {
-            return Err(ComputerError::retryable(
-                "stale_frame",
-                "the referenced frame is stale; call computer observe again",
-            ));
-        }
+        check_frame_id(state.frame_id.as_deref(), frame_id)?;
+        check_display_configuration(&state.displays, &display_info()?)?;
         Ok(())
     }
 
@@ -473,6 +561,16 @@ impl MacComputer {
                 "computer action cancelled",
             ));
         }
+        // One admission point for every physical input, including raw typing,
+        // keypress and unpositioned scroll. No native event precedes this fence.
+        if frame_bound(request.action) {
+            self.check_frame(request.frame_id.as_deref()).await?;
+            if request.node_id.is_none() {
+                let expected = self.state.lock().await.input_context.clone();
+                let current = read_input_context(&native_window_inventory()?, cancellation).await?;
+                check_input_context(expected.as_ref(), &current)?;
+            }
+        }
         if !permission_status().accessibility {
             return Err(ComputerError::unavailable(
                 "permission_required: enable Accessibility for XHarness in System Settings > Privacy & Security",
@@ -480,7 +578,7 @@ impl MacComputer {
         }
         match request.action {
             ComputerAction::Move => {
-                let point = self.checked_point(request).await?;
+                let point = self.checked_point(request, cancellation).await?;
                 post_move(point, modifier_flags(&request.modifiers)?)?;
                 Ok(json!({"ok":true,"action":"move","point":point}))
             }
@@ -508,7 +606,7 @@ impl MacComputer {
                         }
                     }
                 }
-                let point = self.checked_point(request).await?;
+                let point = self.checked_point(request, cancellation).await?;
                 post_click(
                     point,
                     request.button,
@@ -523,6 +621,7 @@ impl MacComputer {
             }
             ComputerAction::Drag => {
                 self.check_frame(request.frame_id.as_deref()).await?;
+                self.check_points(&request.path).await?;
                 post_drag(
                     &request.path,
                     request.button,
@@ -535,9 +634,10 @@ impl MacComputer {
             }
             ComputerAction::Scroll => {
                 if request.node_id.is_some() {
-                    post_move(self.checked_point(request).await?, 0)?;
+                    post_move(self.checked_point(request, cancellation).await?, 0)?;
                 } else if let (Some(x), Some(y)) = (request.x, request.y) {
                     self.check_frame(request.frame_id.as_deref()).await?;
+                    self.check_points(&[Point { x, y }]).await?;
                     post_move(Point { x, y }, 0)?;
                 }
                 post_scroll(
@@ -564,6 +664,16 @@ impl MacComputer {
                         cancellation,
                     )
                     .await?;
+                    if read_input_context(&native_window_inventory()?, cancellation)
+                        .await?
+                        .pid
+                        != target.pid
+                    {
+                        return Err(ComputerError::retryable(
+                            "stale_node",
+                            "target process did not acquire foreground focus; observe again",
+                        ));
+                    }
                 }
                 post_text(request.text.as_deref().unwrap_or_default(), cancellation).await?;
                 Ok(
@@ -608,7 +718,17 @@ impl ComputerDriver for MacComputer {
             }
             return Ok(output);
         }
-        let action = self.act(&request, &cancellation).await?;
+        // Reject an ambiguous crop before input is posted, not only when the
+        // requested post-action observation tries to capture it.
+        if request.wants_observation_after() && request.include_screenshot.unwrap_or(false) {
+            CapturePlan::new(&display_info()?, request.region)?;
+        }
+        let mut action = self.act(&request, &cancellation).await?;
+        if frame_bound(request.action) {
+            if let Some(value) = action.as_object_mut() {
+                value.insert("effect_verified".into(), json!(false));
+            }
+        }
         if request.wants_observation_after() {
             let mut observation = request.clone();
             observation.action = ComputerAction::Observe;
@@ -629,6 +749,118 @@ struct PermissionStatus {
     screen_recording: bool,
 }
 
+// Owned array + borrowed dictionaries/numbers. Core Graphics defines the
+// required entry types; no app-controlled pointer or Objective-C cast is used.
+fn native_window_inventory() -> Result<Vec<NativeWindow>, ComputerError> {
+    // SAFETY: option 16 excludes desktop elements, includes on/offscreen windows;
+    // Copy returns a retained CFArray that stays alive through all borrowed reads.
+    let array = unsafe { CGWindowListCopyWindowInfo(16, 0) };
+    if array.is_null() {
+        return Err(ComputerError::retryable(
+            "window_identity_unavailable",
+            "cannot read native window identities",
+        ));
+    }
+    // SAFETY: non-null +1 array from Core Graphics, released below on every path.
+    let count = unsafe { CFArrayGetCount(array) };
+    let result = (|| {
+        if !(0..=10000).contains(&count) {
+            return Err(ComputerError::retryable(
+                "window_identity_unavailable",
+                "native window inventory exceeds its limit",
+            ));
+        }
+        let mut windows = Vec::new();
+        for index in 0..count {
+            let mut pid = 0_i64;
+            let mut id = 0_i64;
+            let mut layer = 0_i64;
+            let mut onscreen = false;
+            let mut rect = CGRect {
+                origin: CGPoint { x: 0.0, y: 0.0 },
+                size: CGSize {
+                    width: 0.0,
+                    height: 0.0,
+                },
+            };
+            // SAFETY: in-bounds CFArray of CGWindow dictionaries, whose required
+            // OwnerPID/Number/Bounds entries have the documented CFNumber/dict types.
+            let valid = unsafe {
+                let dict = CFArrayGetValueAtIndex(array, index);
+                let p = CFDictionaryGetValue(dict, kCGWindowOwnerPID);
+                let n = CFDictionaryGetValue(dict, kCGWindowNumber);
+                let b = CFDictionaryGetValue(dict, kCGWindowBounds);
+                let l = CFDictionaryGetValue(dict, kCGWindowLayer);
+                let o = CFDictionaryGetValue(dict, kCGWindowIsOnscreen);
+                if !o.is_null() {
+                    onscreen = CFBooleanGetValue(o);
+                }
+                !l.is_null()
+                    && CFNumberGetValue(l, 4, (&mut layer as *mut i64).cast())
+                    && !p.is_null()
+                    && !n.is_null()
+                    && !b.is_null()
+                    && CFNumberGetValue(p, 4, (&mut pid as *mut i64).cast())
+                    && CFNumberGetValue(n, 4, (&mut id as *mut i64).cast())
+                    && CGRectMakeWithDictionaryRepresentation(b, &mut rect)
+            };
+            if valid && pid > 0 {
+                if let Ok(id) = u32::try_from(id) {
+                    if id > 0 {
+                        windows.push(NativeWindow {
+                            id,
+                            pid,
+                            layer,
+                            onscreen,
+                            bounds: WindowBounds {
+                                x: rect.origin.x,
+                                y: rect.origin.y,
+                                width: rect.size.width,
+                                height: rect.size.height,
+                            },
+                        });
+                    }
+                }
+            }
+        }
+        Ok(windows)
+    })();
+    // SAFETY: balances the single Copy above after all borrowed references expire.
+    unsafe { CFRelease(array) };
+    result
+}
+
+async fn read_input_context(
+    windows: &[NativeWindow],
+    cancellation: &CancellationToken,
+) -> Result<InputContext, ComputerError> {
+    let output = run_osascript_with_timeout(
+        FOREGROUND_SCRIPT,
+        None,
+        cancellation,
+        Duration::from_secs(2),
+    )
+    .await?;
+    let pid = foreground_pid(&output)?;
+    // LaunchServices may never know how this app was started. Always use one
+    // kernel identity source for both LS and direct-exec apps, avoiding a source
+    // switch when optional application metadata arrives later.
+    let mut context = InputContext {
+        pid: i64::from(pid),
+        process_start: process_start(pid)?,
+        window_id: None,
+        bounds: None,
+    };
+    if let Some(window) = windows
+        .iter()
+        .find(|w| w.pid == context.pid && w.onscreen && w.layer == 0)
+    {
+        context.window_id = Some(window.id);
+        context.bounds = Some(window.bounds);
+    }
+    Ok(context)
+}
+
 fn permission_status() -> PermissionStatus {
     // SAFETY: these parameterless system probes have no ownership effects.
     unsafe {
@@ -639,43 +871,81 @@ fn permission_status() -> PermissionStatus {
     }
 }
 
-fn display_info() -> Result<Vec<Value>, ComputerError> {
+fn display_info() -> Result<Vec<DisplayInfo>, ComputerError> {
     let mut ids = [0_u32; 32];
     let mut count = 0_u32;
     // SAFETY: ids has capacity for max_displays entries and count is writable.
     let status = unsafe { CGGetActiveDisplayList(ids.len() as u32, ids.as_mut_ptr(), &mut count) };
-    if status != 0 {
+    if status != 0 || count as usize > ids.len() {
         return Err(ComputerError::retryable(
             "display_query_failed",
             format!("CGGetActiveDisplayList failed with status {status}"),
         ));
     }
-    Ok(ids[..count as usize]
+    ids[..count as usize]
         .iter()
-        .enumerate()
-        .map(|(index, id)| {
-            // SAFETY: IDs came directly from CGGetActiveDisplayList.
-            let bounds = unsafe { CGDisplayBounds(*id) };
-            // SAFETY: same display ID validity as above.
-            let pixels = unsafe { (CGDisplayPixelsWide(*id), CGDisplayPixelsHigh(*id)) };
-            json!({
-                "display_id": id,
-                "primary": index == 0,
-                "bounds": {"x":bounds.origin.x,"y":bounds.origin.y,"width":bounds.size.width,"height":bounds.size.height},
-                "pixels": {"width":pixels.0,"height":pixels.1},
-                "scale": if bounds.size.width > 0.0 { pixels.0 as f64 / bounds.size.width } else { 1.0 }
+        .map(|id| {
+            // SAFETY: IDs came directly from CGGetActiveDisplayList. Copy returns
+            // a retained mode; all getters below run before its single release.
+            let (bounds, primary, mode) = unsafe {
+                (
+                    CGDisplayBounds(*id),
+                    CGDisplayIsMain(*id) != 0,
+                    CGDisplayCopyDisplayMode(*id),
+                )
+            };
+            if mode.is_null() {
+                return Err(ComputerError::retryable(
+                    "display_query_failed",
+                    "display mode unavailable; observe again",
+                ));
+            }
+            // CGDisplayPixelsWide can report logical mode dimensions on Retina.
+            // Use the backing-pixel dimensions, not the legacy width/height API.
+            // SAFETY: mode is the non-null +1 object above; released exactly once.
+            let pixels = unsafe {
+                let pixels = PixelSize {
+                    width: CGDisplayModeGetPixelWidth(mode),
+                    height: CGDisplayModeGetPixelHeight(mode),
+                };
+                CGDisplayModeRelease(mode);
+                pixels
+            };
+            if bounds.size.width <= 0.0
+                || bounds.size.height <= 0.0
+                || pixels.width == 0
+                || pixels.height == 0
+            {
+                return Err(ComputerError::retryable(
+                    "display_query_failed",
+                    "empty display geometry; observe again",
+                ));
+            }
+            Ok(DisplayInfo {
+                display_id: *id,
+                primary,
+                bounds: WindowBounds {
+                    x: bounds.origin.x,
+                    y: bounds.origin.y,
+                    width: bounds.size.width,
+                    height: bounds.size.height,
+                },
+                pixels,
+                scale: pixels.width as f64 / bounds.size.width,
             })
         })
-        .collect())
+        .collect()
 }
 
 async fn accessibility_snapshot(
     plan: ObservationPlan,
+    foreground_pid: i64,
     cancellation: &CancellationToken,
 ) -> Result<AccessibilitySnapshot, ComputerError> {
-    let options = plan.options();
+    let mut options = plan.options();
+    options["frontmost_pid"] = json!(foreground_pid);
     let output = run_osascript_with_timeout(
-        ACCESSIBILITY_SNAPSHOT_SCRIPT,
+        &format!("{ACCESSIBILITY_COMMON_SCRIPT}\n{ACCESSIBILITY_SNAPSHOT_SCRIPT}"),
         Some(&options),
         cancellation,
         Duration::from_secs(12),
@@ -695,21 +965,61 @@ async fn node_action(
     operation: &str,
     cancellation: &CancellationToken,
 ) -> Result<Value, ComputerError> {
+    let windows = native_window_inventory()?;
+    let foreground_window_id = windows
+        .iter()
+        .find(|w| w.pid == target.pid && w.onscreen && w.layer == 0)
+        .map(|w| w.id);
+    // Only the target rectangle's candidates cross the subprocess boundary.
+    // Two entries prove ambiguity; never serialize an unbounded desktop list.
+    let windows: Vec<_> = windows
+        .into_iter()
+        .filter(|window| {
+            window.pid == target.pid
+                && target
+                    .window_bounds
+                    .is_some_and(|rect| same_bounds(rect, window.bounds))
+        })
+        .take(2)
+        .collect();
     let input = json!({
         "node_id": node_id,
         "pid": target.pid,
         "root_kind": target.root_kind,
         "root_index": target.root_index,
         "path": target.path,
+        "window_id":target.window_id,
+        "window_bounds":target.window_bounds,
+        "windows":windows,
+        "foreground_window_id":foreground_window_id,
+        "identity":target.identity,
+        "bounds":target.bounds,
         "operation": operation
     });
-    let output = run_osascript(NODE_ACTION_SCRIPT, Some(&input), cancellation).await?;
-    serde_json::from_str(&output).map_err(|error| {
+    let output = run_osascript(
+        &format!("{ACCESSIBILITY_COMMON_SCRIPT}\n{NODE_ACTION_SCRIPT}"),
+        Some(&input),
+        cancellation,
+    )
+    .await?;
+    let value: Value = serde_json::from_str(&output).map_err(|error| {
         ComputerError::retryable(
             "accessibility_action_decode_failed",
             format!("could not decode macOS accessibility action: {error}"),
         )
-    })
+    })?;
+    if value.get("ok").and_then(Value::as_bool) != Some(true) {
+        let code = match value["error"]["code"].as_str() {
+            Some("target_disabled") => "target_disabled",
+            Some("target_obscured") => "target_obscured",
+            _ => "stale_node",
+        };
+        return Err(ComputerError::retryable(
+            code,
+            "accessibility target changed, is blocked, or cannot be verified; observe again",
+        ));
+    }
+    Ok(value)
 }
 
 async fn window_action(
@@ -795,7 +1105,7 @@ async fn run_osascript_with_timeout(
 }
 
 async fn capture_png(
-    region: Option<Region>,
+    plan: &CapturePlan,
     cancellation: &CancellationToken,
 ) -> Result<Screenshot, ComputerError> {
     let directory = private_runtime_directory()?;
@@ -805,7 +1115,8 @@ async fn capture_png(
     ));
     let mut command = Command::new("/usr/sbin/screencapture");
     command.arg("-x").arg("-t").arg("png");
-    if let Some(region) = region {
+    if plan.cropped {
+        let region = plan.region;
         command.arg("-R").arg(format!(
             "{},{},{},{}",
             region.x.round() as i64,
@@ -813,6 +1124,10 @@ async fn capture_png(
             region.width.round() as i64,
             region.height.round() as i64
         ));
+    } else {
+        // Explicitly capture one known display; never imply a multi-screen
+        // screenshot when only the primary screen's image is returned.
+        command.arg("-D").arg(plan.display_number.to_string());
     }
     command.arg(&path).stdin(Stdio::null()).kill_on_drop(true);
     let result = tokio::select! {
@@ -1128,6 +1443,26 @@ fn key_code(key: &str) -> Result<u16, ComputerError> {
 mod tests {
     use super::*;
     use crate::observation::accessibility_budget;
+
+    #[tokio::test]
+    async fn invalid_keyboard_frames_fail_before_permission_or_event_dispatch() {
+        let driver = MacComputer::new();
+        for request in [
+            json!({"action":"keypress","keys":["unsupported-key"],"frame_id":"invented","observe_after":"never"}),
+            json!({"action":"type","text":"","frame_id":"invented","observe_after":"never"}),
+            json!({"action":"type","text":"","observe_after":"never"}),
+            json!({"action":"scroll","delta_y":1,"frame_id":"invented","observe_after":"never"}),
+        ] {
+            let error = driver
+                .execute(
+                    serde_json::from_value(request).unwrap(),
+                    CancellationToken::new(),
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, "stale_frame");
+        }
+    }
 
     #[test]
     fn surface_ids_are_not_accepted_loosely() {
