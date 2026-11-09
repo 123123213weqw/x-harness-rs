@@ -1,6 +1,6 @@
 export const NS = 'runtime.environment'
 export const en = {
-  separate: 'Open another environment in a new tab. This task and draft stay here.',
+  separate: 'Start a new chat in the selected environment. Existing chats and drafts stay here.',
   popupBlocked: 'Browser blocked the new environment tab. Allow popups and try again.',
   connected: 'Cloud Host connected', disconnected: 'Cloud connection unavailable',
   notSynced: 'Independent workspace · session transfer and file sync are not enabled',
@@ -10,7 +10,7 @@ export const en = {
   unknown: 'Conversation history has not been confirmed. Its environment cannot be changed.',
 }
 export const zh: Record<keyof typeof en, string> = {
-  separate: '在新标签页打开另一环境；当前任务和草稿保持不变。',
+  separate: '在所选环境新建聊天；已有聊天和草稿保持不变。',
   popupBlocked: '新环境标签页被浏览器拦截，请允许弹出窗口后重试。',
   connected: '云端 Host 已连接', disconnected: '云端连接不可用',
   notSynced: '独立工作区 · 尚未启用会话迁移与文件同步',

@@ -9,6 +9,7 @@ const rows = [
   { id, source: 'src/modules/runtime-environment/index.ts' },
   { id: id + '/test', source: 'src/modules/runtime-environment/test-exports.ts' },
   { id: 'conversation/test', source: 'src/modules/conversation/test-exports.ts' },
+  { id: 'new-task-intent/test', source: 'src/modules/client-runtime/new-task-intent.ts' },
   { id: 'catalogue-client/test', source: 'src/modules/client-connection/environment-catalogue.ts' },
 ]
 const built = compileSourceModules(new URL('../ui', import.meta.url).pathname, rows)
@@ -140,12 +141,12 @@ test('real catalogue fails closed on origin confusion, duplicate IDs, secrets an
     const value = structuredClone(catalogue); mutate(value); assert.equal(api.parseCatalogue(value, 'http://127.0.0.1:4185'), undefined)
   }
 })
-test('switch opens exactly the registered immutable origin and never claims a blocked popup succeeded', () => {
+test('new-task selection opens exactly the registered immutable origin and never claims a blocked popup succeeded', () => {
   const opened = []
-  assert.equal(api.openEnvironment(catalogue, 'cloud', href => { opened.push(href); return {} }), true)
-  assert.deepEqual(opened, ['http://127.0.0.1:4186/'])
-  assert.equal(api.openEnvironment(catalogue, 'cloud', () => null), false)
-  for (const id of ['local', 'http://evil.invalid', '__proto__', 'missing']) assert.equal(api.openEnvironment(catalogue, id, () => { throw Error('must not dispatch') }), false)
+  assert.equal(api.openNewTaskEnvironment(catalogue, true, 'cloud', href => { opened.push(href); return {} }), true)
+  assert.deepEqual(opened, ['http://127.0.0.1:4186/#new-task'])
+  assert.equal(api.openNewTaskEnvironment(catalogue, true, 'cloud', () => null), false)
+  for (const id of ['local', 'http://evil.invalid', '__proto__', 'missing']) assert.equal(api.openNewTaskEnvironment(catalogue, true, id, () => { throw Error('must not dispatch') }), false)
 })
 
 test('UI without an installed catalogue capability performs no network discovery', () => {
@@ -174,4 +175,93 @@ test('production wire root alone installs same-origin abortable catalogue I/O', 
   assert.equal(await loaded.plugin.createWebEnvironmentCatalogue().read(signal), catalogue)
   assert.deepEqual(calls, [{ url: 'http://127.0.0.1:4185/api/environments', signal, cache: 'no-store', credentials: 'same-origin' }])
   assert.match(readFileSync('ui/src/modules/client-connection/index.ts', 'utf8'), /environmentCatalogue: createWebEnvironmentCatalogue\(\)/)
+})
+
+
+test('created chats, including empty persisted chats, cannot select another Host', () => {
+  for (const sessionId of ['existing-empty', 'existing-active']) {
+    const label = api.GatewayCreationPicker({ catalogue, sessionId, t: key => key })
+    const rendered = label.type(label.props)
+    assert.equal(rendered.props['data-xh-environment-bound'], '')
+    assert.equal(rendered.props['aria-haspopup'], undefined)
+    assert.equal(api.openNewTaskEnvironment(catalogue, false, 'cloud', () => { throw Error('must not open') }), false)
+  }
+})
+
+test('an obsolete creation menu cannot navigate after a session was created', () => {
+  const ref = { current: true }, opened = []
+  const loaded = harness(built.get(id + '/test').bytes.toString(), { react: { useEffect() {}, useRef: () => ref } })
+  loaded.context.URL = URL
+  loaded.context.window.open = () => { opened.push(true); return null }
+  const subject = loaded.plugin
+  const picker = subject.GatewayCreationPicker({ catalogue, sessionId: undefined, t: key => key })
+  const menu = picker.props.children[0]
+  subject.GatewayCreationPicker({ catalogue, sessionId: 'created', t: key => key })
+  menu.props.onSelect('cloud')
+  assert.deepEqual(opened, [])
+})
+
+test('creation navigation uses an opener-free page and never creates or prompts a session', () => {
+  const opened = [], replaced = [], child = { opener: 'parent', location: { replace: value => replaced.push(value) } }
+  const loaded = harness(built.get(id + '/test').bytes.toString(), { react: { useEffect() {} } })
+  loaded.context.URL = URL
+  loaded.context.window.open = (...args) => { opened.push(args); return child }
+  const picker = loaded.plugin.GatewayCreationPicker({ catalogue, sessionId: undefined, t: key => key })
+  picker.props.children[0].props.onSelect('cloud')
+  assert.deepEqual(opened, [['about:blank', '_blank']])
+  assert.equal(child.opener, null)
+  assert.deepEqual(replaced, ['http://127.0.0.1:4186/#new-task'])
+})
+
+test('forged destination URL, ID, or current environment never navigates', () => {
+  for (const id of ['local', 'missing', '__proto__']) {
+    assert.equal(api.openNewTaskEnvironment(catalogue, true, id, () => { throw Error('must not open') }), false)
+  }
+  for (const href of ['https://evil.invalid/', 'http://127.0.0.1:4186/?token=secret', 'http://127.0.0.1:4186/#session']) {
+    const forged = structuredClone(catalogue); forged.entries[1].href = href
+    assert.equal(api.openNewTaskEnvironment(forged, true, 'cloud', () => { throw Error('must not open') }), false)
+  }
+})
+
+const intent = harness(built.get('new-task-intent/test').bytes.toString()).plugin
+test('new-task landing clears selection only, consumes once, preserves query and history state', () => {
+  const location = { hash: '#new-task', pathname: '/', search: '?view=kept' }
+  const operations = [], state = { kept: true }
+  const history = { state, replaceState: (next, _title, href) => { assert.equal(next, state); operations.push(href); location.hash = '' } }
+  const clear = () => operations.push('clear-selection')
+  assert.equal(intent.consumeNewTaskIntent(location, history, clear), true)
+  assert.deepEqual(operations, ['/?view=kept', 'clear-selection'])
+  assert.equal(intent.consumeNewTaskIntent(location, history, clear), false)
+  assert.equal(operations.length, 2)
+})
+
+test('ordinary history navigation and malformed intents cannot clear existing selection', () => {
+  for (const hash of ['', '#session=s', '#new-task?session=other', '#new-task&host=evil', '#NEW-TASK', '#new-task/']) {
+    assert.equal(intent.consumeNewTaskIntent({ hash, pathname: '/', search: '' }, { state: null, replaceState() { throw Error('must not mutate') } }, () => { throw Error('must not clear') }), false)
+  }
+})
+
+test('failed navigation consumption does not acknowledge or clear a selected chat', () => {
+  let cleared = false
+  assert.throws(() => intent.consumeNewTaskIntent({ hash: '#new-task', pathname: '/', search: '' }, { state: null, replaceState() { throw Error('navigation denied') } }, () => { cleared = true }), /navigation denied/)
+  assert.equal(cleared, false)
+})
+
+test('runtime consumes navigation intent before the sole native connection loop starts', () => {
+  const source = readFileSync('ui/src/modules/client-runtime/index.ts', 'utf8')
+  const consume = source.indexOf('consumeNewTaskIntent(location, history, () => { sessions.clear() })')
+  assert.ok(consume > source.indexOf('const sessions = new SessionRuntime'))
+  assert.ok(consume < source.indexOf('const loop = connection.start'))
+  assert.doesNotMatch(readFileSync('ui/src/modules/client-runtime/new-task-intent.ts', 'utf8'), /fetch\(|session\.create|session\.prompt|localStorage|apiUrl/)
+})
+
+test('unmounting a creation picker revokes an obsolete portal callback', () => {
+  const cleanups = [], opened = []
+  const loaded = harness(built.get(id + '/test').bytes.toString(), { react: { useEffect(effect) { const cleanup = effect(); if (cleanup) cleanups.push(cleanup) } } })
+  loaded.context.URL = URL
+  loaded.context.window.open = () => { opened.push(true); return null }
+  const picker = loaded.plugin.GatewayCreationPicker({ catalogue, sessionId: undefined, t: key => key })
+  for (const cleanup of cleanups) cleanup()
+  picker.props.children[0].props.onSelect('cloud')
+  assert.deepEqual(opened, [])
 })

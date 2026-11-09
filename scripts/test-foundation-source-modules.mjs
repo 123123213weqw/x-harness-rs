@@ -146,9 +146,10 @@ test('source: strict HMR SSE boundary and serialized lifecycle preserve old beha
   globalThis.document = {querySelectorAll: () => [{getAttribute: () => 'a', remove: () => trace.push('style')}]}
   globalThis.EventSource = class { constructor(url) { trace.push(url) } addEventListener(_event, listener) { receive = listener } close() { closed = true } }
   try {
-    const hmr = sourceModule('client-hmr')
+    const hmr = sourceModule('client-hmr', { setTimeout, clearTimeout, fetch: async (url, options) => { assert.equal(url, '/plugins/events'); assert.equal(options.method, 'HEAD'); assert.equal(options.credentials, 'same-origin'); return {ok:true,headers:{get:()=> 'text/event-stream; charset=utf-8'}} } })
     const entry = {options: {name: 'a'}, ctx: {registry: {delete: () => trace.push('registry')}}, fiber: {runtime: {callback: 'runtime'}, inertia: undefined, await: async () => trace.push('new.await')}, refresh: async () => { trace.push('refresh'); entry.fiber = {runtime: null, await: async () => trace.push('new.await')} }}
     hmr.apply({modules: {invalidate: id => trace.push(`invalidate:${id}`), prefetch: async id => { trace.push(`prefetch:${id}`); await new Promise(r => setTimeout(r,2)) }}, loader: {entries: () => [entry]}, logger: {warn: message => trace.push(message), error: message => trace.push(String(message))}, effect: effect => {dispose = effect()} })
+    await new Promise(resolve => setTimeout(resolve, 0))
     receive({data: JSON.stringify({type: 'rebuilt', id: 'a', rev: 'r'})}); receive({data: JSON.stringify({type: 'rebuilt', id: 'a', rev: 's'})})
     await new Promise(r => setTimeout(r, 30))
     assert.deepEqual(trace.slice(1), ['invalidate:a', 'prefetch:a', 'registry', 'style', 'refresh', 'new.await', 'invalidate:a', 'prefetch:a', 'style', 'refresh', 'new.await'])
@@ -1086,4 +1087,44 @@ for(const label of ['legacy','source'])test(`${label}: real Core runner boot con
   await drain();const runner=ctx.get('dynamicCordisRunner');assert.ok(runner)
   assert.equal(ctx.get('modules'),system);assert.ok(syncs.length>0);assert.equal(syncs[0].length,5);assert.equal(events.size,5);assert.equal(invalidated.length,0)
   await ctx.fiber.dispose();assert.equal(events.size,0)
+})
+
+
+test('source: optional HMR rejects SPA HTML, missing endpoints and failed probes without opening EventSource', async () => {
+  for (const response of [{ok:true,type:'text/html'}, {ok:false,type:'text/event-stream'}, {ok:true,type:null}, 'network-error']) {
+    let opened = 0, dispose; const warnings = []
+    const hmr = sourceModule('client-hmr', { setTimeout, clearTimeout,
+      EventSource: class { constructor() { opened++ } },
+      fetch: async () => { if (response === 'network-error') throw Error('offline'); return {ok:response.ok,headers:{get:()=>response.type}} },
+    })
+    hmr.apply({modules:{},loader:{},logger:{warn:message=>warnings.push(message),error:()=>assert.fail('not a task failure')},effect:effect=>{dispose=effect()}})
+    await new Promise(resolve => setTimeout(resolve, 0)); dispose()
+    assert.equal(opened, 0); assert.equal(warnings.length, response === 'network-error' ? 1 : 0)
+  }
+})
+
+test('source: disposed HMR cannot install a stream after a late capability response', async () => {
+  let resolveProbe, dispose, signal, opened = 0
+  const hmr = sourceModule('client-hmr', { setTimeout, clearTimeout,
+    EventSource: class { constructor() { opened++ } },
+    fetch: (_url, options) => { signal = options.signal; return new Promise(resolve => { resolveProbe = resolve }) },
+  })
+  hmr.apply({modules:{},loader:{},logger:{warn:()=>assert.fail('disposed probe must stay quiet'),error:()=>assert.fail()},effect:effect=>{dispose=effect()}})
+  dispose(); assert.equal(signal.aborted, true)
+  resolveProbe({ok:true,headers:{get:()=> 'text/event-stream'}})
+  await new Promise(resolve => setTimeout(resolve, 0)); assert.equal(opened, 0)
+})
+
+test('source: HMR capability probe aborts at its own deadline without opening a stream', async () => {
+  let dispose, signal, opened = 0; const warnings = []
+  const hmr = sourceModule('client-hmr', {
+    setTimeout: callback => { queueMicrotask(callback); return 1 }, clearTimeout() {},
+    EventSource: class { constructor() { opened++ } },
+    fetch: (_url, options) => new Promise((_resolve, reject) => {
+      signal = options.signal; signal.addEventListener('abort', () => reject(Error('probe deadline')), {once:true})
+    }),
+  })
+  hmr.apply({modules:{},loader:{},logger:{warn:message=>warnings.push(message),error:()=>assert.fail()},effect:effect=>{dispose=effect()}})
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(signal.aborted,true); assert.equal(opened,0); assert.equal(warnings.length,1); dispose()
 })

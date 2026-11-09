@@ -164,23 +164,36 @@ export function apply(ctx: HmrContext): void {
   }
 
   ctx.effect(() => {
-    const source = new EventSource(EVENTS_ENDPOINT)
-    source.addEventListener('message', (event: MessageEvent<string>) => {
-      let value: unknown
-      try {
-        value = JSON.parse(event.data)
-      } catch {
-        // Wire boundary: a malformed dev-channel frame is dropped loudly.
-        ctx.logger.warn(`client-hmr: unparseable event frame: ${event.data}`)
-        return
-      }
-      const frame = parsePluginsEventFrame(value)
-      if (frame === undefined) {
-        ctx.logger.warn(`client-hmr: invalid event frame: ${event.data}`)
-        return
-      }
-      handle(frame)
+    let disposed = false
+    let source: EventSource | undefined
+    const controller = new AbortController()
+    const timer = setTimeout(() => { controller.abort() }, 2_000)
+    // HMR is an optional development capability. Native/Gateway SPA fallback
+    // can return HTML for this path: never interpret that document as SSE.
+    void fetch(EVENTS_ENDPOINT, { method: 'HEAD', credentials: 'same-origin', cache: 'no-store', signal: controller.signal }).then(response => {
+      clearTimeout(timer)
+      if (disposed || !response.ok || response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'text/event-stream') return
+      source = new EventSource(EVENTS_ENDPOINT)
+      source.addEventListener('message', (event: MessageEvent<string>) => {
+        let value: unknown
+        try {
+          value = JSON.parse(event.data)
+        } catch {
+          // Wire boundary: a malformed dev-channel frame is dropped loudly.
+          ctx.logger.warn(`client-hmr: unparseable event frame: ${event.data}`)
+          return
+        }
+        const frame = parsePluginsEventFrame(value)
+        if (frame === undefined) {
+          ctx.logger.warn(`client-hmr: invalid event frame: ${event.data}`)
+          return
+        }
+        handle(frame)
+      })
+    }).catch(() => {
+      clearTimeout(timer)
+      if (!disposed) ctx.logger.warn('client-hmr: optional development event stream unavailable')
     })
-    return () => { source.close() }
+    return () => { disposed = true; clearTimeout(timer); controller.abort(); source?.close() }
   }, 'client-hmr: event source')
 }

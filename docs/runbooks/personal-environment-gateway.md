@@ -86,8 +86,8 @@ xharness-environment-gateway /absolute/private/gateway.json /absolute/ui/dist
 Authenticate once through `/environment/bootstrap?token=<gateway-launch-token>`
 on one configured origin; do not publish/log that private launch link. The
 redirect drops the token, sets the private cookie and disables referrer/cache.
-Thereafter use the top environment picker (or the blank-task environment
-picker). Local has no lower cloud strip; Cloud reports native connected/
+Thereafter use New Session and the blank-task environment picker. Existing
+chat headers show the bound environment without a switching control. Local has no lower cloud strip; Cloud reports native connected/
 disconnected state only after the generation-scoped Host handshake. The strip
 explicitly says that workspace sync/session transfer are not enabled.
 
@@ -105,7 +105,7 @@ closure. Installed desktop startup and default Local behavior remain unchanged.
 3. Real Cloud model/tool round-trip writes and reads a disposable Cloud file;
    the Mac workspace remains unchanged. A separate test must cover Mac model
    configuration before claiming both environments can generate answers.
-4. Switch tabs, retain an unsent draft, reload an old native session, continue
+4. Create a new chat in a selected environment, retain the source draft, reload an old native session, continue
    its history and disconnect/reconnect without an automatic resend.
 5. The production source graph/typecheck, architecture mutations, remote
    compiler-negative mutations, affected tests and strict Clippy pass. Do not
@@ -120,3 +120,27 @@ receipts with crash reconciliation. It must reject active tools/Goals/children
 or unknown outcomes. Existing one-way Prepared/Active/Sealed permits, ordinary
 `session.import`, UI `running=false` and presentation checkpoints are not a
 substitute for those guarantees.
+
+## Create-only execution choice
+
+A configured Gateway now starts a new chat **before** allocating a native
+Session. On the blank new-task page, choose the execution environment, then
+choose a workspace belonging to that Host. Workspace/session/model/tool/terminal
+traffic stays on that environment's immutable origin. Creating a chat fixes its
+backend even when the chat is still empty; existing-chat headers show a read-only
+environment label, not a switch menu. The global New Session action returns to
+the choice page without creating an unused Session on the previous Host. Direct
+Local startup without a configured Gateway retains its existing behavior.
+
+A cross-environment choice opens the registered origin with the navigation-only
+`#new-task` fragment. Before connecting, the destination consumes it once and
+clears **selection only**, so its last-used old chat is not accidentally opened.
+It sends no prompt, imports no history and transfers no draft. Ordinary reloads
+without the fragment restore the selected chat in that same environment.
+
+This uses the real Gateway/SSH/Host setup above, not the synthetic UI preview.
+A missing catalogue does not enable Cloud, and a failed upstream never falls
+back to Local or automatically resends a request. Neither the picker nor the
+Gateway provisions servers, installs Hosts, changes SSH authorization or performs
+workspace synchronization/session migration. Use a remote workspace that already
+exists; source upload remains a separate operation.

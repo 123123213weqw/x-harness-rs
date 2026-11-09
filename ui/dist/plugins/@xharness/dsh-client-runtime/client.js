@@ -16,6 +16,8 @@ const service_2 = require("./workspaces/service");
 const event_registry_1 = require("./conversation/event-registry");
 const view_registry_1 = require("./conversation/view-registry");
 const catalog_1 = require("./work/catalog");
+const new_task_intent_1 = require("./new-task-intent");
+const environment_catalogue_1 = require("../client-connection/contracts/environment-catalogue");
 var surface_1 = require("../client-connection/contracts/core/session/surface");
 Object.defineProperty(exports, "isAppendSurfaceEvent", { enumerable: true, get: function () { return surface_1.isAppendSurfaceEvent; } });
 Object.defineProperty(exports, "isReplacementSurfaceEvent", { enumerable: true, get: function () { return surface_1.isReplacementSurfaceEvent; } });
@@ -89,6 +91,8 @@ function apply(ctx) {
     if (connection === undefined)
         throw new Error('runtime: connection service is unavailable');
     const sessions = new service_1.SessionRuntime(ctx, connection.api, ctx.remote, conversation);
+    const newTaskLanding = typeof location !== 'undefined' && typeof history !== 'undefined'
+        && (0, new_task_intent_1.consumeNewTaskIntent)(location, history, () => { sessions.clear(); });
     ctx.typert.contexts.registerClient('agent', {
         identity: candidate => sessions.scopeOf(candidate),
     });
@@ -96,7 +100,33 @@ function apply(ctx) {
     const workCatalog = new catalog_1.WorkCatalog(connection.api, sessions, workspaces);
     ctx.reflect.provide('workCatalog', workCatalog, undefined);
     ctx.effect(() => () => workCatalog.dispose(), 'runtime: Work catalog projection');
-    ctx.effect(() => workspaces.startInitialSelection(), 'runtime: initial Workspace selection');
+    // Hold automatic blank-session creation while optional real Gateway discovery
+    // resolves. A configured Gateway chooses an environment before allocating a
+    // Session; direct Local startup keeps its original default selection policy.
+    workspaces.configureEnvironmentCreation(newTaskLanding || connection.environmentCatalogue !== undefined);
+    ctx.effect(() => {
+        let disposed = false;
+        let stop = () => { };
+        const controller = new AbortController();
+        const timer = setTimeout(() => { controller.abort(); }, 5000);
+        void (async () => {
+            let configured = false;
+            try {
+                if (connection.environmentCatalogue !== undefined && typeof location !== 'undefined') {
+                    configured = (0, environment_catalogue_1.parseCatalogue)(await connection.environmentCatalogue.read(controller.signal), location.origin) !== undefined;
+                }
+            }
+            catch { /* Optional discovery: no Gateway on an ordinary direct Host. Never changes the immutable API target or submits a task. */ }
+            finally {
+                clearTimeout(timer);
+            }
+            if (disposed)
+                return;
+            workspaces.configureEnvironmentCreation(newTaskLanding || configured);
+            stop = workspaces.startInitialSelection();
+        })();
+        return () => { disposed = true; clearTimeout(timer); controller.abort(); stop(); };
+    }, 'runtime: initial Workspace selection');
     const loop = connection.start({
         onMuxEnvelope: (envelope) => {
             sessions.handleMuxEnvelope(envelope);
@@ -8370,6 +8400,7 @@ class WorkspaceRuntime {
         this.connecting = new Map();
         /** Guards the runtime-owned one-shot initial-selection subscription. */
         this.initialSelectionStarted = false;
+        this.environmentCreationOnly = false;
         this.manager = new manager_1.WorkspaceManager(api);
         this.list = (0, store_1.createSnapshotStore)({
             items: [], archivedSessionIds: [], state: 'idle', phase: 'pending', error: null,
@@ -8379,6 +8410,8 @@ class WorkspaceRuntime {
         this.sessions.list.subscribe(() => { this.project(); });
         ctx.reflect.provide('workspaces', this, undefined);
     }
+    /** Connection bootstrap owns this policy; it never changes an existing binding. */
+    configureEnvironmentCreation(enabled) { this.environmentCreationOnly = enabled; }
     /**
      * Resolve the session a New Session flow lands in once this Workspace is
      * chosen: reuse the workspace's existing blank session when one is in the
@@ -8445,7 +8478,7 @@ class WorkspaceRuntime {
                 return;
             const current = this.sessions.list.getSnapshot().current;
             const target = workspace.recentWorkspaceId;
-            if (current !== undefined || target === undefined) {
+            if (current !== undefined || target === undefined || this.environmentCreationOnly) {
                 state = 'done';
                 return;
             }
@@ -8482,6 +8515,10 @@ class WorkspaceRuntime {
      * @param workspaceId - explicit target Workspace for scoped actions.
      */
     startSession(workspaceId) {
+        if (this.environmentCreationOnly) {
+            this.sessions.clear();
+            return;
+        }
         const workspace = this.list.getSnapshot();
         const current = this.sessions.list.getSnapshot().current;
         const currentWorkspaceId = current === undefined
@@ -9513,6 +9550,60 @@ class WorkCatalog {
 exports.WorkCatalog = WorkCatalog;
 
 },
+"src/modules/client-runtime/new-task-intent.js": function(module, exports, require) {
+// source: src/modules/client-runtime/new-task-intent.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.NEW_TASK_FRAGMENT = void 0;
+exports.consumeNewTaskIntent = consumeNewTaskIntent;
+/** Navigation only: never accepts a Host URL, session id, credentials or prompt. */
+exports.NEW_TASK_FRAGMENT = '#new-task';
+/** Consume once before connecting, keeping existing history and drafts intact. */
+function consumeNewTaskIntent(location, history, clearSelection) {
+    if (location.hash !== exports.NEW_TASK_FRAGMENT)
+        return false;
+    // If the browser refuses navigation, do not acknowledge a new-task landing.
+    history.replaceState(history.state, '', location.pathname + location.search);
+    clearSelection();
+    return true;
+}
+
+},
+"src/modules/client-connection/contracts/environment-catalogue.js": function(module, exports, require) {
+// source: src/modules/client-connection/contracts/environment-catalogue.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.validEnvironmentEntry = validEnvironmentEntry;
+exports.parseCatalogue = parseCatalogue;
+function object(value) { return typeof value === 'object' && value !== null && !Array.isArray(value); }
+function validEnvironmentEntry(value) {
+    if (!object(value) || Object.keys(value).length !== 4 || Object.keys(value).some(key => !['id', 'label', 'kind', 'href'].includes(key)) || typeof value.id !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(value.id)
+        || typeof value.label !== 'string' || value.label.trim() === '' || value.label.length > 80 || /[\x00-\x1f\x7f]/.test(value.label)
+        || (value.kind !== 'local' && value.kind !== 'cloud') || typeof value.href !== 'string')
+        return false;
+    try {
+        const url = new URL(value.href);
+        return url.protocol === 'http:' && url.hostname === '127.0.0.1' && url.port !== '' && url.pathname === '/' && !url.username && !url.password && !url.search && !url.hash && url.href === value.href;
+    }
+    catch {
+        return false;
+    }
+}
+function parseCatalogue(value, origin) {
+    if (!object(value) || Object.keys(value).length !== 5 || Object.keys(value).some(key => !['version', 'current', 'entries', 'sessionMigration', 'workspaceSync'].includes(key)) || value.version !== 1 || typeof value.current !== 'string'
+        || value.sessionMigration !== false || value.workspaceSync !== false || !Array.isArray(value.entries)
+        || !value.entries.length || value.entries.length > 8 || !value.entries.every(validEnvironmentEntry))
+        return undefined;
+    const entries = value.entries;
+    if (new Set(entries.map(e => e.id)).size !== entries.length || new Set(entries.map(e => e.href)).size !== entries.length
+        || entries.filter(e => e.kind === 'local').length !== 1 || entries.find(e => e.id === value.current)?.href !== origin + '/')
+        return undefined;
+    return { version: 1, current: value.current, entries, sessionMigration: false, workspaceSync: false };
+}
+
+},
 "src/modules/client-connection/contracts/core/session/surface.js": function(module, exports, require) {
 // source: src/modules/client-connection/contracts/core/session/surface.ts
 
@@ -10271,7 +10362,7 @@ function displayFailureMessage(failure) {
 
 }
 };
-const __dependencies = {"src/modules/client-runtime/index.js":{"./slots":"src/modules/client-runtime/slots.js","./sessions/service":"src/modules/client-runtime/sessions/service.js","./workspaces/service":"src/modules/client-runtime/workspaces/service.js","./conversation/event-registry":"src/modules/client-runtime/conversation/event-registry.js","./conversation/view-registry":"src/modules/client-runtime/conversation/view-registry.js","./work/catalog":"src/modules/client-runtime/work/catalog.js","../client-connection/contracts/core/session/surface":"src/modules/client-connection/contracts/core/session/surface.js","./sessions/conversation-assembler":"src/modules/client-runtime/sessions/conversation-assembler.js","./sessions/conversation-location-index":"src/modules/client-runtime/sessions/conversation-location-index.js","./contract/conversation":"src/modules/client-runtime/contract/conversation.js","./sessions/subagent-lineage":"src/modules/client-runtime/sessions/subagent-lineage.js","./sessions/provide":"src/modules/client-runtime/sessions/provide.js","./agents/scope":"src/modules/client-runtime/agents/scope.js","./workspaces/path":"src/modules/client-runtime/workspaces/path.js","./contract/store":"src/modules/client-runtime/contract/store.js","./sessions/conversation":"src/modules/client-runtime/sessions/conversation.js","./sessions/partial":"src/modules/client-runtime/sessions/partial.js","./sessions/assistant-timing":"src/modules/client-runtime/sessions/assistant-timing.js","./sessions/context-provenance":"src/modules/client-runtime/sessions/context-provenance.js","./sessions/failure-display":"src/modules/client-runtime/sessions/failure-display.js","./sessions/pending":"src/modules/client-runtime/sessions/pending.js"},"src/modules/client-runtime/slots.js":{"./value-guards":"src/modules/client-runtime/value-guards.js","./context":"src/modules/client-runtime/context.js"},"src/modules/client-runtime/value-guards.js":{},"src/modules/client-runtime/context.js":{},"src/modules/client-runtime/sessions/service.js":{"../../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../contract/store":"src/modules/client-runtime/contract/store.js","../agents/scope":"src/modules/client-runtime/agents/scope.js","./manager":"src/modules/client-runtime/sessions/manager.js","./provide":"src/modules/client-runtime/sessions/provide.js"},"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js":{"./session-search":"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js"},"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js":{},"src/modules/client-connection/contracts/core/session/types.js":{},"src/modules/client-connection/contracts/host/apiproxy/api/index.js":{"./rpc":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.js","./rpc.schema":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js","./session-search":"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js"},"src/modules/client-connection/contracts/host/apiproxy/api/rpc.js":{},"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js":{},"src/modules/client-runtime/contract/store.js":{"./state-engine":"src/modules/client-runtime/contract/state-engine.js","immer":"vendor/immer.js","../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/contract/state-engine.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"vendor/immer.js":{},"src/modules/client-runtime/agents/scope.js":{"../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../context":"src/modules/client-runtime/context.js"},"src/modules/client-runtime/sessions/manager.js":{"../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../value-guards":"src/modules/client-runtime/value-guards.js","../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../ordered-baseline":"src/modules/client-runtime/ordered-baseline.js","./lineage":"src/modules/client-runtime/sessions/lineage.js","./notifier":"src/modules/client-runtime/sessions/notifier.js","./projection-store":"src/modules/client-runtime/sessions/projection-store.js","./session":"src/modules/client-runtime/sessions/session.js","./history-cache":"src/modules/client-runtime/sessions/history-cache.js"},"src/modules/client-runtime/ordered-baseline.js":{},"src/modules/client-runtime/sessions/lineage.js":{},"src/modules/client-runtime/sessions/notifier.js":{},"src/modules/client-runtime/sessions/projection-store.js":{"../value-guards":"src/modules/client-runtime/value-guards.js","./notifier":"src/modules/client-runtime/sessions/notifier.js"},"src/modules/client-runtime/sessions/session.js":{"./chat-snapshot-codec":"src/modules/client-runtime/sessions/chat-snapshot-codec.js","../../shared/session-terminal":"src/modules/shared/session-terminal.js","../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","./conversation-assembler":"src/modules/client-runtime/sessions/conversation-assembler.js","./pending":"src/modules/client-runtime/sessions/pending.js","./notifier":"src/modules/client-runtime/sessions/notifier.js","./projection-store":"src/modules/client-runtime/sessions/projection-store.js","../time-zone":"src/modules/client-runtime/time-zone.js","./queue-mirror":"src/modules/client-runtime/sessions/queue-mirror.js","./active-working-set":"src/modules/client-runtime/sessions/active-working-set.js","./cooperative-delivery":"src/modules/client-runtime/sessions/cooperative-delivery.js"},"src/modules/client-runtime/sessions/chat-snapshot-codec.js":{"../../shared/compaction-outcome":"src/modules/shared/compaction-outcome.js","../../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","../value-guards":"src/modules/client-runtime/value-guards.js","./conversation":"src/modules/client-runtime/sessions/conversation.js"},"src/modules/shared/compaction-outcome.js":{},"src/modules/client-runtime/sessions/conversation.js":{"../value-guards":"src/modules/client-runtime/value-guards.js","../../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js"},"src/modules/shared/session-terminal.js":{"./generated/session-terminal":"src/modules/shared/generated/session-terminal.js"},"src/modules/shared/generated/session-terminal.js":{},"src/modules/client-runtime/sessions/conversation-assembler.js":{"../contract/conversation":"src/modules/client-runtime/contract/conversation.js","../value-guards":"src/modules/client-runtime/value-guards.js","./conversation-location-index":"src/modules/client-runtime/sessions/conversation-location-index.js"},"src/modules/client-runtime/contract/conversation.js":{},"src/modules/client-runtime/sessions/conversation-location-index.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/pending.js":{},"src/modules/client-runtime/time-zone.js":{},"src/modules/client-runtime/sessions/queue-mirror.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/active-working-set.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/cooperative-delivery.js":{},"src/modules/client-runtime/sessions/history-cache.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/provide.js":{},"src/modules/client-runtime/workspaces/service.js":{"./epoch":"src/modules/client-runtime/workspaces/epoch.js","../contract/store":"src/modules/client-runtime/contract/store.js","./manager":"src/modules/client-runtime/workspaces/manager.js"},"src/modules/client-runtime/workspaces/epoch.js":{},"src/modules/client-runtime/workspaces/manager.js":{"../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../sessions/notifier":"src/modules/client-runtime/sessions/notifier.js","./workspace":"src/modules/client-runtime/workspaces/workspace.js"},"src/modules/client-runtime/workspaces/workspace.js":{"../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../sessions/notifier":"src/modules/client-runtime/sessions/notifier.js"},"src/modules/client-runtime/conversation/event-registry.js":{"./definition-registry":"src/modules/client-runtime/conversation/definition-registry.js"},"src/modules/client-runtime/conversation/definition-registry.js":{"../context":"src/modules/client-runtime/context.js"},"src/modules/client-runtime/conversation/view-registry.js":{"./definition-registry":"src/modules/client-runtime/conversation/definition-registry.js"},"src/modules/client-runtime/work/catalog.js":{"../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../sessions/notifier":"src/modules/client-runtime/sessions/notifier.js"},"src/modules/client-connection/contracts/core/session/surface.js":{},"src/modules/client-runtime/sessions/subagent-lineage.js":{},"src/modules/client-runtime/workspaces/path.js":{},"src/modules/client-runtime/sessions/partial.js":{"./conversation":"src/modules/client-runtime/sessions/conversation.js"},"src/modules/client-runtime/sessions/assistant-timing.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/context-provenance.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/failure-display.js":{}};
+const __dependencies = {"src/modules/client-runtime/index.js":{"./slots":"src/modules/client-runtime/slots.js","./sessions/service":"src/modules/client-runtime/sessions/service.js","./workspaces/service":"src/modules/client-runtime/workspaces/service.js","./conversation/event-registry":"src/modules/client-runtime/conversation/event-registry.js","./conversation/view-registry":"src/modules/client-runtime/conversation/view-registry.js","./work/catalog":"src/modules/client-runtime/work/catalog.js","./new-task-intent":"src/modules/client-runtime/new-task-intent.js","../client-connection/contracts/environment-catalogue":"src/modules/client-connection/contracts/environment-catalogue.js","../client-connection/contracts/core/session/surface":"src/modules/client-connection/contracts/core/session/surface.js","./sessions/conversation-assembler":"src/modules/client-runtime/sessions/conversation-assembler.js","./sessions/conversation-location-index":"src/modules/client-runtime/sessions/conversation-location-index.js","./contract/conversation":"src/modules/client-runtime/contract/conversation.js","./sessions/subagent-lineage":"src/modules/client-runtime/sessions/subagent-lineage.js","./sessions/provide":"src/modules/client-runtime/sessions/provide.js","./agents/scope":"src/modules/client-runtime/agents/scope.js","./workspaces/path":"src/modules/client-runtime/workspaces/path.js","./contract/store":"src/modules/client-runtime/contract/store.js","./sessions/conversation":"src/modules/client-runtime/sessions/conversation.js","./sessions/partial":"src/modules/client-runtime/sessions/partial.js","./sessions/assistant-timing":"src/modules/client-runtime/sessions/assistant-timing.js","./sessions/context-provenance":"src/modules/client-runtime/sessions/context-provenance.js","./sessions/failure-display":"src/modules/client-runtime/sessions/failure-display.js","./sessions/pending":"src/modules/client-runtime/sessions/pending.js"},"src/modules/client-runtime/slots.js":{"./value-guards":"src/modules/client-runtime/value-guards.js","./context":"src/modules/client-runtime/context.js"},"src/modules/client-runtime/value-guards.js":{},"src/modules/client-runtime/context.js":{},"src/modules/client-runtime/sessions/service.js":{"../../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../contract/store":"src/modules/client-runtime/contract/store.js","../agents/scope":"src/modules/client-runtime/agents/scope.js","./manager":"src/modules/client-runtime/sessions/manager.js","./provide":"src/modules/client-runtime/sessions/provide.js"},"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js":{"./session-search":"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js"},"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js":{},"src/modules/client-connection/contracts/core/session/types.js":{},"src/modules/client-connection/contracts/host/apiproxy/api/index.js":{"./rpc":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.js","./rpc.schema":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js","./session-search":"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js"},"src/modules/client-connection/contracts/host/apiproxy/api/rpc.js":{},"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js":{},"src/modules/client-runtime/contract/store.js":{"./state-engine":"src/modules/client-runtime/contract/state-engine.js","immer":"vendor/immer.js","../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/contract/state-engine.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"vendor/immer.js":{},"src/modules/client-runtime/agents/scope.js":{"../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../context":"src/modules/client-runtime/context.js"},"src/modules/client-runtime/sessions/manager.js":{"../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../value-guards":"src/modules/client-runtime/value-guards.js","../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../ordered-baseline":"src/modules/client-runtime/ordered-baseline.js","./lineage":"src/modules/client-runtime/sessions/lineage.js","./notifier":"src/modules/client-runtime/sessions/notifier.js","./projection-store":"src/modules/client-runtime/sessions/projection-store.js","./session":"src/modules/client-runtime/sessions/session.js","./history-cache":"src/modules/client-runtime/sessions/history-cache.js"},"src/modules/client-runtime/ordered-baseline.js":{},"src/modules/client-runtime/sessions/lineage.js":{},"src/modules/client-runtime/sessions/notifier.js":{},"src/modules/client-runtime/sessions/projection-store.js":{"../value-guards":"src/modules/client-runtime/value-guards.js","./notifier":"src/modules/client-runtime/sessions/notifier.js"},"src/modules/client-runtime/sessions/session.js":{"./chat-snapshot-codec":"src/modules/client-runtime/sessions/chat-snapshot-codec.js","../../shared/session-terminal":"src/modules/shared/session-terminal.js","../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","./conversation-assembler":"src/modules/client-runtime/sessions/conversation-assembler.js","./pending":"src/modules/client-runtime/sessions/pending.js","./notifier":"src/modules/client-runtime/sessions/notifier.js","./projection-store":"src/modules/client-runtime/sessions/projection-store.js","../time-zone":"src/modules/client-runtime/time-zone.js","./queue-mirror":"src/modules/client-runtime/sessions/queue-mirror.js","./active-working-set":"src/modules/client-runtime/sessions/active-working-set.js","./cooperative-delivery":"src/modules/client-runtime/sessions/cooperative-delivery.js"},"src/modules/client-runtime/sessions/chat-snapshot-codec.js":{"../../shared/compaction-outcome":"src/modules/shared/compaction-outcome.js","../../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","../value-guards":"src/modules/client-runtime/value-guards.js","./conversation":"src/modules/client-runtime/sessions/conversation.js"},"src/modules/shared/compaction-outcome.js":{},"src/modules/client-runtime/sessions/conversation.js":{"../value-guards":"src/modules/client-runtime/value-guards.js","../../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js"},"src/modules/shared/session-terminal.js":{"./generated/session-terminal":"src/modules/shared/generated/session-terminal.js"},"src/modules/shared/generated/session-terminal.js":{},"src/modules/client-runtime/sessions/conversation-assembler.js":{"../contract/conversation":"src/modules/client-runtime/contract/conversation.js","../value-guards":"src/modules/client-runtime/value-guards.js","./conversation-location-index":"src/modules/client-runtime/sessions/conversation-location-index.js"},"src/modules/client-runtime/contract/conversation.js":{},"src/modules/client-runtime/sessions/conversation-location-index.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/pending.js":{},"src/modules/client-runtime/time-zone.js":{},"src/modules/client-runtime/sessions/queue-mirror.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/active-working-set.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/cooperative-delivery.js":{},"src/modules/client-runtime/sessions/history-cache.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/provide.js":{},"src/modules/client-runtime/workspaces/service.js":{"./epoch":"src/modules/client-runtime/workspaces/epoch.js","../contract/store":"src/modules/client-runtime/contract/store.js","./manager":"src/modules/client-runtime/workspaces/manager.js"},"src/modules/client-runtime/workspaces/epoch.js":{},"src/modules/client-runtime/workspaces/manager.js":{"../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../sessions/notifier":"src/modules/client-runtime/sessions/notifier.js","./workspace":"src/modules/client-runtime/workspaces/workspace.js"},"src/modules/client-runtime/workspaces/workspace.js":{"../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../sessions/notifier":"src/modules/client-runtime/sessions/notifier.js"},"src/modules/client-runtime/conversation/event-registry.js":{"./definition-registry":"src/modules/client-runtime/conversation/definition-registry.js"},"src/modules/client-runtime/conversation/definition-registry.js":{"../context":"src/modules/client-runtime/context.js"},"src/modules/client-runtime/conversation/view-registry.js":{"./definition-registry":"src/modules/client-runtime/conversation/definition-registry.js"},"src/modules/client-runtime/work/catalog.js":{"../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../sessions/notifier":"src/modules/client-runtime/sessions/notifier.js"},"src/modules/client-runtime/new-task-intent.js":{},"src/modules/client-connection/contracts/environment-catalogue.js":{},"src/modules/client-connection/contracts/core/session/surface.js":{},"src/modules/client-runtime/sessions/subagent-lineage.js":{},"src/modules/client-runtime/workspaces/path.js":{},"src/modules/client-runtime/sessions/partial.js":{"./conversation":"src/modules/client-runtime/sessions/conversation.js"},"src/modules/client-runtime/sessions/assistant-timing.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/context-provenance.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/failure-display.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;
