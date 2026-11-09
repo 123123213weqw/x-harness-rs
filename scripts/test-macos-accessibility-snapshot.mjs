@@ -521,3 +521,15 @@ test('a missing explicitly selected app never falls back to another apps control
     assert.ok(result.windows.every(w=>!w.frontmost));
   }
 });
+
+
+const foregroundSource=fs.readFileSync(new URL('../crates/xharness-computer-macos/src/foreground-process.js',import.meta.url),'utf8');
+test('foreground PID extraction never reads nullable LaunchServices launchDate',()=>{
+  let reads=0;
+  for(const date of [null,undefined,123.5]) {
+    const app={processIdentifier:42,get launchDate(){reads++;if(date===undefined)throw new Error('unavailable');return date;}};
+    const context=vm.createContext({ObjC:{import:()=>{}},$:{NSWorkspace:{sharedWorkspace:{frontmostApplication:app}}}});
+    assert.deepEqual(JSON.parse(vm.runInContext(foregroundSource+'\nrun()',context)),{pid:42});
+  }
+  assert.equal(reads,0);
+});

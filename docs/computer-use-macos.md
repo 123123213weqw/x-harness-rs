@@ -118,7 +118,7 @@ another application's controls. This is per-observation scope, not a binding UI.
 
 Every macOS physical input now requires the latest frame, including raw typing,
 keypress and scroll without a position. The opaque frame ID does not repeat
-between per-turn executors. A frame also captures the foreground process launch
+between per-turn executors. A frame also captures the foreground kernel process-start
 identity and its front normal WindowServer window ID/bounds. Raw input rejects a
 changed foreground application, process instance, window or geometry. Window
 management remains the explicit separate `window` route; observe again after it.
@@ -143,3 +143,21 @@ application binding, or proof that a task succeeded. Concurrent UI changes can
 still race a final check. Input acknowledgements expose `effect_verified:false`;
 verify task-specific state with a subsequent observation, never blindly replay an
 uncertain input. No general automatic effect verifier or AX speed-up is claimed.
+
+
+### Applications started without LaunchServices
+
+`NSRunningApplication.launchDate` is optional and is absent for legitimate
+applications started directly from their executable. Foreground extraction
+therefore reads only NSWorkspace's PID. For **both** normally launched and
+direct-exec apps, the native adapter uses `proc_pidinfo(PROC_PIDTBSDINFO)` to
+capture exact kernel start seconds/microseconds, never a float, guessed zero,
+process name or executable path. The identity source cannot flip as optional
+LaunchServices metadata appears later. PID reuse, a changed start timestamp,
+window identity and geometry remain frame-invalidating events.
+
+A complete, matching kernel record is required. Denied/failed or short reads,
+PID mismatch, exiting/zombie processes and invalid timestamps fail closed before
+input. Failure to read kernel identity does not weaken the admission fence or
+fall back to accepting a bare PID. This is still a preflight check, not an atomic
+process/window lock.

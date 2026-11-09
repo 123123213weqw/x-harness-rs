@@ -31,13 +31,60 @@ pub(crate) fn check_frame_id(
     Ok(())
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+/// Exact kernel epoch seconds/microseconds; never a nullable or rounded date.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ProcessStart {
+    seconds: u64,
+    microseconds: u64,
+}
+
+impl ProcessStart {
+    pub(crate) fn new(seconds: u64, microseconds: u64) -> Result<Self, ComputerError> {
+        if seconds == 0 || microseconds >= 1_000_000 {
+            return Err(ComputerError::retryable(
+                "input_context_unavailable",
+                "invalid kernel process start identity; observe again",
+            ));
+        }
+        Ok(Self {
+            seconds,
+            microseconds,
+        })
+    }
+}
+
+#[derive(Deserialize)]
+struct ForegroundProcess {
+    pid: i64,
+}
+
+pub(crate) fn foreground_pid(raw: &str) -> Result<i32, ComputerError> {
+    let value: ForegroundProcess = serde_json::from_str(raw).map_err(|_| {
+        ComputerError::retryable(
+            "input_context_unavailable",
+            "cannot read foreground application PID",
+        )
+    })?;
+    let pid = i32::try_from(value.pid).map_err(|_| {
+        ComputerError::retryable(
+            "input_context_unavailable",
+            "foreground PID is outside the native range",
+        )
+    })?;
+    if pid <= 0 {
+        return Err(ComputerError::retryable(
+            "input_context_unavailable",
+            "invalid foreground application PID",
+        ));
+    }
+    Ok(pid)
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct InputContext {
     pub(crate) pid: i64,
-    pub(crate) launched_at: f64,
-    #[serde(default)]
+    pub(crate) process_start: ProcessStart,
     pub(crate) window_id: Option<u32>,
-    #[serde(default)]
     pub(crate) bounds: Option<WindowBounds>,
 }
 
@@ -129,7 +176,7 @@ mod tests {
     fn changed_application_launch_window_or_geometry_rejects_raw_input() {
         let current = InputContext {
             pid: 7,
-            launched_at: 123.0,
+            process_start: ProcessStart::new(123, 456_789).unwrap(),
             window_id: Some(42),
             bounds: Some(WindowBounds {
                 x: 0.0,
@@ -146,7 +193,7 @@ mod tests {
                 ..current.clone()
             },
             InputContext {
-                launched_at: 124.0,
+                process_start: ProcessStart::new(123, 456_790).unwrap(),
                 ..current.clone()
             },
             InputContext {
@@ -172,6 +219,34 @@ mod tests {
                 "stale_frame"
             );
         }
+    }
+
+    #[test]
+    fn pid_is_independent_of_nullable_launchservices_metadata() {
+        for raw in [r#"{"pid":42}"#, r#"{"pid":42,"launched_at":null}"#] {
+            assert_eq!(foreground_pid(raw).unwrap(), 42);
+        }
+        for raw in [
+            "{}",
+            r#"{"pid":null}"#,
+            r#"{"pid":-1}"#,
+            r#"{"pid":0}"#,
+            r#"{"pid":1.5}"#,
+            r#"{"pid":2147483648}"#,
+            r#"{"pid":"42"}"#,
+        ] {
+            assert_eq!(
+                foreground_pid(raw).unwrap_err().code,
+                "input_context_unavailable"
+            );
+        }
+    }
+
+    #[test]
+    fn process_start_never_uses_a_zero_or_invalid_fallback() {
+        assert!(ProcessStart::new(123, 0).is_ok());
+        assert!(ProcessStart::new(0, 0).is_err());
+        assert!(ProcessStart::new(123, 1_000_000).is_err());
     }
 
     #[test]

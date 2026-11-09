@@ -23,10 +23,11 @@ use crate::geometry::{
     check_display_configuration, contains_point, CapturePlan, DisplayInfo, PixelSize,
 };
 use crate::input_guard::{
-    check_frame_id, check_input_context, frame_bound, same_bounds, window_id, InputContext,
-    NativeWindow,
+    check_frame_id, check_input_context, foreground_pid, frame_bound, same_bounds, window_id,
+    InputContext, NativeWindow,
 };
 use crate::observation::{recover_snapshot, AccessibilitySnapshot, ObservationPlan, WindowBounds};
+use crate::process_identity::process_start;
 
 static NEXT_SCREENSHOT: AtomicU64 = AtomicU64::new(1);
 static NEXT_FRAME: AtomicU64 = AtomicU64::new(1);
@@ -36,13 +37,7 @@ const ACCESSIBILITY_SNAPSHOT_SCRIPT: &str = include_str!("accessibility-snapshot
 const ACCESSIBILITY_COMMON_SCRIPT: &str = include_str!("accessibility-common.js");
 const NODE_ACTION_SCRIPT: &str = include_str!("accessibility-node-action.js");
 
-const FOREGROUND_SCRIPT: &str = r#"
-ObjC.import('AppKit');
-function run() {
-  const app=$.NSWorkspace.sharedWorkspace.frontmostApplication;
-  return JSON.stringify({pid:Number(app.processIdentifier),launched_at:Number(app.launchDate.timeIntervalSince1970)});
-}
-"#;
+const FOREGROUND_SCRIPT: &str = include_str!("foreground-process.js");
 
 const WINDOW_ACTION_SCRIPT: &str = r#"
 function fail(message) { throw new Error(message); }
@@ -846,18 +841,16 @@ async fn read_input_context(
         Duration::from_secs(2),
     )
     .await?;
-    let mut context: InputContext = serde_json::from_str(&output).map_err(|_| {
-        ComputerError::retryable(
-            "input_context_unavailable",
-            "cannot read foreground application identity",
-        )
-    })?;
-    if context.pid <= 0 || !context.launched_at.is_finite() || context.launched_at <= 0.0 {
-        return Err(ComputerError::retryable(
-            "input_context_unavailable",
-            "cannot identify the foreground application",
-        ));
-    }
+    let pid = foreground_pid(&output)?;
+    // LaunchServices may never know how this app was started. Always use one
+    // kernel identity source for both LS and direct-exec apps, avoiding a source
+    // switch when optional application metadata arrives later.
+    let mut context = InputContext {
+        pid: i64::from(pid),
+        process_start: process_start(pid)?,
+        window_id: None,
+        bounds: None,
+    };
     if let Some(window) = windows
         .iter()
         .find(|w| w.pid == context.pid && w.onscreen && w.layer == 0)
