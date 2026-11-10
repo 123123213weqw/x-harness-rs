@@ -21,7 +21,9 @@ use std::{
 use tokio::sync::Mutex;
 
 mod mcp_config;
+mod panel;
 pub use mcp_config::{McpServerPreview, McpServerSpec};
+pub use panel::{PanelAsset, PanelManifest, VerifiedPanel};
 
 const MAX_CATALOG: usize = 2 * 1024 * 1024;
 const MAX_ARCHIVE: usize = 64 * 1024 * 1024;
@@ -97,6 +99,8 @@ pub struct InstalledPlugin {
     pub mcp_enabled: bool,
     #[serde(default)]
     pub mcp_config_sha256: Option<String>,
+    #[serde(default)]
+    pub ui_config_sha256: Option<String>,
     pub capabilities: Vec<String>,
     pub skills: Vec<SkillRecord>,
 }
@@ -350,6 +354,7 @@ impl PluginManager {
             } else {
                 None
             };
+            let ui_config_sha256 = panel::inspect(&package_root, name)?;
             let skills = discover_skills(&package_root)?;
             let published = self.root.join("packages").join(name).join(&digest);
             fs::create_dir_all(published.parent().unwrap())?;
@@ -364,6 +369,7 @@ impl PluginManager {
                 enabled: false,
                 mcp_enabled: false,
                 mcp_config_sha256,
+                ui_config_sha256,
                 capabilities,
                 skills,
             };
@@ -853,6 +859,7 @@ fn inspect_capabilities(root: &Path, expected_name: &str) -> Result<Vec<String>,
         ("agents", "agents"),
         ("hooks", "hooks"),
         (".mcp.json", "mcp"),
+        (".xharness-ui.json", "ui"),
     ] {
         if root.join(directory).exists() {
             capabilities.push(name.into());

@@ -20,3 +20,27 @@ impl BasicHost {
             .map_err(|_| "plugin backend already installed".into())
     }
 }
+
+impl BasicHost {
+    /// The authenticated UI chooses an existing session, never an arbitrary cwd.
+    pub async fn plugin_panel_workspace(&self, session_id: &str) -> Result<String, String> {
+        let state = self.state.read().await;
+        if state.deleted_sessions.contains(session_id)
+            || state.archived_sessions.contains(session_id)
+        {
+            return Err("session unavailable".into());
+        }
+        let session = state
+            .sessions
+            .get(session_id)
+            .ok_or("session unavailable")?;
+        if session
+            .active_permission
+            .unwrap_or(session.permission_preset)
+            != crate::PermissionPreset::DangerFullAccess
+        {
+            return Err("editable plugin panels require the full-access preset; no permission is changed automatically".into());
+        }
+        Ok(session.cwd.clone())
+    }
+}

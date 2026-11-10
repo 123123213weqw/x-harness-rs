@@ -175,6 +175,22 @@
         "url": "https://engine.xxdevs.com/plugins/packages/unit-testing/0.1.0-beta.1/plugin.zip"
       },
       "version": "0.1.0-beta.1"
+    },
+    {
+      "category": "productivity",
+      "description": "Optional live WordCraft DOCX editor. Requires XHarness panel support and an existing Node.js runtime; installed disabled, MCP permission and visible editor required. Experimental.",
+      "descriptionI18n": {
+        "zh-CN": "可选 WordCraft 可视化 DOCX 编辑器。需 XHarness 面板支持和已有 Node.js；默认关闭，需允许 MCP 并按需打开。实验功能。"
+      },
+      "icon": "https://engine.xxdevs.com/plugins/icons/4a9f2fd06bb086fcde2794717ebd16396a764c6b850d71ca7b355f419076ef6a.svg",
+      "name": "wordcraft",
+      "source": {
+        "sha256": "ed0879f7548b1ce7e7a4920f2b89a0d55fbac0e70ffa365a52d9d983a749e22d",
+        "source": "url",
+        "type": "zip",
+        "url": "https://engine.xxdevs.com/plugins/packages/wordcraft/0.1.0/plugin.zip"
+      },
+      "version": "0.1.0"
     }
   ]
 }

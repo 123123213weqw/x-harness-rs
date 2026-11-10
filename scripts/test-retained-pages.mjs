@@ -34,3 +34,13 @@ test('LRU budget never evicts the visible page; tools and provisional model tabs
  const provisional=plan([],other,'A','pending',true,0);assert.equal(provisional.length,1)
  assert.equal(plan(provisional,other,'A','pending',false,1).length,0,'provisional tab unmounts immediately on hide')
 })
+test('live plugin editors survive TTL/LRU and session switches until explicit close',()=>{
+ const editor={...file('editor'),kind:'plugin'}
+ const all={A:{items:[editor,...spaces.A.items],activeId:'editor'},B:spaces.B}
+ let pages=plan([],all,'A','editor',true,0)
+ pages=plan(pages,all,'B','file:0',true,ttl*10)
+ for(let i=0;i<8;i++)pages=plan(pages,all,'A','file:'+i,true,ttl*20+i)
+ assert.ok(pages.some(p=>p.id==='editor'),'never destroy a potentially dirty editor for a cache budget')
+ assert.ok(!pages.find(p=>p.id==='editor').visible)
+ assert.ok(!plan(pages,{...all,A:{items:spaces.A.items,activeId:'file:7'}},'A','file:7',true,ttl*30).some(p=>p.id==='editor'))
+})

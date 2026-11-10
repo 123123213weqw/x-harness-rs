@@ -200,3 +200,122 @@ async fn disconnect_owner_does_not_interrupt_other_chats() {
     assert_ne!(one, fixture_pid(&runtime, "chat-one", &config).await);
     runtime.shutdown().await;
 }
+
+#[tokio::test]
+async fn panel_replies_are_parallel_hidden_and_pinned_until_explicit_close() {
+    let runtime = McpRuntime::new();
+    let mut config = fixture();
+    config.env.insert("XH_MCP_PANEL_FIXTURE".into(), "1".into());
+    assert!(
+        !runtime
+            .panel_is_open("ui-chat", &config.plugin, &config.server)
+            .await
+    );
+    let tools = runtime.list_tools("ui-chat", &config).await.unwrap();
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0].name, "wait_app");
+    assert!(serde_json::to_value(&tools[0]).unwrap().get("appOnly").is_none());
+    assert!(runtime
+        .call_tool("ui-chat", &config, "_editor_reply", Map::new())
+        .await
+        .is_err());
+    let pin = runtime.pin_panel("ui-chat", &config).await.unwrap();
+    assert!(
+        !runtime
+            .panel_is_interactive("ui-chat", &config.plugin, &config.server)
+            .await
+    );
+    pin.set_interactive(true).unwrap();
+    assert!(
+        runtime
+            .panel_is_interactive("ui-chat", &config.plugin, &config.server)
+            .await
+    );
+    pin.set_interactive(false).unwrap();
+    assert!(
+        !runtime
+            .panel_is_interactive("ui-chat", &config.plugin, &config.server)
+            .await
+    );
+    assert!(
+        runtime
+            .panel_is_open("ui-chat", &config.plugin, &config.server)
+            .await
+    );
+    pin.set_interactive(true).unwrap();
+    let run = runtime.clone();
+    let cfg = config.clone();
+    let pending =
+        tokio::spawn(async move { run.call_tool("ui-chat", &cfg, "wait_app", Map::new()).await });
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert!(
+        runtime.close_panel("ui-chat", &config).await.is_err(),
+        "never close a model operation in flight"
+    );
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        runtime.call_app_tool("ui-chat", &config, "_editor_reply", Map::new()),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let result = pending.await.unwrap().unwrap();
+    assert_eq!(result["content"][0]["text"], "app-replied");
+    let resource = runtime
+        .read_app_resource("ui-chat", &config, "ui://fixture/panel")
+        .await
+        .unwrap();
+    assert_eq!(resource["contents"][0]["text"], "panel resource");
+    runtime.close_panel("ui-chat", &config).await.unwrap();
+    assert!(pin.revoked());
+    drop(pin);
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_model_timeout_cannot_discard_a_pinned_unsaved_editor() {
+    let runtime = McpRuntime::with_timeouts(
+        std::time::Duration::from_secs(60),
+        std::time::Duration::from_millis(100),
+    );
+    let mut config = fixture();
+    config.env.insert("XH_MCP_PANEL_FIXTURE".into(), "1".into());
+    assert!(
+        runtime
+            .call_app_tool("editor", &config, "_editor_reply", Map::new())
+            .await
+            .is_err(),
+        "app traffic must never start a process"
+    );
+    let pin = runtime.pin_panel("editor", &config).await.unwrap();
+    pin.set_interactive(true).unwrap();
+    assert!(matches!(
+        runtime
+            .call_tool("editor", &config, "wait_app", Map::new())
+            .await,
+        Err(McpError::Timeout)
+    ));
+    assert!(
+        !pin.revoked(),
+        "outcome-unknown tool timeout must preserve editor memory"
+    );
+    assert!(
+        runtime
+            .panel_is_open("editor", &config.plugin, &config.server)
+            .await
+    );
+    runtime
+        .call_app_tool("editor", &config, "_editor_reply", Map::new())
+        .await
+        .unwrap();
+    runtime.close_panel("editor", &config).await.unwrap();
+    assert!(pin.revoked());
+    assert!(
+        runtime
+            .read_app_resource("editor", &config, "ui://fixture/panel")
+            .await
+            .is_err(),
+        "stale UI must not reconnect a closed process"
+    );
+    runtime.shutdown().await;
+}

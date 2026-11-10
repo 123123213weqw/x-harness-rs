@@ -11,7 +11,7 @@ use serde_json::{Map, Value};
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
     process::Command,
-    sync::Mutex,
+    sync::{Mutex, RwLock},
     time::{timeout, Instant},
 };
 use tokio_util::sync::CancellationToken;
@@ -58,13 +58,53 @@ pub struct McpTool {
     pub name: String,
     pub description: String,
     pub input_schema: Value,
+    #[serde(default, skip_serializing)]
+    pub app_only: bool,
 }
 
 type Client = RunningService<RoleClient, ()>;
+/// A visible editor pins only its own session connection against idle eviction.
+/// Explicit plugin/session shutdown still revokes and closes the transport.
+pub struct PanelPin {
+    _connection: Arc<Connection>,
+}
+impl Drop for PanelPin {
+    fn drop(&mut self) {
+        self._connection
+            .panels
+            .fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
+}
+impl PanelPin {
+    pub fn set_interactive(&self, value: bool) -> Result<(), McpError> {
+        let mut seen = self
+            ._connection
+            .ui_seen
+            .lock()
+            .map_err(|_| McpError::Unavailable("editor activity clock unavailable".into()))?;
+        *seen = Instant::now();
+        self._connection
+            .interactive
+            .store(value, std::sync::atomic::Ordering::Release);
+        Ok(())
+    }
+    pub fn revoked(&self) -> bool {
+        self._connection.cancelled.is_cancelled()
+            || self
+                ._connection
+                .client
+                .try_read()
+                .is_ok_and(|client| client.is_closed())
+    }
+}
 type Slot = Arc<Mutex<Option<Arc<Connection>>>>;
 struct Connection {
     digest: String,
-    client: Mutex<Client>,
+    client: RwLock<Client>,
+    operations: Mutex<()>,
+    panels: std::sync::atomic::AtomicUsize,
+    interactive: std::sync::atomic::AtomicBool,
+    ui_seen: std::sync::Mutex<Instant>,
     tools: Vec<McpTool>,
     cancelled: CancellationToken,
     last_used: std::sync::Mutex<Instant>,
@@ -98,6 +138,179 @@ impl Default for McpRuntime {
 }
 
 impl McpRuntime {
+    pub async fn panel_is_open(&self, owner: &str, plugin: &str, server: &str) -> bool {
+        let slot = self
+            .connections
+            .lock()
+            .await
+            .get(&(owner.into(), plugin.into(), server.into()))
+            .cloned();
+        if let Some(slot) = slot {
+            return slot.lock().await.as_ref().is_some_and(|c| {
+                !c.cancelled.is_cancelled()
+                    && !c.client.try_read().is_ok_and(|client| client.is_closed())
+                    && c.panels.load(std::sync::atomic::Ordering::Acquire) > 0
+            });
+        }
+        false
+    }
+
+    pub async fn panel_is_interactive(&self, owner: &str, plugin: &str, server: &str) -> bool {
+        if !self.panel_is_open(owner, plugin, server).await {
+            return false;
+        }
+        let slot = self
+            .connections
+            .lock()
+            .await
+            .get(&(owner.into(), plugin.into(), server.into()))
+            .cloned();
+        match slot {
+            Some(slot) => slot.lock().await.as_ref().is_some_and(|c| {
+                c.interactive.load(std::sync::atomic::Ordering::Acquire)
+                    && c.ui_seen
+                        .lock()
+                        .is_ok_and(|seen| seen.elapsed() < Duration::from_secs(30))
+            }),
+            None => false,
+        }
+    }
+
+    pub async fn pin_panel(
+        &self,
+        owner: &str,
+        config: &StdioServerConfig,
+    ) -> Result<PanelPin, McpError> {
+        let lease = self.lease(&config.plugin).await;
+        let connection = self.ensure_connected(owner, config, &lease).await?;
+        connection
+            .panels
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        Ok(PanelPin {
+            _connection: connection,
+        })
+    }
+
+    async fn panel_connection(
+        &self,
+        owner: &str,
+        config: &StdioServerConfig,
+    ) -> Result<Arc<Connection>, McpError> {
+        let slot = self
+            .connections
+            .lock()
+            .await
+            .get(&(owner.into(), config.plugin.clone(), config.server.clone()))
+            .cloned()
+            .ok_or_else(|| McpError::Unavailable("editor is not open".into()))?;
+        let connection = slot
+            .lock()
+            .await
+            .clone()
+            .filter(|c| {
+                c.digest == config.digest
+                    && !c.cancelled.is_cancelled()
+                    && c.panels.load(std::sync::atomic::Ordering::Acquire) > 0
+            })
+            .ok_or_else(|| McpError::Unavailable("editor capability expired".into()))?;
+        if connection.client.read().await.is_closed() {
+            return Err(McpError::Unavailable(
+                "editor disconnected; reopen explicitly".into(),
+            ));
+        }
+        Ok(connection)
+    }
+
+    /// UI-only traffic never enters the model tool catalogue. This separate
+    /// shared client read permits an app reply while a model call is waiting.
+    pub async fn call_app_tool(
+        &self,
+        owner: &str,
+        config: &StdioServerConfig,
+        name: &str,
+        arguments: Map<String, Value>,
+    ) -> Result<Value, McpError> {
+        let lease = self.lease(&config.plugin).await;
+        let connection = self.panel_connection(owner, config).await?;
+        if !connection
+            .tools
+            .iter()
+            .any(|t| t.name == name && t.app_only)
+        {
+            return Err(McpError::Invalid("tool is not app-only".into()));
+        }
+        connection.touch();
+        let client = connection.client.read().await;
+        let result = tokio::select! {
+            biased;
+            _=lease.cancelled()=>return Err(McpError::Unavailable("plugin disabled".into())),
+            _=connection.cancelled.cancelled()=>return Err(McpError::Unavailable("panel disconnected".into())),
+            result=timeout(self.call_timeout,client.call_tool(CallToolRequestParams::new(name.to_owned()).with_arguments(arguments)))=>result.map_err(|_|McpError::Timeout)?.map_err(|e|McpError::Unavailable(e.to_string()))?,
+        };
+        connection.touch();
+        let result =
+            serde_json::to_value(result).map_err(|e| McpError::Unavailable(e.to_string()))?;
+        if result.to_string().len() > 8 * 1024 * 1024 {
+            return Err(McpError::ResultTooLarge);
+        }
+        Ok(result)
+    }
+
+    pub async fn read_app_resource(
+        &self,
+        owner: &str,
+        config: &StdioServerConfig,
+        uri: &str,
+    ) -> Result<Value, McpError> {
+        let lease = self.lease(&config.plugin).await;
+        let connection = self.panel_connection(owner, config).await?;
+        let client = connection.client.read().await;
+        let result = tokio::select! {
+            biased;
+            _=lease.cancelled()=>return Err(McpError::Unavailable("plugin disabled".into())),
+            _=connection.cancelled.cancelled()=>return Err(McpError::Unavailable("panel disconnected".into())),
+            result=timeout(self.call_timeout,client.read_resource(rmcp::model::ReadResourceRequestParams::new(uri)))=>result.map_err(|_|McpError::Timeout)?.map_err(|e|McpError::Unavailable(e.to_string()))?,
+        };
+        let value =
+            serde_json::to_value(result).map_err(|e| McpError::Unavailable(e.to_string()))?;
+        if value.to_string().len() > 4 * 1024 * 1024 {
+            return Err(McpError::ResultTooLarge);
+        }
+        connection.touch();
+        Ok(value)
+    }
+
+    /// Fail rather than cancel a model operation to close a presentation tab.
+    pub async fn close_panel(
+        &self,
+        owner: &str,
+        config: &StdioServerConfig,
+    ) -> Result<(), McpError> {
+        let key = (
+            owner.to_owned(),
+            config.plugin.clone(),
+            config.server.clone(),
+        );
+        let slot = self.connections.lock().await.get(&key).cloned();
+        if let Some(slot) = slot {
+            let mut current = slot.lock().await;
+            if let Some(connection) = current.as_ref().cloned() {
+                let _idle = connection.operations.try_lock().map_err(|_| {
+                    McpError::Unavailable(
+                        "an editor tool is still running; retry after completion".into(),
+                    )
+                })?;
+                current.take();
+                connection.cancelled.cancel();
+                let mut client = connection.client.write().await;
+                timeout(STOP_TIMEOUT, client.close())
+                    .await
+                    .map_err(|_| McpError::Timeout)?
+                    .map_err(|e| McpError::Unavailable(e.to_string()))?;
+            }
+        }
+        Ok(())
+    }
     pub fn new() -> Arc<Self> {
         Self::with_idle_timeout(IDLE_TIMEOUT)
     }
@@ -156,7 +369,12 @@ impl McpRuntime {
     ) -> Result<Vec<McpTool>, McpError> {
         let connection = self.ensure_connected(owner, config, lease).await?;
         connection.touch();
-        Ok(connection.tools.clone())
+        Ok(connection
+            .tools
+            .iter()
+            .filter(|t| !t.app_only)
+            .cloned()
+            .collect())
     }
 
     pub async fn call_tool(
@@ -180,11 +398,29 @@ impl McpRuntime {
         lease: &CancellationToken,
     ) -> Result<Value, McpError> {
         let connection = self.ensure_connected(owner, config, lease).await?;
-        if !connection.tools.iter().any(|tool| tool.name == name) {
+        let _operation = connection.operations.lock().await;
+        if connection.panels.load(std::sync::atomic::Ordering::Acquire) > 0
+            && (!connection
+                .interactive
+                .load(std::sync::atomic::Ordering::Acquire)
+                || !connection
+                    .ui_seen
+                    .lock()
+                    .is_ok_and(|seen| seen.elapsed() < Duration::from_secs(30)))
+        {
+            return Err(McpError::Unavailable(
+                "make the editor visible and ready before invoking tools".into(),
+            ));
+        }
+        if !connection
+            .tools
+            .iter()
+            .any(|tool| tool.name == name && !tool.app_only)
+        {
             return Err(McpError::Invalid(format!("unknown server tool {name}")));
         }
         connection.touch();
-        let client = connection.client.lock().await;
+        let client = connection.client.read().await;
         let result = tokio::select! {
             result = timeout(self.call_timeout, client.call_tool(CallToolRequestParams::new(name.to_owned()).with_arguments(arguments))) => {
                 match result {
@@ -197,7 +433,9 @@ impl McpRuntime {
             _ = lease.cancelled() => Err(McpError::Unavailable("MCP plugin was disabled".into())),
         };
         drop(client);
-        if matches!(&result, Err(McpError::Timeout)) {
+        if matches!(&result, Err(McpError::Timeout))
+            && connection.panels.load(std::sync::atomic::Ordering::Acquire) == 0
+        {
             connection.cancelled.cancel();
             self.disconnect_connection(owner, config, &connection).await;
         }
@@ -267,7 +505,7 @@ impl McpRuntime {
             {
                 let old = current.take().expect("connection was just checked");
                 old.cancelled.cancel();
-                let mut client = old.client.lock().await;
+                let mut client = old.client.write().await;
                 let _ = timeout(STOP_TIMEOUT, client.close()).await;
             }
         }
@@ -298,7 +536,7 @@ impl McpRuntime {
             if stale {
                 if let Some(connection) = current.take() {
                     connection.cancelled.cancel();
-                    let mut client = connection.client.lock().await;
+                    let mut client = connection.client.write().await;
                     let _ = timeout(STOP_TIMEOUT, client.close()).await;
                 }
             }
@@ -321,7 +559,7 @@ impl McpRuntime {
         for slot in slots {
             if let Some(connection) = slot.lock().await.take() {
                 connection.cancelled.cancel();
-                let mut client = connection.client.lock().await;
+                let mut client = connection.client.write().await;
                 let _ = timeout(STOP_TIMEOUT, client.close()).await;
             }
         }
@@ -362,14 +600,14 @@ impl McpRuntime {
         if let Some(connection) = current.as_ref() {
             if connection.digest == config.digest
                 && !connection.cancelled.is_cancelled()
-                && !connection.client.lock().await.is_closed()
+                && !connection.client.read().await.is_closed()
             {
                 return Ok(Arc::clone(connection));
             }
         }
         if let Some(old) = current.take() {
             old.cancelled.cancel();
-            let mut client = old.client.lock().await;
+            let mut client = old.client.write().await;
             let _ = timeout(STOP_TIMEOUT, client.close()).await;
         }
         let connection = tokio::select! {
@@ -378,7 +616,7 @@ impl McpRuntime {
         };
         if lease.is_cancelled() {
             connection.cancelled.cancel();
-            let mut client = connection.client.lock().await;
+            let mut client = connection.client.write().await;
             let _ = timeout(STOP_TIMEOUT, client.close()).await;
             return Err(McpError::Unavailable("MCP plugin was disabled".into()));
         }
@@ -459,12 +697,23 @@ async fn connect(config: &StdioServerConfig) -> Result<Connection, McpError> {
                 .chars()
                 .take(2000)
                 .collect(),
+            app_only: tool
+                .meta
+                .as_ref()
+                .and_then(|m| m.0.get("ui"))
+                .and_then(|ui| ui.get("visibility"))
+                .and_then(Value::as_array)
+                .is_some_and(|v| v.len() == 1 && v[0] == "app"),
             input_schema: schema,
         });
     }
     Ok(Connection {
         digest: config.digest.clone(),
-        client: Mutex::new(client),
+        client: RwLock::new(client),
+        operations: Mutex::new(()),
+        panels: std::sync::atomic::AtomicUsize::new(0),
+        interactive: std::sync::atomic::AtomicBool::new(false),
+        ui_seen: std::sync::Mutex::new(Instant::now()),
         tools,
         cancelled: CancellationToken::new(),
         last_used: std::sync::Mutex::new(Instant::now()),

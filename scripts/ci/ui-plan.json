@@ -4381,6 +4381,41 @@
         "UI_TEST_BROWSER": "webkit"
       },
       "weight": 7
+    },
+    {
+      "id": "browser-254",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-plugin-panel-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 15
+    },
+    {
+      "id": "browser-255",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-plugin-panel-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 15
+    },
+    {
+      "id": "contract-177",
+      "suite": "contract",
+      "argv": [
+        "python3",
+        "-B",
+        "scripts/plugins/test_package_wordcraft.py"
+      ],
+      "env": {},
+      "weight": 2
     }
   ]
 }

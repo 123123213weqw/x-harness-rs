@@ -1,3 +1,4 @@
+import {PluginPanel} from './plugin-panel'
 /// <reference path="../shared/assets.d.ts" />
 import * as React from 'react'
 import type { NativeUnlisten } from '../shared/tauri'
@@ -649,5 +650,5 @@ export function apply(ctx: BrowserContext) {
   }, BrowserToggle))
   ctx.slots.inject('workspace.item', () => ctx.slots.register({
     name: 'workspace.item', id: 'browser-pane', order: 40,
-  }, (props: WorkspaceItemOwner) => props.item.kind === 'browser' ? h(BrowserPane, props) : props.item.kind==='file'&&client?h(FilePane,{...props,client}):null))
+  }, (props: WorkspaceItemOwner) => props.item.kind === 'browser' ? h(BrowserPane, props) : props.item.kind==='file'&&client?h(FilePane,{...props,client}):props.item.kind==='plugin'&&client?h(PluginPanel,{...props,client}):null))
 }

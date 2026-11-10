@@ -49,6 +49,7 @@ exports.normalizeAddress = normalizeAddress;
 exports.BrowserToggle = BrowserToggle;
 exports.BrowserPane = BrowserPane;
 exports.apply = apply;
+const plugin_panel_1 = require("./plugin-panel");
 /// <reference path="../shared/assets.d.ts" />
 const React = __importStar(require("react"));
 const runtime_types_1 = require("../shared/runtime-types");
@@ -823,7 +824,151 @@ function apply(ctx) {
     }, BrowserToggle));
     ctx.slots.inject('workspace.item', () => ctx.slots.register({
         name: 'workspace.item', id: 'browser-pane', order: 40,
-    }, (props) => props.item.kind === 'browser' ? h(BrowserPane, props) : props.item.kind === 'file' && client ? h(FilePane_1.FilePane, { ...props, client }) : null));
+    }, (props) => props.item.kind === 'browser' ? h(BrowserPane, props) : props.item.kind === 'file' && client ? h(FilePane_1.FilePane, { ...props, client }) : props.item.kind === 'plugin' && client ? h(plugin_panel_1.PluginPanel, { ...props, client }) : null));
+}
+
+},
+"src/modules/browser/plugin-panel.js": function(module, exports, require) {
+// source: src/modules/browser/plugin-panel.tsx
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.panelClosedEvent = void 0;
+exports.panelDescriptor = panelDescriptor;
+exports.openPluginEditor = openPluginEditor;
+exports.requestPluginPanelClose = requestPluginPanelClose;
+exports.PluginPanel = PluginPanel;
+const jsx_runtime_1 = require("react/jsx-runtime");
+const react_1 = require("react");
+const runtime_types_1 = require("../shared/runtime-types");
+const panels = new Map();
+const CLOSE = 'xharness:plugin-panel-close-request', CLOSED = 'xharness:plugin-panel-closed';
+exports.panelClosedEvent = CLOSED;
+const chinese = () => document.documentElement.lang.startsWith('zh');
+const label = (zh, en) => chinese() ? zh : en;
+function panelDescriptor(value, session) {
+    const outer = (0, runtime_types_1.objectValue)(value), raw = (0, runtime_types_1.objectValue)(outer.panel);
+    if (typeof raw.capability !== 'string' || !/^[a-f0-9]{64}$/.test(raw.capability) || raw.sessionId !== session || typeof raw.plugin !== 'string' || typeof raw.title !== 'string' || typeof raw.source !== 'string' || typeof raw.entry !== 'string' || !raw.entry.startsWith(`/plugin-panel/${raw.capability}/`) || raw.entry.includes('..'))
+        throw Error('Invalid editor descriptor');
+    return { capability: raw.capability, sessionId: session, plugin: raw.plugin, title: raw.title, source: raw.source, entry: raw.entry, initial: outer.initial };
+}
+async function openPluginEditor(client, sessionId, path) {
+    let panel = panelDescriptor(await client.panelCall('plugins/panelOpen', { name: 'wordcraft', sessionId, path }), sessionId);
+    if (panel.initial === null && !panels.has(panel.capability)) {
+        if (!window.confirm(label('该文档仍在另一个或上次页面的编辑器中。关闭旧编辑器并从已保存文件重新载入？未保存内容会丢失。', 'The document is open in another or previous page. Close that editor and reload the saved file? Unsaved changes will be lost.')))
+            return;
+        await client.panelCall('plugins/panelClose', { capability: panel.capability, discardConfirmed: true });
+        panel = panelDescriptor(await client.panelCall('plugins/panelOpen', { name: 'wordcraft', sessionId, path }), sessionId);
+    }
+    if (!panels.has(panel.capability))
+        panels.set(panel.capability, panel);
+    window.dispatchEvent(new CustomEvent('xharness:workspace-open', { detail: { kind: 'plugin', source: panel.capability, sessionId, title: `${panel.source.split(/[\\/]/).at(-1) ?? panel.title} · ${panel.title}` } }));
+}
+function requestPluginPanelClose(capability) { window.dispatchEvent(new CustomEvent(CLOSE, { detail: { capability } })); }
+function PluginPanel({ item, sessionId, client, open = true }) {
+    const ref = (0, react_1.useRef)(null), [error, setError] = (0, react_1.useState)(''), closing = (0, react_1.useRef)(false);
+    const panel = panels.get(item.source), visible = (0, react_1.useRef)(open);
+    visible.current = open;
+    (0, react_1.useEffect)(() => {
+        if (!panel || panel.sessionId !== sessionId)
+            return;
+        const abort = new AbortController();
+        let disposed = false, ready = false;
+        const activity = () => { void client.panelCall('plugins/panelActivity', { capability: panel.capability, interactive: ready && visible.current && document.visibilityState !== 'hidden' }, abort.signal).catch(() => { if (!disposed)
+            setError(label('编辑器状态同步失败，请重新打开', 'Editor status sync failed; reopen the panel')); }); };
+        const send = (message) => ref.current?.contentWindow?.postMessage(message, '*');
+        const onMessage = async (event) => {
+            if (event.source !== ref.current?.contentWindow || event.origin !== 'null' || disposed)
+                return;
+            const message = (0, runtime_types_1.objectValue)(event.data);
+            if (message.jsonrpc !== '2.0' || typeof message.method !== 'string')
+                return;
+            if (message.id === undefined)
+                return;
+            let result;
+            try {
+                if (message.method === 'ui/initialize') {
+                    const params = (0, runtime_types_1.objectValue)(message.params);
+                    result = { protocolVersion: params.protocolVersion, hostInfo: { name: 'XHarness', version: '1' }, hostCapabilities: { serverTools: {}, serverResources: {}, downloadFile: {} }, hostContext: { theme: document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light', locale: document.documentElement.lang || 'zh-CN', displayMode: 'fullscreen' } };
+                }
+                else if (message.method === 'resources/read' || message.method === 'tools/call') {
+                    result = await client.panelCall('plugins/panelRpc', { capability: panel.capability, method: message.method, params: message.params }, abort.signal);
+                    if (message.method === 'tools/call' && (0, runtime_types_1.objectValue)(message.params).name === '_editor_attach' && (0, runtime_types_1.objectValue)(result).isError !== true) {
+                        ready = true;
+                        activity();
+                    }
+                }
+                else if (message.method === 'ui/download-file') {
+                    const params = (0, runtime_types_1.objectValue)(message.params);
+                    const contents = Array.isArray(params.contents) ? params.contents : [];
+                    const resource = (0, runtime_types_1.objectValue)((0, runtime_types_1.objectValue)(contents[0]).resource);
+                    const name = typeof resource.name === 'string' ? resource.name : panel.source.split(/[\\/]/).at(-1) ?? 'document.docx';
+                    if (!/\.docx$/i.test(name))
+                        throw Error(label('此版本仅支持保存 DOCX；其他格式请使用对应的导出工具', 'This version saves DOCX only; use the matching export tool for other formats'));
+                    const base = panel.source.replace(/[^/\\]+$/, '') + name.replace(/^.*[\\/]/, '');
+                    const destination = window.prompt(label('保存到当前工作区路径', 'Save to workspace path'), base);
+                    if (destination === null || !window.confirm(label(`确认保存到 ${destination}？已有文件将被覆盖。`, `Save to ${destination}? An existing file will be replaced.`)))
+                        throw Error(label('已取消保存', 'Save cancelled'));
+                    // Re-save the live editor through its normal MCP path; do not accept
+                    // arbitrary browser-provided bytes or filenames as filesystem authority.
+                    await client.panelCall('plugins/panelSave', { capability: panel.capability, path: destination, overwriteConfirmed: true }, abort.signal);
+                    result = {};
+                }
+                else
+                    throw Error('This panel capability is not supported');
+                if (!disposed)
+                    send({ jsonrpc: '2.0', id: message.id, result });
+            }
+            catch (e) {
+                if (!disposed)
+                    send({ jsonrpc: '2.0', id: message.id, error: { code: -32000, message: e instanceof Error ? e.message : 'Panel operation failed' } });
+            }
+        };
+        const message = (event) => { void onMessage(event).catch(() => { setError('Panel message failed'); }); };
+        const initialized = (event) => {
+            if (event.source !== ref.current?.contentWindow || event.origin !== 'null')
+                return;
+            if ((0, runtime_types_1.objectValue)(event.data).method === 'ui/notifications/initialized') {
+                send({ jsonrpc: '2.0', method: 'ui/notifications/tool-input', params: { arguments: { path: panel.source } } });
+                send({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: panel.initial });
+            }
+        };
+        const close = async (event) => {
+            if (!(event instanceof CustomEvent) || (0, runtime_types_1.objectValue)(event.detail).capability !== panel.capability || closing.current)
+                return;
+            if (!window.confirm(label('请先保存修改。确认关闭并放弃尚未保存的内容？', 'Save your changes first. Close and discard any remaining unsaved changes?')))
+                return;
+            closing.current = true;
+            try {
+                await client.panelCall('plugins/panelClose', { capability: panel.capability, discardConfirmed: true });
+                panels.delete(panel.capability);
+                window.dispatchEvent(new CustomEvent(CLOSED, { detail: { capability: panel.capability } }));
+            }
+            catch (e) {
+                setError(e instanceof Error ? e.message : 'Could not close editor');
+            }
+            finally {
+                closing.current = false;
+            }
+        };
+        const onClose = (event) => { void close(event).catch(() => setError('Could not close editor')); };
+        const beforeUnload = (event) => { event.preventDefault(); event.returnValue = ''; };
+        const heartbeat = window.setInterval(() => { if (ready && visible.current && document.visibilityState !== 'hidden')
+            activity(); }, 10000);
+        document.addEventListener('visibilitychange', activity);
+        window.addEventListener('xharness:plugin-visibility', activity);
+        window.addEventListener('message', message);
+        window.addEventListener('message', initialized);
+        window.addEventListener(CLOSE, onClose);
+        window.addEventListener('beforeunload', beforeUnload);
+        if (ref.current && ref.current.getAttribute('src') !== panel.entry)
+            ref.current.src = panel.entry;
+        return () => { disposed = true; window.clearInterval(heartbeat); abort.abort(); document.removeEventListener('visibilitychange', activity); window.removeEventListener('xharness:plugin-visibility', activity); window.removeEventListener('message', message); window.removeEventListener('message', initialized); window.removeEventListener(CLOSE, onClose); window.removeEventListener('beforeunload', beforeUnload); };
+    }, [panel, sessionId, client]);
+    (0, react_1.useEffect)(() => { window.dispatchEvent(new Event('xharness:plugin-visibility')); }, [open]);
+    if (!panel || panel.sessionId !== sessionId)
+        return (0, jsx_runtime_1.jsx)("p", { role: "alert", children: label('编辑器会话已失效，请重新打开文件', 'Editor expired; reopen the file') });
+    return (0, jsx_runtime_1.jsxs)("section", { className: "xhfile-pane", "data-plugin-panel": panel.plugin, children: [error && (0, jsx_runtime_1.jsx)("p", { role: "alert", className: "xhfile-action-error", children: error }), (0, jsx_runtime_1.jsx)("iframe", { ref: ref, title: panel.title, sandbox: "allow-scripts allow-downloads", referrerPolicy: "no-referrer", style: { width: '100%', height: '100%', border: 0 } })] });
 }
 
 },
@@ -901,6 +1046,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.openDisplayFile = openDisplayFile;
 exports.FilePane = FilePane;
 const jsx_runtime_1 = require("react/jsx-runtime");
+const runtime_types_1 = require("../../shared/runtime-types");
+const plugin_panel_1 = require("../plugin-panel");
 const react_1 = require("react");
 const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
 const file_display_1 = require("../../shared/generated/file-display");
@@ -1051,6 +1198,36 @@ function FilePane({ item, open, sessionId, client }) {
             URL.revokeObjectURL(objectUrl); };
     }, [owner, item.source, item.relativeTo, item.gitDiff, revision, client]);
     const path = file?.path ?? item.source;
+    const [editor, setEditor] = (0, react_1.useState)({ installed: false, enabled: false });
+    (0, react_1.useEffect)(() => {
+        if (!/\.docx$/i.test(path) || !open)
+            return;
+        let active = true;
+        void client.panelCall('plugins/installed', {}).then(value => {
+            const raw = (0, runtime_types_1.objectValue)(value);
+            const entries = Array.isArray(raw.plugins) ? raw.plugins : [];
+            const plugin = entries.map(runtime_types_1.objectValue).find(item => item.name === 'wordcraft' && Array.isArray(item.capabilities) && item.capabilities.some((capability) => capability === 'ui'));
+            if (active)
+                setEditor({ installed: plugin !== undefined, enabled: plugin?.mcpEnabled === true });
+        }).catch(() => { if (active)
+            setEditor({ installed: false, enabled: false }); });
+        return () => { active = false; };
+    }, [path, open, client]);
+    const editDocument = async () => {
+        if (!owner)
+            return;
+        setNativeBusy(true);
+        setActionError('');
+        try {
+            await (0, plugin_panel_1.openPluginEditor)(client, owner, path);
+        }
+        catch (e) {
+            setActionError(e instanceof Error ? e.message : 'Editor unavailable');
+        }
+        finally {
+            setNativeBusy(false);
+        }
+    };
     const html = (0, react_1.useMemo)(() => file?.kind === 'text' && (0, client_1.isHtmlPath)(file.path) ? (0, client_1.staticHtmlDocument)(file.text) : undefined, [file]);
     const nativeAction = async (mode) => {
         const generation = actionGeneration.current;
@@ -1071,7 +1248,7 @@ function FilePane({ item, open, sessionId, client }) {
                 setNativeBusy(false);
         }
     };
-    return (0, jsx_runtime_1.jsxs)("section", { className: "xhfile-pane", "data-file-page-state": open ? 'visible' : 'retained', "aria-label": label('文件预览', 'File preview'), children: [(0, jsx_runtime_1.jsxs)("header", { className: "xhfile-toolbar", children: [(0, jsx_runtime_1.jsx)("span", { className: "xhfile-path", title: path, children: path }), !item.gitDiff && client.canReveal(path) && (0, jsx_runtime_1.jsx)("button", { type: "button", disabled: nativeBusy, onClick: () => { void nativeAction('reveal'); }, children: label('在文件夹中显示', 'Show in folder') }), !item.gitDiff && client.canOpenExternal(path) && (0, jsx_runtime_1.jsx)("button", { type: "button", disabled: nativeBusy, onClick: () => { void nativeAction('open'); }, children: label('默认应用打开', 'Open with default app') }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => { void (0, dsh_client_ui_primitives_1.writeClipboard)(path).then(ok => { setCopied(ok); setActionError(ok ? '' : label('路径复制失败', 'Could not copy path')); }); }, children: copied ? label('路径已复制', 'Path copied') : label('复制路径', 'Copy path') }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setRevision(value => value + 1), "aria-label": label('刷新文件', 'Refresh file'), children: "\u21BB" }), item.gitDiff && (0, jsx_runtime_1.jsxs)("select", { "aria-label": label('差异范围', 'Diff scope'), value: item.gitDiff, onChange: event => { const scope = file_display_1.GitDiffScopeSchema.safeParse(event.target.value); if (scope.success && owner)
+    return (0, jsx_runtime_1.jsxs)("section", { className: "xhfile-pane", "data-file-page-state": open ? 'visible' : 'retained', "aria-label": label('文件预览', 'File preview'), children: [(0, jsx_runtime_1.jsxs)("header", { className: "xhfile-toolbar", children: [(0, jsx_runtime_1.jsx)("span", { className: "xhfile-path", title: path, children: path }), editor.installed && /\.docx$/i.test(path) && (0, jsx_runtime_1.jsx)("button", { type: "button", disabled: nativeBusy || !editor.enabled, title: editor.enabled ? '' : label('先在插件设置中允许 WordCraft MCP', 'Allow WordCraft MCP in plugin settings first'), onClick: () => { void editDocument(); }, children: label('用 WordCraft 编辑', 'Edit with WordCraft') }), !item.gitDiff && client.canReveal(path) && (0, jsx_runtime_1.jsx)("button", { type: "button", disabled: nativeBusy, onClick: () => { void nativeAction('reveal'); }, children: label('在文件夹中显示', 'Show in folder') }), !item.gitDiff && client.canOpenExternal(path) && (0, jsx_runtime_1.jsx)("button", { type: "button", disabled: nativeBusy, onClick: () => { void nativeAction('open'); }, children: label('默认应用打开', 'Open with default app') }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => { void (0, dsh_client_ui_primitives_1.writeClipboard)(path).then(ok => { setCopied(ok); setActionError(ok ? '' : label('路径复制失败', 'Could not copy path')); }); }, children: copied ? label('路径已复制', 'Path copied') : label('复制路径', 'Copy path') }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setRevision(value => value + 1), "aria-label": label('刷新文件', 'Refresh file'), children: "\u21BB" }), item.gitDiff && (0, jsx_runtime_1.jsxs)("select", { "aria-label": label('差异范围', 'Diff scope'), value: item.gitDiff, onChange: event => { const scope = file_display_1.GitDiffScopeSchema.safeParse(event.target.value); if (scope.success && owner)
                             openDisplayFile(item.source, owner, undefined, scope.data); }, children: [(0, jsx_runtime_1.jsx)("option", { value: "working", children: label('未暂存', 'Unstaged') }), (0, jsx_runtime_1.jsx)("option", { value: "staged", children: label('已暂存', 'Staged') }), (0, jsx_runtime_1.jsx)("option", { value: "head", children: label('相对 HEAD', 'Against HEAD') })] }), (file?.kind === 'markdown' || html !== undefined) && (0, jsx_runtime_1.jsx)("button", { type: "button", "aria-pressed": source, onClick: () => setSource(value => !value), children: source ? label('预览', 'Preview') : label('源码', 'Source') }), (file?.kind === 'image' || file?.kind === 'image-fit') && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(value => Math.max(25, (value || 100) - 25)), "aria-label": label('缩小', 'Zoom out'), children: "\u2212" }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(0), children: zoom ? `${zoom}%` : label('适应', 'Fit') }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(value => Math.min(400, (value || 100) + 25)), "aria-label": label('放大', 'Zoom in'), children: "+" })] })] }), actionError && (0, jsx_runtime_1.jsx)("p", { className: "xhfile-action-error", role: "alert", children: actionError }), (0, jsx_runtime_1.jsx)("div", { ref: body, onScroll: () => { const element = body.current; if (open && (file?.kind === 'image' || file?.kind === 'image-fit') && imageReady.current && element)
                     imageScroll.current = { left: element.scrollLeft, top: element.scrollTop }; }, className: "xhfile-body", "data-diff": file?.kind === 'diff' || undefined, "data-document": file?.kind === 'pdf' || html !== undefined && !source || undefined, children: !owner ? (0, jsx_runtime_1.jsx)("p", { role: "alert", children: label('请选择一个会话后打开文件', 'Select a conversation before opening files') })
                     : error ? (0, jsx_runtime_1.jsxs)("div", { role: "alert", children: [(0, jsx_runtime_1.jsx)("p", { children: label('此文件暂时无法内置预览，可以在文件夹中查看或使用默认应用打开。', 'This file cannot be previewed here. Show it in its folder or open with the default app.') }), (0, jsx_runtime_1.jsxs)("details", { children: [(0, jsx_runtime_1.jsx)("summary", { children: label('详情', 'Details') }), (0, jsx_runtime_1.jsx)("p", { children: error })] }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setRevision(value => value + 1), children: label('重试', 'Retry') })] })
@@ -1517,6 +1694,12 @@ class FileDisplayClient {
         this.rpc = rpc;
         this.external = external;
         this.inspections = new file_inspection_1.FileInspectionCache(rpc);
+    }
+    async panelCall(endpoint, args, signal) {
+        const response = await this.rpc.call('/api', endpoint, { args }, signal ?? AbortSignal.timeout(60000));
+        if (!response.ok)
+            throw Error(response.error.message);
+        return response.value;
     }
     inspect(sessionId, path, signal, relativeTo, revision = 0) { return this.inspections.read(sessionId, relativeTo ? (0, path_1.resolveWorkspacePath)((0, file_types_1.parentPath)(relativeTo), path) : path, revision, false, signal); }
     canOpenExternal(path) { return this.external?.available() === true && !path.includes('\0') && (path.startsWith('/') || /^[a-z]:[\\/]/i.test(path) || path.startsWith('\\\\')); }
@@ -2281,7 +2464,7 @@ function HeadlessPreview(props) {
 
 }
 };
-const __dependencies = {"src/modules/browser/index.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/workspace-dock":"src/modules/shared/workspace-dock.js","./Browser.css":"src/modules/browser/Browser.css","./file-display/FilePane.css":"src/modules/browser/file-display/FilePane.css","./file-display/FilePane":"src/modules/browser/file-display/FilePane.js","./file-display/client":"src/modules/browser/file-display/client.js","../shared/generated/file-display":"src/modules/shared/generated/file-display.js","./model-activity":"src/modules/browser/model-activity.js","./component-picker":"src/modules/browser/component-picker.js","./headless-preview":"src/modules/browser/headless-preview.js"},"src/modules/shared/runtime-types.js":{},"src/modules/shared/workspace-dock.js":{},"src/modules/browser/Browser.css":{},"src/modules/browser/file-display/FilePane.css":{},"src/modules/browser/file-display/FilePane.js":{"../../shared/generated/file-display":"src/modules/shared/generated/file-display.js","../../shared/file-types":"src/modules/shared/file-types.js","./DiffPreview":"src/modules/browser/file-display/DiffPreview.js","./client":"src/modules/browser/file-display/client.js","./ImagePreview":"src/modules/browser/file-display/ImagePreview.js","./FittedImagePreview":"src/modules/browser/file-display/FittedImagePreview.js","./PdfPreview":"src/modules/browser/file-display/PdfPreview.js"},"src/modules/shared/generated/file-display.js":{},"src/modules/shared/file-types.js":{},"src/modules/browser/file-display/DiffPreview.js":{"./diff":"src/modules/browser/file-display/diff.js"},"src/modules/browser/file-display/diff.js":{"../../shared/diff/hunks":"src/modules/shared/diff/hunks.js"},"src/modules/shared/diff/hunks.js":{},"src/modules/browser/file-display/client.js":{"../../shared/file-inspection":"src/modules/shared/file-inspection.js","../../client-runtime/workspaces/path":"src/modules/client-runtime/workspaces/path.js","../../shared/file-types":"src/modules/shared/file-types.js","../../shared/generated/file-display":"src/modules/shared/generated/file-display.js"},"src/modules/shared/file-inspection.js":{"./generated/file-display":"src/modules/shared/generated/file-display.js"},"src/modules/client-runtime/workspaces/path.js":{},"src/modules/browser/file-display/ImagePreview.js":{},"src/modules/browser/file-display/FittedImagePreview.js":{"./client":"src/modules/browser/file-display/client.js","./ImagePreview":"src/modules/browser/file-display/ImagePreview.js"},"src/modules/browser/file-display/PdfPreview.js":{},"src/modules/browser/model-activity.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/browser/component-picker.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/composer-files":"src/modules/shared/composer-files.js"},"src/modules/shared/composer-files.js":{"./runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/browser/headless-preview.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"}};
+const __dependencies = {"src/modules/browser/index.js":{"./plugin-panel":"src/modules/browser/plugin-panel.js","../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/workspace-dock":"src/modules/shared/workspace-dock.js","./Browser.css":"src/modules/browser/Browser.css","./file-display/FilePane.css":"src/modules/browser/file-display/FilePane.css","./file-display/FilePane":"src/modules/browser/file-display/FilePane.js","./file-display/client":"src/modules/browser/file-display/client.js","../shared/generated/file-display":"src/modules/shared/generated/file-display.js","./model-activity":"src/modules/browser/model-activity.js","./component-picker":"src/modules/browser/component-picker.js","./headless-preview":"src/modules/browser/headless-preview.js"},"src/modules/browser/plugin-panel.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/runtime-types.js":{},"src/modules/shared/workspace-dock.js":{},"src/modules/browser/Browser.css":{},"src/modules/browser/file-display/FilePane.css":{},"src/modules/browser/file-display/FilePane.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../plugin-panel":"src/modules/browser/plugin-panel.js","../../shared/generated/file-display":"src/modules/shared/generated/file-display.js","../../shared/file-types":"src/modules/shared/file-types.js","./DiffPreview":"src/modules/browser/file-display/DiffPreview.js","./client":"src/modules/browser/file-display/client.js","./ImagePreview":"src/modules/browser/file-display/ImagePreview.js","./FittedImagePreview":"src/modules/browser/file-display/FittedImagePreview.js","./PdfPreview":"src/modules/browser/file-display/PdfPreview.js"},"src/modules/shared/generated/file-display.js":{},"src/modules/shared/file-types.js":{},"src/modules/browser/file-display/DiffPreview.js":{"./diff":"src/modules/browser/file-display/diff.js"},"src/modules/browser/file-display/diff.js":{"../../shared/diff/hunks":"src/modules/shared/diff/hunks.js"},"src/modules/shared/diff/hunks.js":{},"src/modules/browser/file-display/client.js":{"../../shared/file-inspection":"src/modules/shared/file-inspection.js","../../client-runtime/workspaces/path":"src/modules/client-runtime/workspaces/path.js","../../shared/file-types":"src/modules/shared/file-types.js","../../shared/generated/file-display":"src/modules/shared/generated/file-display.js"},"src/modules/shared/file-inspection.js":{"./generated/file-display":"src/modules/shared/generated/file-display.js"},"src/modules/client-runtime/workspaces/path.js":{},"src/modules/browser/file-display/ImagePreview.js":{},"src/modules/browser/file-display/FittedImagePreview.js":{"./client":"src/modules/browser/file-display/client.js","./ImagePreview":"src/modules/browser/file-display/ImagePreview.js"},"src/modules/browser/file-display/PdfPreview.js":{},"src/modules/browser/model-activity.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/browser/component-picker.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/composer-files":"src/modules/shared/composer-files.js"},"src/modules/shared/composer-files.js":{"./runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/browser/headless-preview.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

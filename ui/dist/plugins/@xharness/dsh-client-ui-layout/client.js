@@ -290,14 +290,19 @@ function AppFrame({ useStore, useSessions, actions, navigation, renderSlot, }) {
     });
     const openWorkspace = (kind, fresh = false, detail = {}) => {
         const id = kind === 'tool' ? 'tool' : `${kind}:${++nextWorkspaceId.current}`;
-        const source = kind === 'file' ? detail.source : kind;
+        const source = kind === 'file' || kind === 'plugin' ? detail.source : kind;
         if (source === undefined)
             return;
-        const item = { id, kind, source, sessionId: detail.sessionId, relativeTo: detail.relativeTo, gitDiff: detail.gitDiff, title: kind === 'tool' ? '工具详情' : kind === 'file' ? (detail.title || (detail.gitDiff ? 'Diff · ' + detail.gitDiff : undefined) || source.split(/[\\/]/).at(-1) || '') : '新标签页', entries: detail.url ? [detail.url] : [], position: detail.url ? 0 : -1 };
+        const item = { id, kind, source, sessionId: detail.sessionId, relativeTo: detail.relativeTo, gitDiff: detail.gitDiff, title: kind === 'tool' ? '工具详情' : kind === 'file' || kind === 'plugin' ? (detail.title || (detail.gitDiff ? 'Diff · ' + detail.gitDiff : undefined) || source.split(/[\\/]/).at(-1) || '') : '新标签页', entries: detail.url ? [detail.url] : [], position: detail.url ? 0 : -1 };
         const key = detail.sessionId ?? spaceKeyRef.current;
         setSpaces(all => ({ ...all, [key]: (0, workspace_pane_1.xhWorkspaceOpen)(all[key] ?? workspace_pane_1.xhWorkspaceEmpty, item, !fresh) }));
     };
     const closeWorkspace = (id) => {
+        const panel = space.items.find(item => item.id === id && item.kind === 'plugin');
+        if (panel) {
+            window.dispatchEvent(new CustomEvent('xharness:plugin-panel-close-request', { detail: { capability: panel.source } }));
+            return;
+        }
         if (id === 'tool')
             actions.closeDetails();
         if (space.items.some(item => item.id === id && item.kind === 'browser')) {
@@ -313,6 +318,13 @@ function AppFrame({ useStore, useSessions, actions, navigation, renderSlot, }) {
             if (detail)
                 openWorkspace(detail.kind, detail.fresh === true, detail);
         };
+        const onPanelClosed = (event) => {
+            const capability = event instanceof CustomEvent ? (0, runtime_types_1.objectValue)(event.detail).capability : undefined;
+            if (typeof capability !== 'string')
+                return;
+            setSpaces(all => Object.fromEntries(Object.entries(all).map(([owner, space]) => { const panel = space.items.find(item => item.kind === 'plugin' && item.source === capability); return [owner, panel ? (0, workspace_pane_1.xhWorkspaceClose)(space, panel.id) : space]; })));
+        };
+        window.addEventListener('xharness:plugin-panel-closed', onPanelClosed);
         const onCloseTool = () => updateSpace(value => (0, workspace_pane_1.xhWorkspaceClose)(value, 'tool'));
         const onToggle = () => {
             const item = { id: `browser:${++nextWorkspaceId.current}`, kind: 'browser', source: 'browser', title: '新标签页', entries: [], position: -1 };
@@ -321,7 +333,7 @@ function AppFrame({ useStore, useSessions, actions, navigation, renderSlot, }) {
         window.addEventListener('xharness:workspace-open', onOpen);
         window.addEventListener('xharness:workspace-close-tool', onCloseTool);
         window.addEventListener(workspace_dock_1.workspaceDockEvents.toggle, onToggle);
-        return () => { window.removeEventListener('xharness:workspace-open', onOpen); window.removeEventListener('xharness:workspace-close-tool', onCloseTool); window.removeEventListener(workspace_dock_1.workspaceDockEvents.toggle, onToggle); };
+        return () => { window.removeEventListener('xharness:plugin-panel-closed', onPanelClosed); window.removeEventListener('xharness:workspace-open', onOpen); window.removeEventListener('xharness:workspace-close-tool', onCloseTool); window.removeEventListener(workspace_dock_1.workspaceDockEvents.toggle, onToggle); };
     }, []);
     (0, react_1.useEffect)(() => {
         setSpaces(all => {
@@ -818,7 +830,7 @@ function XhWorkspacePane({ space, spaces, open, sessionId, renderSlot, onSelect,
     if (next !== pages)
         setPages(next);
     React.useEffect(() => {
-        const deadlines = next.filter(page => !open || page.owner !== owner || page.id !== space.activeId)
+        const deadlines = next.filter(page => all[page.owner]?.items.find(item => item.id === page.id)?.kind !== 'plugin' && (!open || page.owner !== owner || page.id !== space.activeId))
             .map(page => page.usedAt + retained_pages_1.RETAINED_PAGE_IDLE_MS - Date.now());
         if (!deadlines.length)
             return;
@@ -842,13 +854,13 @@ function XhWorkspacePane({ space, spaces, open, sessionId, renderSlot, onSelect,
 /** Actual DOM event fields produced by BrowserToggle/ToolDetails/FileView. */
 function workspaceOpenDetail(value) {
     const raw = (0, runtime_types_1.objectValue)(value);
-    if (raw.kind !== 'browser' && raw.kind !== 'tool' && !(raw.kind === 'file' && typeof raw.source === 'string' && raw.source.length > 0))
+    if (raw.kind !== 'browser' && raw.kind !== 'tool' && !((raw.kind === 'file' || raw.kind === 'plugin') && typeof raw.source === 'string' && raw.source.length > 0))
         return undefined;
     const gitDiff = file_display_options_1.GIT_DIFF_SCOPES.find(scope => scope === raw.gitDiff);
     if (raw.gitDiff !== undefined && gitDiff === undefined)
         return undefined;
     const kind = raw.kind;
-    if (kind !== 'browser' && kind !== 'tool' && kind !== 'file')
+    if (kind !== 'browser' && kind !== 'tool' && kind !== 'file' && kind !== 'plugin')
         return undefined;
     return { kind, ...gitDiff === undefined ? {} : { gitDiff }, ...typeof raw.fresh === 'boolean' ? { fresh: raw.fresh } : {}, ...typeof raw.source === 'string' ? { source: raw.source } : {}, ...typeof raw.title === 'string' ? { title: raw.title } : {}, ...typeof raw.sessionId === 'string' ? { sessionId: raw.sessionId } : {}, ...typeof raw.url === 'string' ? { url: raw.url } : {}, ...typeof raw.relativeTo === 'string' ? { relativeTo: raw.relativeTo } : {} };
 }
@@ -869,7 +881,7 @@ exports.pageKey = pageKey;
 /** Only existing read-only file panes and settled browser tabs opt in. Tools
  * and provisional model rendezvous retain their original teardown contract. */
 function canRetainPage(item) {
-    return item.kind === 'file' || item.kind === 'browser' && !item.modelRequestId;
+    return item.kind === 'plugin' || item.kind === 'file' || item.kind === 'browser' && !item.modelRequestId;
 }
 /** Presentation cache only: never invent tabs, persist content, grant browser
  * actions, or keep a closed item alive. Evict least recently viewed pages. */
@@ -878,7 +890,7 @@ function planRetainedPages(previous, spaces, owner, activeId, open, now) {
     const activeKey = active === undefined ? undefined : (0, exports.pageKey)(owner, active.id);
     const kept = previous.filter(page => {
         const item = spaces[page.owner]?.items.find(item => item.id === page.id);
-        return item !== undefined && (page.key === activeKey || canRetainPage(item)
+        return item !== undefined && (item.kind === 'plugin' || page.key === activeKey || canRetainPage(item)
             && (page.visible || now - page.usedAt < exports.RETAINED_PAGE_IDLE_MS));
     }).map(page => {
         const visible = page.key === activeKey;
@@ -887,7 +899,7 @@ function planRetainedPages(previous, spaces, owner, activeId, open, now) {
     if (active !== undefined && !kept.some(page => page.key === activeKey)) {
         kept.push({ key: (0, exports.pageKey)(owner, active.id), owner, id: active.id, usedAt: now, visible: true });
     }
-    const evicted = new Set([...kept].filter(page => page.key !== activeKey)
+    const evicted = new Set([...kept].filter(page => page.key !== activeKey && spaces[page.owner]?.items.find(item => item.id === page.id)?.kind !== 'plugin')
         .sort((a, b) => b.usedAt - a.usedAt).slice(exports.RETAINED_PAGE_LIMIT - (active === undefined ? 0 : 1)).map(page => page.key));
     const next = kept.filter(page => !evicted.has(page.key));
     return next.length === previous.length && next.every((page, index) => {

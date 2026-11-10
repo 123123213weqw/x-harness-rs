@@ -7,7 +7,7 @@ import type {GitDiffScope} from '../shared/generated/file-display'
 import {objectValue} from '../shared/runtime-types'
 
 export interface WorkspaceItem extends BrowserItem {
-  kind:'browser'|'tool'|'file'
+  kind:'browser'|'tool'|'file'|'plugin'
   source:string
   gitDiff?:GitDiffScope|undefined
   relativeTo?:string|undefined
@@ -96,7 +96,7 @@ export function XhWorkspacePane({space,spaces,open,sessionId,renderSlot,onSelect
   const next=planRetainedPages(pages,all,owner,space.activeId,open,Date.now())
   if(next!==pages)setPages(next)
   React.useEffect(()=>{
-    const deadlines=next.filter(page=>!open||page.owner!==owner||page.id!==space.activeId)
+    const deadlines=next.filter(page=>all[page.owner]?.items.find(item=>item.id===page.id)?.kind!=='plugin'&&(!open||page.owner!==owner||page.id!==space.activeId))
       .map(page=>page.usedAt+RETAINED_PAGE_IDLE_MS-Date.now())
     if(!deadlines.length)return
     const timer=setTimeout(()=>tick(value=>value+1),Math.max(1,Math.min(...deadlines)))
@@ -136,10 +136,10 @@ export interface WorkspaceOpenDetail {kind:WorkspaceItem['kind'];fresh?:boolean;
 /** Actual DOM event fields produced by BrowserToggle/ToolDetails/FileView. */
 export function workspaceOpenDetail(value:unknown):WorkspaceOpenDetail|undefined {
   const raw=objectValue(value)
-  if(raw.kind!=='browser'&&raw.kind!=='tool'&&!(raw.kind==='file'&&typeof raw.source==='string'&&raw.source.length>0))return undefined
+  if(raw.kind!=='browser'&&raw.kind!=='tool'&&!((raw.kind==='file'||raw.kind==='plugin')&&typeof raw.source==='string'&&raw.source.length>0))return undefined
   const gitDiff=GIT_DIFF_SCOPES.find(scope=>scope===raw.gitDiff)
   if(raw.gitDiff!==undefined&&gitDiff===undefined)return undefined
   const kind=raw.kind
-  if(kind!=='browser'&&kind!=='tool'&&kind!=='file')return undefined
+  if(kind!=='browser'&&kind!=='tool'&&kind!=='file'&&kind!=='plugin')return undefined
   return{kind,...gitDiff===undefined?{}:{gitDiff},...typeof raw.fresh==='boolean'?{fresh:raw.fresh}:{},...typeof raw.source==='string'?{source:raw.source}:{},...typeof raw.title==='string'?{title:raw.title}:{},...typeof raw.sessionId==='string'?{sessionId:raw.sessionId}:{},...typeof raw.url==='string'?{url:raw.url}:{},...typeof raw.relativeTo==='string'?{relativeTo:raw.relativeTo}:{}}
 }
