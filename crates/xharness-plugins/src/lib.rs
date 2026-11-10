@@ -147,8 +147,8 @@ pub struct PluginManager {
     package_client: Arc<dyn PackageClient>,
 }
 impl PluginManager {
-    /// Product composition: seed a small offline catalog, or migrate only
-    /// matching vetted public GitHub entries to the first-party distribution.
+    /// Product composition: seed the reviewed offline catalog, retire exact
+    /// formerly shipped public entries, and canonicalize retained public sources.
     /// No network request, installation, enablement or private catalog rewrite.
     pub fn open_product(root: PathBuf) -> Result<Self, PluginError> {
         let mut manager = Self::open(root)?;
@@ -642,11 +642,53 @@ fn migrate_public_catalog(state: &mut State) -> Result<bool, PluginError> {
         valid_id(&entry.name)?;
         validate_source(&entry.source)?;
     }
+    // Retire only exact, previously shipped public packages. A matching name
+    // alone is not authority to remove a user's private/custom catalog entry.
+    #[derive(Deserialize)]
+    struct RetiredEntry {
+        name: String,
+        version: String,
+        sha256: String,
+    }
+    let retired: Vec<RetiredEntry> = serde_json::from_str(include_str!("../catalog.retired.json"))?;
+    for entry in &retired {
+        valid_id(&entry.name)?;
+        if entry.sha256.len() != 64 || !entry.sha256.bytes().all(|c| c.is_ascii_hexdigit()) {
+            return Err(PluginError::Invalid(
+                "invalid retired public package identity".into(),
+            ));
+        }
+    }
+    let before = state.catalog.len();
+    state.catalog.retain(|entry| {
+        !retired.iter().any(|old| {
+            let package = format!("packages/{}/{}/plugin.zip", old.name, old.version);
+            entry.scope == "public"
+                && entry.name == old.name
+                && entry.version == old.version
+                && entry.source.source == "url"
+                && entry.source.kind == "zip"
+                && entry.source.sha256.eq_ignore_ascii_case(&old.sha256)
+                && [format!("{RAW}{package}"),
+                    format!("https://engine.xxdevs.com/plugins/{package}"),
+                    format!("https://gitee.com/api/v5/repos/wangyue2006/xharness-plugin-registry/contents/{package}")]
+                    .contains(&entry.source.url)
+        })
+    });
+    let mut changed = state.catalog.len() != before;
     if state.catalog.is_empty() {
         state.catalog = bundled.plugins;
         return Ok(true);
     }
-    let mut changed = false;
+    if changed {
+        for default in &bundled.plugins {
+            if !state.catalog.iter().any(|entry| entry.name == default.name) {
+                state.catalog.push(default.clone());
+            }
+        }
+    }
+    // Installed packages, their enablement, credentials and personal data are
+    // intentionally untouched; delisting is not a remote uninstall command.
     for entry in &mut state.catalog {
         if entry.scope != "public" {
             continue;
@@ -1087,6 +1129,7 @@ fn cleanup_stale_packages(root: &Path, state: &State) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
     #[test]
     fn rejects_unsafe_catalog_and_duplicates() {
         let invalid = PackageSource {
@@ -1302,7 +1345,7 @@ mod tests {
             .unwrap()
             .with_package_client(transport.clone());
         assert!(manager
-            .install("github")
+            .install("wordcraft")
             .await
             .unwrap_err()
             .to_string()
@@ -1317,7 +1360,8 @@ mod tests {
         let root = std::env::temp_dir().join(format!("xh-plugin-product-{}", nonce()));
         let manager = PluginManager::open_product(root.clone()).unwrap();
         let entries = manager.catalog().await;
-        assert!(!entries.is_empty());
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "wordcraft");
         assert!(entries.iter().all(|entry| entry
             .source
             .url
@@ -1338,9 +1382,9 @@ mod tests {
         let mut managed = bundled
             .plugins
             .into_iter()
-            .find(|entry| entry.name == "github")
+            .find(|entry| entry.name == "wordcraft")
             .unwrap();
-        managed.source.url = format!("https://raw.githubusercontent.com/123123213weqw/xharness-plugin-registry/main/packages/github/{}/plugin.zip", managed.version);
+        managed.source.url = format!("https://raw.githubusercontent.com/123123213weqw/xharness-plugin-registry/main/packages/wordcraft/{}/plugin.zip", managed.version);
         let mut personal = managed.clone();
         personal.scope = "personal".into();
         let mut custom = managed.clone();
@@ -1367,6 +1411,87 @@ mod tests {
             .starts_with("https://engine.xxdevs.com/plugins/"));
         assert!(!migrate_public_catalog(&mut state).unwrap());
     }
+    fn retired_entry(name: &str, origin: &str) -> CatalogEntry {
+        let rows: Vec<Value> =
+            serde_json::from_str(include_str!("../catalog.retired.json")).unwrap();
+        let old = rows.into_iter().find(|r| r["name"] == name).unwrap();
+        serde_json::from_value(serde_json::json!({"name":name,"version":old["version"],"scope":"public",
+            "source":{"source":"url","type":"zip","sha256":old["sha256"],"url":format!("{origin}packages/{name}/{}/plugin.zip",old["version"].as_str().unwrap())}})).unwrap()
+    }
+    #[test]
+    fn all_exact_retired_official_entries_are_replaced_offline_and_idempotently() {
+        let rows: Vec<Value> =
+            serde_json::from_str(include_str!("../catalog.retired.json")).unwrap();
+        assert_eq!(rows.len(), 11);
+        for origin in [
+            "https://engine.xxdevs.com/plugins/",
+            "https://raw.githubusercontent.com/123123213weqw/xharness-plugin-registry/main/",
+            "https://gitee.com/api/v5/repos/wangyue2006/xharness-plugin-registry/contents/",
+        ] {
+            let mut state = State {
+                catalog: rows
+                    .iter()
+                    .map(|r| retired_entry(r["name"].as_str().unwrap(), origin))
+                    .collect(),
+                ..State::default()
+            };
+            assert!(migrate_public_catalog(&mut state).unwrap());
+            assert_eq!(state.catalog.len(), 1);
+            assert_eq!(state.catalog[0].name, "wordcraft");
+            assert!(state.installed.is_empty());
+            assert!(!migrate_public_catalog(&mut state).unwrap());
+        }
+    }
+    #[test]
+    fn retirement_never_uses_name_alone_or_changes_private_sources() {
+        let original = retired_entry("github", "https://engine.xxdevs.com/plugins/");
+        let mut personal = original.clone();
+        personal.scope = "personal".into();
+        let mut custom = original.clone();
+        custom.source.url = "https://example.com/my/github.zip".into();
+        let mut different_hash = original.clone();
+        different_hash.source.sha256 = "a".repeat(64);
+        let mut different_version = original;
+        different_version.version = "99.0.0".into();
+        for entry in [personal, custom, different_hash, different_version] {
+            let before = serde_json::to_value(&entry).unwrap();
+            let mut state = State {
+                catalog: vec![entry],
+                ..State::default()
+            };
+            assert!(!migrate_public_catalog(&mut state).unwrap());
+            assert_eq!(serde_json::to_value(&state.catalog[0]).unwrap(), before);
+        }
+    }
+    #[test]
+    fn retirement_preserves_installed_packages_and_personal_wordcraft_identity() {
+        let installed:InstalledPlugin=serde_json::from_value(serde_json::json!({"name":"github","version":"0.2.0","description":"user install","digest":"f".repeat(64),"enabled":true,"mcpEnabled":false,"mcpConfigSha256":null,"capabilities":["skills"],"skills":[]})).unwrap();
+        let before = serde_json::to_value(&installed).unwrap();
+        let mut bundled: CatalogDocument =
+            serde_json::from_str(include_str!("../catalog.public.json")).unwrap();
+        let mut private = bundled.plugins.remove(0);
+        private.scope = "personal".into();
+        private.source.url = "https://example.com/private-editor.zip".into();
+        let private_before = serde_json::to_value(&private).unwrap();
+        let mut state = State {
+            catalog: vec![
+                retired_entry("github", "https://engine.xxdevs.com/plugins/"),
+                private,
+            ],
+            installed: BTreeMap::from([("github".into(), installed)]),
+        };
+        assert!(migrate_public_catalog(&mut state).unwrap());
+        assert_eq!(state.catalog.len(), 1);
+        assert_eq!(
+            serde_json::to_value(&state.catalog[0]).unwrap(),
+            private_before
+        );
+        assert_eq!(
+            serde_json::to_value(&state.installed["github"]).unwrap(),
+            before
+        );
+        assert!(!migrate_public_catalog(&mut state).unwrap());
+    }
     #[tokio::test]
     #[ignore = "requires an explicit local catalog path and network access"]
     async fn live_pinned_marketplace_package() {
@@ -1377,10 +1502,14 @@ mod tests {
             .import_catalog(&fs::read_to_string(catalog_path).unwrap())
             .await
             .unwrap();
-        let installed = manager.install("github").await.unwrap();
+        let installed = manager.install("wordcraft").await.unwrap();
         assert!(!installed.skills.is_empty());
-        manager.set_enabled("github", true).await.unwrap();
-        assert!(!manager.read_skill("github", "pr").await.unwrap().is_empty());
+        manager.set_enabled("wordcraft", true).await.unwrap();
+        assert!(!manager
+            .read_skill("wordcraft", "wordcraft")
+            .await
+            .unwrap()
+            .is_empty());
         fs::remove_dir_all(root).unwrap();
     }
 }
