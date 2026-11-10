@@ -19,6 +19,7 @@ pub mod native_browser;
 pub mod output_budget_migration;
 pub mod ownership;
 mod plugin_mcp;
+pub mod plugin_panels;
 mod plugin_service;
 mod read_media;
 pub mod remote_admin;
@@ -606,12 +607,12 @@ impl SessionToolFactory for NativeToolFactory {
             || self.native_browser.get().is_some()
             || self.mcp.get().is_some() && enabled_mcp
         {
-            let binding = plugin_mcp::bind(
+            let binding = plugin_mcp::bind_with_workspace(
                 self.plugins.get().cloned(),
                 self.mcp.get().cloned(),
                 self.native_browser.get().cloned(),
                 builtin_ui,
-                session_id.into(),
+                (session_id.into(), Some(cwd.to_owned())),
                 permission == PermissionPreset::DangerFullAccess,
                 self.agent_host.get().map(|host| {
                     Arc::new(computer_media::Sink {

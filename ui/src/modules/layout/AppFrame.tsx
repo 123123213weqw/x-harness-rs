@@ -203,13 +203,16 @@ export function AppFrame({
   })
   const openWorkspace=(kind:WorkspaceItem['kind'],fresh=false,detail:Omit<WorkspaceOpenDetail,'kind'>={}):void=>{
     const id=kind==='tool'?'tool':`${kind}:${++nextWorkspaceId.current}`
-    const source=kind==='file'?detail.source:kind
+    const source=kind==='file'||kind==='plugin'?detail.source:kind
     if(source===undefined)return
-    const item:WorkspaceItem={id,kind,source,sessionId:detail.sessionId,relativeTo:detail.relativeTo,gitDiff:detail.gitDiff,title:kind==='tool'?'工具详情':kind==='file'?(detail.title||(detail.gitDiff?'Diff · '+detail.gitDiff:undefined)||source.split(/[\\/]/).at(-1)||''):'新标签页',entries:detail.url?[detail.url]:[],position:detail.url?0:-1}
+    const item:WorkspaceItem={id,kind,source,sessionId:detail.sessionId,relativeTo:detail.relativeTo,gitDiff:detail.gitDiff,title:kind==='tool'?'工具详情':kind==='file'||kind==='plugin'?(detail.title||(detail.gitDiff?'Diff · '+detail.gitDiff:undefined)||source.split(/[\\/]/).at(-1)||''):'新标签页',entries:detail.url?[detail.url]:[],position:detail.url?0:-1}
     const key=detail.sessionId??spaceKeyRef.current
     setSpaces(all=>({...all,[key]:xhWorkspaceOpen(all[key]??xhWorkspaceEmpty,item,!fresh)}))
   }
   const closeWorkspace=(id:string|null):void=>{
+    const panel=space.items.find(item=>item.id===id&&item.kind==='plugin')
+    if(panel){window.dispatchEvent(new CustomEvent('xharness:plugin-panel-close-request',{detail:{capability:panel.source}}));return}
+
     if(id==='tool')actions.closeDetails()
     if(space.items.some(item=>item.id===id&&item.kind==='browser')){
       window.dispatchEvent(new CustomEvent('xharness:browser-closing',{detail:{id}}))
@@ -223,6 +226,12 @@ export function AppFrame({
       const detail=workspaceOpenDetail(value)
       if(detail)openWorkspace(detail.kind,detail.fresh===true,detail)
     }
+    const onPanelClosed=(event:Event):void=>{
+      const capability=event instanceof CustomEvent?objectValue(event.detail).capability:undefined
+      if(typeof capability!=='string')return
+      setSpaces(all=>Object.fromEntries(Object.entries(all).map(([owner,space])=>{const panel=space.items.find(item=>item.kind==='plugin'&&item.source===capability);return [owner,panel?xhWorkspaceClose(space,panel.id):space]})))
+    }
+    window.addEventListener('xharness:plugin-panel-closed',onPanelClosed)
     const onCloseTool=():void=>updateSpace(value=>xhWorkspaceClose(value,'tool'))
     const onToggle=():void=>{
       const item:WorkspaceItem={id:`browser:${++nextWorkspaceId.current}`,kind:'browser',source:'browser',title:'新标签页',entries:[],position:-1}
@@ -231,7 +240,7 @@ export function AppFrame({
     window.addEventListener('xharness:workspace-open',onOpen)
     window.addEventListener('xharness:workspace-close-tool',onCloseTool)
     window.addEventListener(workspaceDockEvents.toggle,onToggle)
-    return()=>{window.removeEventListener('xharness:workspace-open',onOpen);window.removeEventListener('xharness:workspace-close-tool',onCloseTool);window.removeEventListener(workspaceDockEvents.toggle,onToggle)}
+    return()=>{window.removeEventListener('xharness:plugin-panel-closed',onPanelClosed);window.removeEventListener('xharness:workspace-open',onOpen);window.removeEventListener('xharness:workspace-close-tool',onCloseTool);window.removeEventListener(workspaceDockEvents.toggle,onToggle)}
   },[])
   useEffect(()=>{
     setSpaces(all=>{

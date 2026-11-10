@@ -32,11 +32,21 @@ pub fn open_product_plugin_manager(
 pub struct NativePluginBackend {
     manager: Arc<PluginManager>,
     mcp: Arc<McpRuntime>,
+    panels: Option<Arc<crate::plugin_panels::PluginPanels>>,
 }
 
 impl NativePluginBackend {
+    pub fn with_panels(mut self, panels: Arc<crate::plugin_panels::PluginPanels>) -> Self {
+        self.panels = Some(panels);
+        self
+    }
+
     pub fn new(manager: Arc<PluginManager>, mcp: Arc<McpRuntime>) -> Self {
-        Self { manager, mcp }
+        Self {
+            manager,
+            mcp,
+            panels: None,
+        }
     }
 }
 
@@ -44,6 +54,39 @@ impl NativePluginBackend {
 impl PluginBackend for NativePluginBackend {
     async fn call(&self, endpoint: &str, payload: &Value) -> Result<Value, String> {
         let args = payload.get("args").unwrap_or(payload);
+        if endpoint.starts_with("plugins/panel") {
+            return self
+                .panels
+                .as_ref()
+                .ok_or("plugin panels unavailable")?
+                .call(endpoint, args)
+                .await;
+        }
+        // Serialize package/MCP mutations with panel opening. A stale enabled
+        // snapshot must never start a new child after a concurrent disable.
+        let _panel_mutation = if matches!(
+            endpoint,
+            "plugins/mcpEnable" | "plugins/mcpDisable" | "plugins/uninstall" | "plugins/install"
+        ) {
+            match &self.panels {
+                Some(panels) => Some(panels.mutation_guard().await),
+                None => None,
+            }
+        } else {
+            None
+        };
+        if matches!(
+            endpoint,
+            "plugins/mcpDisable" | "plugins/uninstall" | "plugins/install"
+        ) {
+            if let (Some(panels), Some(name)) =
+                (&self.panels, args.get("name").and_then(Value::as_str))
+            {
+                if panels.has_plugin(name).await {
+                    return Err("save and close editor panels before changing this plugin".into());
+                }
+            }
+        }
         match endpoint {
             "plugins/catalog" => Ok(json!({"plugins": self.manager.catalog().await})),
             "plugins/installed" => Ok(json!({"plugins": self.manager.installed().await})),

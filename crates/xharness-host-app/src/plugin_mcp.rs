@@ -9,6 +9,8 @@ mod direct;
 #[cfg(test)]
 mod extension_e2e;
 mod media;
+#[cfg(test)]
+mod panel_tests;
 
 use std::{sync::Arc, time::Duration};
 
@@ -85,6 +87,7 @@ impl MonotonicGuard for InvocationPolicy {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn bind(
     manager: Option<Arc<PluginManager>>,
     runtime: Option<Arc<McpRuntime>>,
@@ -94,6 +97,26 @@ pub(crate) fn bind(
     full_access: bool,
     media: Option<Arc<dyn xharness_computer::ComputerMediaSink>>,
 ) -> Binding {
+    bind_with_workspace(
+        manager,
+        runtime,
+        native,
+        ui,
+        (owner, None),
+        full_access,
+        media,
+    )
+}
+pub(crate) fn bind_with_workspace(
+    manager: Option<Arc<PluginManager>>,
+    runtime: Option<Arc<McpRuntime>>,
+    native: Option<Arc<crate::native_browser::NativeBrowser>>,
+    ui: Option<Arc<BuiltinUi>>,
+    scope: (String, Option<String>),
+    full_access: bool,
+    media: Option<Arc<dyn xharness_computer::ComputerMediaSink>>,
+) -> Binding {
+    let (owner, workspace) = scope;
     let guard = Arc::new(InvocationPolicy {
         full_access,
         builtin_ui_available: ui.is_some(),
@@ -103,7 +126,7 @@ pub(crate) fn bind(
             .as_ref()
             .map(|native| direct::specs(native.clone(), owner.clone(), media.clone()))
             .unwrap_or_default(),
-        spec: spec(manager, runtime, native, ui, owner, media),
+        spec: scoped_spec(manager, runtime, native, ui, owner, media, workspace),
         guard,
     }
 }
@@ -170,13 +193,14 @@ fn config(
     })
 }
 
-fn spec(
+fn scoped_spec(
     manager: Option<Arc<PluginManager>>,
     runtime: Option<Arc<McpRuntime>>,
     native: Option<Arc<crate::native_browser::NativeBrowser>>,
     ui: Option<Arc<BuiltinUi>>,
     owner: String,
     media: Option<Arc<dyn xharness_computer::ComputerMediaSink>>,
+    workspace: Option<String>,
 ) -> ToolSpec {
     ToolSpec::new(
         ToolDefinition::new(
@@ -190,6 +214,7 @@ fn spec(
             let runtime = runtime.clone();
             let ui = ui.clone();
             let owner = owner.clone();
+            let workspace=workspace.clone();
             let media = media.clone();
             async move {
                 let args = &context.arguments;
@@ -309,7 +334,20 @@ fn spec(
                         return Ok(ToolOutput::text(json!({"plugin":plugin,"servers":previews.iter().map(|p| &p.server).collect::<Vec<_>>()}).to_string()));
                     }
                     let server = server.ok_or_else(|| error("server required"))?;
-                    let config = config(manager.mcp_server(plugin, server).await.map_err(error)?, &owner, manager.storage_root())?;
+                    if manager.has_panel(plugin).await {
+                        let panel=manager.panel(plugin).await.map_err(error)?;
+                        if panel.manifest.server==server && !runtime.panel_is_interactive(&owner,plugin,server).await {
+                            return Err(error("editor is unavailable; explicitly open its file panel and keep it visible and ready"));
+                        }
+                    }
+                    let mut config = config(manager.mcp_server(plugin, server).await.map_err(error)?, &owner, manager.storage_root())?;
+                    if manager.has_panel(plugin).await {
+                        let panel=manager.panel(plugin).await.map_err(error)?;
+                        if panel.manifest.server==server {
+                            let cwd=workspace.as_ref().ok_or_else(||error("session workspace unavailable for editor"))?;
+                            config.env.insert("XHARNESS_PLUGIN_WORKSPACE".into(),cwd.clone());
+                        }
+                    }
                     let tools = runtime.list_tools_with_lease(&owner, &config, &lease).await.map_err(error)?;
                     if action == "describe" {
                         let name = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
@@ -326,7 +364,27 @@ fn spec(
                 let server = args.get("server").and_then(Value::as_str).ok_or_else(|| error("server required"))?;
                 let tool = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
                 let parameters = args.get("arguments").and_then(Value::as_object).cloned().unwrap_or_else(Map::new);
-                let config = config(manager.mcp_server(plugin, server).await.map_err(error)?, &owner, manager.storage_root())?;
+                if manager.has_panel(plugin).await {
+                        let panel=manager.panel(plugin).await.map_err(error)?;
+                        if panel.manifest.server==server && !runtime.panel_is_interactive(&owner,plugin,server).await {
+                            return Err(error("editor is unavailable; explicitly open its file panel and keep it visible and ready"));
+                        }
+                    }
+                    let mut config = config(manager.mcp_server(plugin, server).await.map_err(error)?, &owner, manager.storage_root())?;
+                    if manager.has_panel(plugin).await {
+                        let panel=manager.panel(plugin).await.map_err(error)?;
+                        if panel.manifest.server==server {
+                            let cwd=workspace.as_ref().ok_or_else(||error("session workspace unavailable for editor"))?;
+                            config.env.insert("XHARNESS_PLUGIN_WORKSPACE".into(),cwd.clone());
+                        }
+                    }
+                if manager.has_panel(plugin).await {
+                    let panel=manager.panel(plugin).await.map_err(error)?;
+                    if panel.manifest.server==server {
+                        let result=runtime.call_panel_tool_with_lease(&owner,&config,tool,parameters,&lease,&context.cancellation).await.map_err(error)?;
+                        return media::project(result,media.as_deref(),&context.cancellation).await;
+                    }
+                }
                 let call = runtime.call_tool_with_lease(&owner, &config, tool, parameters, &lease);
                 tokio::select! {
                     result = call => media::project(result.map_err(error)?, media.as_deref(), &context.cancellation).await,
