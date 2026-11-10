@@ -214,7 +214,10 @@ async fn panel_replies_are_parallel_hidden_and_pinned_until_explicit_close() {
     let tools = runtime.list_tools("ui-chat", &config).await.unwrap();
     assert_eq!(tools.len(), 1);
     assert_eq!(tools[0].name, "wait_app");
-    assert!(serde_json::to_value(&tools[0]).unwrap().get("appOnly").is_none());
+    assert!(serde_json::to_value(&tools[0])
+        .unwrap()
+        .get("appOnly")
+        .is_none());
     assert!(runtime
         .call_tool("ui-chat", &config, "_editor_reply", Map::new())
         .await
