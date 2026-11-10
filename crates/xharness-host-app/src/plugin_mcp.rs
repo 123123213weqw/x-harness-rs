@@ -36,6 +36,7 @@ pub(crate) struct Binding {
 struct InvocationPolicy {
     full_access: bool,
     builtin_ui_available: bool,
+    manager: Option<Arc<PluginManager>>,
 }
 
 fn is_builtin_ui_request(args: &Value) -> bool {
@@ -74,8 +75,33 @@ impl MonotonicGuard for InvocationPolicy {
                 "unknown or unavailable builtin UI invocation",
             ));
         }
+        // Only metadata-only branches may bypass approval. In particular,
+        // ordinary foreign server discovery can execute a process and must not.
+        let static_discovery = if context.tool_name() == "plugin_mcp"
+            && contract::validate_envelope(&context.arguments).is_ok()
+            && matches!(
+                context.arguments["action"].as_str(),
+                Some("list" | "describe")
+            ) {
+            if let (Some(manager), Some(plugin)) =
+                (&self.manager, context.arguments["plugin"].as_str())
+            {
+                manager.has_panel(plugin).await
+                    && manager.panel(plugin).await.is_ok_and(|panel| {
+                        match context.arguments.get("server").and_then(Value::as_str) {
+                            None => context.arguments["action"] == "list",
+                            Some(server) => panel.manifest.server == server,
+                        }
+                    })
+            } else {
+                false
+            }
+        } else {
+            false
+        };
         if context.tool_name() != "plugin_mcp" && !direct::is_direct(context.tool_name())
             || self.full_access
+            || static_discovery
             || self.builtin_ui_available && is_builtin_ui_request(&context.arguments)
         {
             Ok(GuardDecision::Allow)
@@ -120,6 +146,7 @@ pub(crate) fn bind_with_workspace(
     let guard = Arc::new(InvocationPolicy {
         full_access,
         builtin_ui_available: ui.is_some(),
+        manager: manager.clone(),
     });
     Binding {
         native_specs: native
@@ -336,8 +363,16 @@ fn scoped_spec(
                     let server = server.ok_or_else(|| error("server required"))?;
                     if manager.has_panel(plugin).await {
                         let panel=manager.panel(plugin).await.map_err(error)?;
-                        if panel.manifest.server==server && !runtime.panel_is_interactive(&owner,plugin,server).await {
-                            return Err(error("editor is unavailable; explicitly open its file panel and keep it visible and ready"));
+                        if panel.manifest.server==server {
+                            // This path never starts or contacts an MCP server, including
+                            // while the editor is hidden, closed or disconnected.
+                            let tools=manager.panel_tools(plugin,server).await.map_err(error)?;
+                            if action=="describe" {
+                                let name=args["tool"].as_str().ok_or_else(||error("tool required"))?;
+                                let tool=tools.iter().find(|t|t.name==name).ok_or_else(||error("unknown server tool"))?;
+                                return Ok(ToolOutput::text(json!({"tool":tool}).to_string()));
+                            }
+                            return Ok(ToolOutput::text(json!({"tools":tools.iter().map(|t|json!({"name":t.name,"description":t.description.chars().take(160).collect::<String>()})).collect::<Vec<_>>(),"execution":"Open the document panel explicitly; model calls require a visible, ready editor and the existing approval policy."}).to_string()));
                         }
                     }
                     let mut config = config(manager.mcp_server(plugin, server).await.map_err(error)?, &owner, manager.storage_root())?;
@@ -366,6 +401,9 @@ fn scoped_spec(
                 let parameters = args.get("arguments").and_then(Value::as_object).cloned().unwrap_or_else(Map::new);
                 if manager.has_panel(plugin).await {
                         let panel=manager.panel(plugin).await.map_err(error)?;
+                        if panel.manifest.server==server && tool==panel.manifest.open_tool {
+                            return Err(error("open documents through the explicit editor UI; model calls cannot replace a panel document"));
+                        }
                         if panel.manifest.server==server && !runtime.panel_is_interactive(&owner,plugin,server).await {
                             return Err(error("editor is unavailable; explicitly open its file panel and keep it visible and ready"));
                         }

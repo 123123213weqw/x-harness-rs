@@ -1,6 +1,22 @@
 //! Plugin control-plane seam. Native download, filesystem and capability
 //! execution remain in the host-app composition layer.
 
+#![forbid(unsafe_code)]
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::let_underscore_must_use,
+    unused_must_use
+)]
+#![cfg_attr(
+    not(test),
+    forbid(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        unused_must_use
+    )
+)]
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -34,13 +50,9 @@ impl BasicHost {
             .sessions
             .get(session_id)
             .ok_or("session unavailable")?;
-        if session
-            .active_permission
-            .unwrap_or(session.permission_preset)
-            != crate::PermissionPreset::DangerFullAccess
-        {
-            return Err("editable plugin panels require the full-access preset; no permission is changed automatically".into());
-        }
+        // UI launch/save are explicit user actions in all three current
+        // workspace-writing presets. Model calls retain their own approval
+        // policy; a panel must never change the session-wide preset.
         Ok(session.cwd.clone())
     }
 }

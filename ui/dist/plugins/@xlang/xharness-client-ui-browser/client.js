@@ -853,12 +853,15 @@ function panelDescriptor(value, session) {
     return { capability: raw.capability, sessionId: session, plugin: raw.plugin, title: raw.title, source: raw.source, entry: raw.entry, initial: outer.initial };
 }
 async function openPluginEditor(client, sessionId, path) {
-    let panel = panelDescriptor(await client.panelCall('plugins/panelOpen', { name: 'wordcraft', sessionId, path }), sessionId);
+    // Explicit desktop launch consent; never changes the session permission preset.
+    if (!window.confirm(label('允许为此文档启动本地 WordCraft 插件？插件程序不受命令沙箱隔离；文档操作限定在当前会话工作区，模型调用仍按现有权限审批。', 'Launch the local WordCraft plugin for this document? The plugin process is not isolated by the command sandbox. Document operations stay in this session workspace; model calls retain the existing approval policy.')))
+        return;
+    let panel = panelDescriptor(await client.panelCall('plugins/panelOpen', { name: 'wordcraft', sessionId, path, launchConfirmed: true }), sessionId);
     if (panel.initial === null && !panels.has(panel.capability)) {
         if (!window.confirm(label('该文档仍在另一个或上次页面的编辑器中。关闭旧编辑器并从已保存文件重新载入？未保存内容会丢失。', 'The document is open in another or previous page. Close that editor and reload the saved file? Unsaved changes will be lost.')))
             return;
         await client.panelCall('plugins/panelClose', { capability: panel.capability, discardConfirmed: true });
-        panel = panelDescriptor(await client.panelCall('plugins/panelOpen', { name: 'wordcraft', sessionId, path }), sessionId);
+        panel = panelDescriptor(await client.panelCall('plugins/panelOpen', { name: 'wordcraft', sessionId, path, launchConfirmed: true }), sessionId);
     }
     if (!panels.has(panel.capability))
         panels.set(panel.capability, panel);

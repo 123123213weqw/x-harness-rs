@@ -9,15 +9,16 @@ The registry uses a generic document icon, not upstream brand artwork.
 
 ## Opt in
 
-1. Install WordCraft from the public plugin catalog after the companion registry
-   PR is published. The ZIP is approximately 38.2 MiB; installation leaves both
+1. Install WordCraft from the public plugin catalog. The ZIP is approximately
+   38.2 MiB; installation leaves both
    Skill and MCP disabled. Node.js is an external prerequisite; we do not install it.
 2. Explicitly allow the plugin's MCP capability. This alone does not launch Node
    or load WASM. Enabling its Skill is separate and optional.
-3. Choose the intended session/workspace and explicitly select full access.
-   Editable panels do not silently elevate a restricted session's permissions.
+3. Choose the intended session/workspace. Full access is **not** required;
+   workspace-write and AI-review keep their existing model approval policies.
 4. Open an existing workspace `.docx` in the file pane, then choose **Edit with
-   WordCraft**. Only then does the session-owned stdio process start and the
+   WordCraft** and confirm starting the local plugin for this document. Cancelling
+   sends no launch request. Only then does the session-owned stdio process start and the
    sandboxed editor load. There is no plugin-owned HTTP listener.
 5. Keep the editor visible and ready for AI edits. Inspect the document and
    current selection before editing, save, and verify the saved file.
@@ -56,14 +57,27 @@ artifact has already been deployed before the companion PR is accepted.
 It lists every exposed asset, MIME type, byte length and SHA-256. Only those
 public assets are streamed through an unguessable read-only capability; workspace
 files never enter this static route. The same file handle is hash-verified before
-streaming. A modified package, changed workspace, revoked permission or closed
+streaming. A modified package, changed workspace, revoked plugin authorization or closed
 connection makes the capability unavailable.
 
 The iframe has `allow-scripts allow-downloads`, **not** `allow-same-origin`.
 CSP denies general network/frame access. It cannot read Host DOM, cookies or call
 Host APIs directly. Parent messages must come from the exact opaque-origin frame;
 only app-visible MCP tools and the plugin's resource namespace are forwarded.
-Model discovery cannot see/call `_editor_*` tools or launch an unopened UI plugin.
+Model discovery cannot see/call app-only `_editor_*` tools or launch an unopened
+UI plugin. The local Node process itself is **not** isolated by the command
+sandbox; explicit plugin/launch consent is not an OS filesystem sandbox. Supported
+document operations and the Host save bridge retain their workspace path checks.
+
+An optional `dist/tools.json` is hash-pinned during verified installation. Its
+bounded static names/schemas can be read before opening the editor, without Node,
+WASM, a visible panel or per-tool approval. Actual model calls still use the
+existing approval protocol and require a visible, ready editor. Ordinary foreign
+server discovery that can start a process is not made approval-free. Legacy
+installations without the static catalog pin require verified reinstall and
+explicit MCP re-enablement; no mutable file is silently trusted during discovery.
+The immutable 0.1.0 ZIP's old full-access instructions describe the initial Host
+implementation and are superseded by this Host documentation.
 
 The 88,453,355-byte WASM loads on explicit opening only; this is a comparatively
 heavy optional editor, not a promise of negligible memory. No permanent WASM

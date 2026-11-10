@@ -22,8 +22,10 @@ use tokio::sync::Mutex;
 
 mod mcp_config;
 mod panel;
+mod panel_catalog;
 pub use mcp_config::{McpServerPreview, McpServerSpec};
 pub use panel::{PanelAsset, PanelManifest, VerifiedPanel};
+pub use panel_catalog::PanelTool;
 
 const MAX_CATALOG: usize = 2 * 1024 * 1024;
 const MAX_ARCHIVE: usize = 64 * 1024 * 1024;
@@ -101,6 +103,8 @@ pub struct InstalledPlugin {
     pub mcp_config_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ui_config_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub panel_tools_sha256: Option<String>,
     pub capabilities: Vec<String>,
     pub skills: Vec<SkillRecord>,
 }
@@ -355,6 +359,8 @@ impl PluginManager {
                 None
             };
             let ui_config_sha256 = panel::inspect(&package_root, name)?;
+            let panel_tools_sha256 =
+                panel_catalog::inspect(&package_root, ui_config_sha256.is_some())?;
             let skills = discover_skills(&package_root)?;
             let published = self.root.join("packages").join(name).join(&digest);
             fs::create_dir_all(published.parent().unwrap())?;
@@ -370,6 +376,7 @@ impl PluginManager {
                 mcp_enabled: false,
                 mcp_config_sha256,
                 ui_config_sha256,
+                panel_tools_sha256,
                 capabilities,
                 skills,
             };
