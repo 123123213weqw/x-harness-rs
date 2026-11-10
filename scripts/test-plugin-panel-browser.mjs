@@ -34,8 +34,11 @@ try{
   window.root=ReactDOM.createRoot(document.getElementById('root'))
   window.addEventListener('xharness:workspace-open',e=>root.render(React.createElement(panelApi.PluginPanel,{item:e.detail,sessionId:'S',client:window.client})))
   window.addEventListener('xharness:plugin-panel-closed',()=>{window.fixtureClosed=true;root.render(null)})
-  await panelApi.openPluginEditor(client,'S','file.docx')
  },{cap,path})
+ page.once('dialog',d=>d.dismiss());await page.evaluate(()=>panelApi.openPluginEditor(client,'S','file.docx'))
+ assert.equal(await page.evaluate(()=>calls.length),0,'cancelled launch must not call Host or start a plugin')
+ page.once('dialog',d=>d.accept());await page.evaluate(()=>panelApi.openPluginEditor(client,'S','file.docx'))
+ assert.equal(await page.evaluate(()=>calls.find(c=>c.method==='plugins/panelOpen').args.launchConfirmed),true)
  await page.waitForFunction(()=>window.calls.some(c=>c.method==='plugins/panelRpc'))
  const frame=page.frames().find(f=>f.url().endsWith('/panel.html'));assert.ok(frame)
  assert.equal(await frame.evaluate(()=>window.moduleLoaded),true,'CSP must allow the bound module in an opaque WebKit frame')
@@ -58,5 +61,5 @@ try{
  assert.deepEqual(errors,[])
  // Bound descriptors, never arbitrary plugin URLs or another session's capability.
  assert.equal(await page.evaluate(({cap,path})=>{let rejected=0;for(const change of [{sessionId:'other'},{entry:'https://evil.example/'},{capability:'bad'},{entry:path.replace(cap,'b'.repeat(64))}]){try{panelApi.panelDescriptor({panel:{capability:cap,sessionId:'S',plugin:'wordcraft',title:'WordCraft',source:'file.docx',entry:path,...change}},'S')}catch{rejected++}}return rejected},{cap,path}),4)
- console.log(`plugin panel ${process.env.UI_TEST_BROWSER??'chromium'}: opaque handshake, tool result, source binding, retention, busy close, confirmed close, descriptor rejection passed`)
+ console.log(`plugin panel ${process.env.UI_TEST_BROWSER??'chromium'}: cancelled/confirmed launch, opaque handshake, tool result, source binding, retention, busy close, confirmed close, descriptor rejection passed`)
 }finally{await browser.close();await new Promise(r=>server.close(r))}

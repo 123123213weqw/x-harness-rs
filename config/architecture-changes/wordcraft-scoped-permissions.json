@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Remove the blanket full-access panel gate, preserving explicit UI launch consent and model approvals; enroll both new business seams in existing compiler guards.",
+  "compatibility": "No session preset, existing tool approval, plugin default, package bytes or lockfile changes. Static panel metadata pin is optional and omitted for legacy plugins.",
+  "paths": {
+    "scripts/regression/check-architecture.py": {
+      "before": "7dc97a66e4033e41fd49b1ba78a8efb027e3ea56acfb96910ed4c27921adfc64",
+      "after": "6527bf86e0f4db60239446cf565a95073103ea7642d12474657e355b4722953d"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}

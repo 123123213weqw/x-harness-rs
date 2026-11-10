@@ -140,6 +140,13 @@ impl PluginPanels {
     pub async fn call(&self, endpoint: &str, args: &Value) -> Result<Value, String> {
         match endpoint {
             "plugins/panelOpen" => {
+                // This authenticated desktop action is a user launch grant, not
+                // an approval for model calls. Those keep InvocationPolicy.
+                if args.get("launchConfirmed") != Some(&Value::Bool(true)) {
+                    return Err(
+                        "confirm launching the local plugin before opening the editor".into(),
+                    );
+                }
                 let _mutation = self.mutation.lock().await;
                 let session = argument(args, "sessionId")?;
                 let plugin = argument(args, "name")?;
@@ -411,28 +418,29 @@ mod tests {
             .await;
         assert!(matches!(created, RpcResult::Success { .. }), "{created:?}");
         assert!(host.plugin_panel_workspace("missing").await.is_err());
-        assert!(host
-            .plugin_panel_workspace("panel-test")
-            .await
-            .unwrap_err()
-            .contains("full-access"));
-        let preset=host.call_dynamic(RpcId::new("permission"),"commands/execute",json!({"args":{"agentId":"panel-test","line":"/permission danger-full-access","images":[]}}),CancellationToken::new()).await.unwrap();
-        assert!(matches!(preset, RpcResult::Success { .. }), "{preset:?}");
-        assert_eq!(
-            std::fs::canonicalize(host.plugin_panel_workspace("panel-test").await.unwrap())
-                .unwrap(),
-            std::fs::canonicalize(&root).unwrap()
-        );
+        let initial = host.plugin_panel_workspace("panel-test").await.unwrap();
+        for mode in [
+            "workspace-write-ai-review",
+            "danger-full-access",
+            "workspace-write",
+        ] {
+            let preset=host.call_dynamic(RpcId::new(format!("permission-{mode}")),"commands/execute",json!({"args":{"agentId":"panel-test","line":format!("/permission {mode}"),"images":[]}}),CancellationToken::new()).await.unwrap();
+            assert!(matches!(preset, RpcResult::Success { .. }), "{preset:?}");
+            assert_eq!(
+                host.plugin_panel_workspace("panel-test").await.unwrap(),
+                initial
+            );
+        }
         let manager = Arc::new(PluginManager::open(root.join("plugins")).unwrap());
         let runtime = McpRuntime::new();
         let panels = PluginPanels::new(manager, runtime.clone(), &host);
-        assert!(panels
-            .call(
-                "plugins/panelOpen",
-                &json!({"name":"wordcraft","sessionId":"panel-test","path":"x.docx"})
-            )
-            .await
-            .is_err());
+        for confirmation in [Value::Null, json!(false), json!("true")] {
+            assert!(panels.call("plugins/panelOpen",&json!({"name":"wordcraft","sessionId":"panel-test","path":"x.docx","launchConfirmed":confirmation})).await.unwrap_err().contains("confirm launching"));
+        }
+        assert_eq!(
+            host.plugin_panel_workspace("panel-test").await.unwrap(),
+            initial
+        );
         assert!(
             !runtime
                 .panel_is_open("panel-test", "wordcraft", "wordcraft")
