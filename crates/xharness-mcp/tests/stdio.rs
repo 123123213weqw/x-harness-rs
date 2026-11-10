@@ -1,6 +1,30 @@
 use serde_json::{json, Map};
 use std::{collections::BTreeMap, path::PathBuf};
+use tokio_util::sync::CancellationToken;
 use xharness_mcp::{McpError, McpRuntime, StdioServerConfig};
+
+async fn wait_for_panel_dispatch(runtime: &McpRuntime, owner: &str, config: &StdioServerConfig) {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let status = runtime
+            .call_app_tool(
+                owner,
+                config,
+                "_editor_reply",
+                serde_json::from_value(json!({"mode":"started-count"})).unwrap(),
+            )
+            .await
+            .unwrap();
+        if status["content"][0]["text"] == "1" {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "fixture did not dispatch the operation"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
 
 async fn fixture_pid(runtime: &McpRuntime, owner: &str, config: &StdioServerConfig) -> String {
     let arguments = serde_json::from_value(json!({"text":"__pid"})).unwrap();
@@ -250,7 +274,7 @@ async fn panel_replies_are_parallel_hidden_and_pinned_until_explicit_close() {
     let cfg = config.clone();
     let pending =
         tokio::spawn(async move { run.call_tool("ui-chat", &cfg, "wait_app", Map::new()).await });
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    wait_for_panel_dispatch(&runtime, "ui-chat", &config).await;
     assert!(
         runtime.close_panel("ui-chat", &config).await.is_err(),
         "never close a model operation in flight"
@@ -320,5 +344,88 @@ async fn a_model_timeout_cannot_discard_a_pinned_unsaved_editor() {
             .is_err(),
         "stale UI must not reconnect a closed process"
     );
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn cancelling_one_editor_request_preserves_both_documents_and_other_session_calls() {
+    let runtime = McpRuntime::new();
+    let mut config = fixture();
+    config.env.insert("XH_MCP_PANEL_FIXTURE".into(), "1".into());
+    let one = runtime.pin_panel("one", &config).await.unwrap();
+    one.set_interactive(true).unwrap();
+    let two = runtime.pin_panel("two", &config).await.unwrap();
+    two.set_interactive(true).unwrap();
+    let lease = runtime.lease(&config.plugin).await;
+    let stop = CancellationToken::new();
+    let run = runtime.clone();
+    let cfg = config.clone();
+    let current = lease.clone();
+    let token = stop.clone();
+    let pending = tokio::spawn(async move {
+        run.call_panel_tool_with_lease("one", &cfg, "wait_app", Map::new(), &current, &token)
+            .await
+    });
+    wait_for_panel_dispatch(&runtime, "one", &config).await;
+    stop.cancel();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(3), pending)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(result.is_err());
+    assert!(
+        !one.revoked() && !two.revoked(),
+        "a stop cannot close either editor connection"
+    );
+    let stats = runtime
+        .call_app_tool(
+            "one",
+            &config,
+            "_editor_reply",
+            serde_json::from_value(json!({"mode":"cancelled-count"})).unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        stats["content"][0]["text"], "1",
+        "the exact request got a cancellation notification"
+    );
+    runtime
+        .call_app_tool("two", &config, "_editor_reply", Map::new())
+        .await
+        .unwrap();
+    let other = runtime
+        .call_panel_tool_with_lease(
+            "two",
+            &config,
+            "wait_app",
+            Map::new(),
+            &lease,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(other["content"][0]["text"], "app-replied");
+    let already = CancellationToken::new();
+    already.cancel();
+    assert!(runtime
+        .call_panel_tool_with_lease("one", &config, "wait_app", Map::new(), &lease, &already)
+        .await
+        .is_err());
+    let stats = runtime
+        .call_app_tool(
+            "one",
+            &config,
+            "_editor_reply",
+            serde_json::from_value(json!({"mode":"cancelled-count"})).unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        stats["content"][0]["text"], "1",
+        "pre-dispatch cancellation sent no extra request"
+    );
+    runtime.close_panel("one", &config).await.unwrap();
+    runtime.close_panel("two", &config).await.unwrap();
     runtime.shutdown().await;
 }

@@ -99,7 +99,7 @@ pub struct InstalledPlugin {
     pub mcp_enabled: bool,
     #[serde(default)]
     pub mcp_config_sha256: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ui_config_sha256: Option<String>,
     pub capabilities: Vec<String>,
     pub skills: Vec<SkillRecord>,

@@ -64,3 +64,24 @@ First-version limits remain explicit: existing workspace DOCX entry, full-access
 opt-in, visible/ready AI operations, DOCX-only manual save, two retained panels,
 and no unsaved browser-memory recovery after reload/crash. Closing a busy panel
 does not cancel its work; timeout never automatically discards a pinned editor.
+
+## Merge follow-up
+
+The exact Linux CI run found that a `null` UI pin expanded the legacy installed
+plugin DTO's exact v1 key set. The optional pin is now omitted only for legacy
+plugins (`None`); a present UI pin still serializes and round-trips through stored
+state. The original Rust-producer/JS-consumer contract passes unchanged: 13 native
+Host replies, one shared DTO reply, 11 endpoints and two error replies.
+
+Review also found the old cancellation branch disconnected the entire plugin,
+including other sessions. Editor model calls now send a cancellation notification
+for the exact request/transport epoch, without closing either pinned editor.
+A deterministic two-session stdio regression proves delivery, continued operation
+in the other session and no dispatch for an already-cancelled call. Ordinary MCP
+and its MRTR handling are unchanged. The explicit editor harness exercises this
+same single-round model path. No prompt, Skill, package bytes or enablement policy
+was changed by this follow-up.
+The real compiled editor also accepted request-scoped cancellation on Chromium
+and WebKit, then remained usable for inspection, Unicode editing and saving.
+Saved DOCX ZIP/XML was checked again after cancellation. The same local supply
+of hash-identical WASM and actual remote Host boundary described above was used.

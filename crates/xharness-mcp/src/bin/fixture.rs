@@ -52,6 +52,8 @@ fn main() {
 fn panel_fixture() {
     use std::sync::{Arc, Condvar, Mutex};
     let signal = Arc::new((Mutex::new(false), Condvar::new()));
+    let mut cancelled_count = 0u64;
+    let mut started_count = 0u64;
     fn reply(id: Value, result: Value) {
         let mut out = io::stdout().lock();
         let _ = writeln!(out, "{}", json!({"jsonrpc":"2.0","id":id,"result":result}));
@@ -62,6 +64,12 @@ fn panel_fixture() {
         let Ok(input) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
+        if input["method"] == "notifications/cancelled" {
+            cancelled_count += 1;
+            *signal.0.lock().unwrap() = true;
+            signal.1.notify_all();
+            continue;
+        }
         let Some(id) = input.get("id").cloned() else {
             continue;
         };
@@ -75,6 +83,7 @@ fn panel_fixture() {
                 json!({"tools":[{"name":"wait_app","description":"Wait for the app reply","inputSchema":{"type":"object"}},{"name":"_editor_reply","description":"App-only reply","inputSchema":{"type":"object"},"_meta":{"ui":{"visibility":["app"]}}}]}),
             ),
             "tools/call" if input["params"]["name"] == "wait_app" => {
+                started_count += 1;
                 let signal = signal.clone();
                 workers.push(std::thread::spawn(move || {
                     let (lock, cv) = &*signal;
@@ -87,6 +96,18 @@ fn panel_fixture() {
                         json!({"content":[{"type":"text","text":if *flag{"app-replied"}else{"timed-out"}}]}),
                     );
                 }));
+            }
+            "tools/call" if input["params"]["arguments"]["mode"] == "started-count" => {
+                reply(
+                    id,
+                    json!({"content":[{"type":"text","text":started_count.to_string()}]}),
+                );
+            }
+            "tools/call" if input["params"]["arguments"]["mode"] == "cancelled-count" => {
+                reply(
+                    id,
+                    json!({"content":[{"type":"text","text":cancelled_count.to_string()}]}),
+                );
             }
             "tools/call" => {
                 let (lock, cv) = &*signal;

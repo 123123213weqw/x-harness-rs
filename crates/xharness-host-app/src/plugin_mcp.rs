@@ -378,6 +378,13 @@ fn scoped_spec(
                             config.env.insert("XHARNESS_PLUGIN_WORKSPACE".into(),cwd.clone());
                         }
                     }
+                if manager.has_panel(plugin).await {
+                    let panel=manager.panel(plugin).await.map_err(error)?;
+                    if panel.manifest.server==server {
+                        let result=runtime.call_panel_tool_with_lease(&owner,&config,tool,parameters,&lease,&context.cancellation).await.map_err(error)?;
+                        return media::project(result,media.as_deref(),&context.cancellation).await;
+                    }
+                }
                 let call = runtime.call_tool_with_lease(&owner, &config, tool, parameters, &lease);
                 tokio::select! {
                     result = call => media::project(result.map_err(error)?, media.as_deref(), &context.cancellation).await,

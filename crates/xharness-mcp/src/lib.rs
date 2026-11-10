@@ -447,6 +447,107 @@ impl McpRuntime {
         Ok(result)
     }
 
+    /// An editor stop cancels one protocol request, not its pinned document or
+    /// other sessions using the same plugin. Only the UI-server path uses this
+    /// single-round adapter; ordinary MCP/MRTR behavior is unchanged.
+    pub async fn call_panel_tool_with_lease(
+        &self,
+        owner: &str,
+        config: &StdioServerConfig,
+        name: &str,
+        arguments: Map<String, Value>,
+        lease: &CancellationToken,
+        cancellation: &CancellationToken,
+    ) -> Result<Value, McpError> {
+        use rmcp::{
+            model::{
+                CancelledNotification, CancelledNotificationParam, ClientRequest, Request,
+                ServerResult,
+            },
+            service::PeerRequestOptions,
+        };
+        let connection = self.panel_connection(owner, config).await?;
+        let _operation = tokio::select! {
+            biased;
+            _=cancellation.cancelled()=>return Err(McpError::Unavailable("editor call cancelled before dispatch; document unchanged".into())),
+            _=lease.cancelled()=>return Err(McpError::Unavailable("plugin disabled".into())),
+            _=connection.cancelled.cancelled()=>return Err(McpError::Unavailable("editor disconnected".into())),
+            guard=connection.operations.lock()=>guard,
+        };
+        if !self
+            .panel_is_interactive(owner, &config.plugin, &config.server)
+            .await
+        {
+            return Err(McpError::Unavailable(
+                "make the editor visible and ready before invoking tools".into(),
+            ));
+        }
+        if !connection
+            .tools
+            .iter()
+            .any(|t| t.name == name && !t.app_only)
+        {
+            return Err(McpError::Invalid("unknown editor model tool".into()));
+        }
+        if cancellation.is_cancelled()
+            || lease.is_cancelled()
+            || connection.cancelled.is_cancelled()
+        {
+            return Err(McpError::Unavailable(
+                "editor call cancelled before dispatch; document unchanged".into(),
+            ));
+        }
+        connection.touch();
+        let client = connection.client.read().await;
+        let handle = timeout(
+            self.call_timeout,
+            client.send_cancellable_request(
+                ClientRequest::CallToolRequest(Request::new(
+                    CallToolRequestParams::new(name.to_owned()).with_arguments(arguments),
+                )),
+                PeerRequestOptions::no_options(),
+            ),
+        )
+        .await
+        .map_err(|_| McpError::Timeout)?
+        .map_err(|e| McpError::Unavailable(e.to_string()))?;
+        let id = handle.id.clone();
+        let (response, cancel_request) = tokio::select! {
+            biased;
+            _=cancellation.cancelled()=>(Err(McpError::Unavailable("editor call cancelled; outcome may be unknown, inspect before retrying".into())),true),
+            _=lease.cancelled()=>(Err(McpError::Unavailable("plugin disabled".into())),false),
+            _=connection.cancelled.cancelled()=>(Err(McpError::Unavailable("editor disconnected".into())),false),
+            result=timeout(self.call_timeout,handle.await_response())=>match result {
+                Ok(Ok(result))=>(Ok(result),false),
+                Ok(Err(error))=>(Err(McpError::Unavailable(error.to_string())),false),
+                Err(_)=>(Err(McpError::Timeout),true),
+            },
+        };
+        if cancel_request {
+            // Request ID is captured from this exact transport epoch. A late
+            // stop cannot target a replacement connection or another editor.
+            let notification = CancelledNotification::new(CancelledNotificationParam::new(
+                Some(id),
+                Some("editor operation cancelled".into()),
+            ));
+            timeout(STOP_TIMEOUT,client.send_notification(notification.into())).await
+                .map_err(|_|McpError::Unavailable("editor cancel delivery timed out; outcome unknown, inspect before retrying".into()))?
+                .map_err(|e|McpError::Unavailable(format!("editor cancel delivery failed; outcome unknown: {e}")))?;
+        }
+        connection.touch();
+        match response? {
+            ServerResult::CallToolResult(result) => {
+                let result = serde_json::to_value(result)
+                    .map_err(|e| McpError::Unavailable(e.to_string()))?;
+                validate_result_budget(&result)?;
+                Ok(result)
+            }
+            _ => Err(McpError::Unavailable(
+                "unsupported editor tool response".into(),
+            )),
+        }
+    }
+
     pub async fn disconnect_plugin(&self, plugin: &str) {
         // Fence calls which have already read the old enabled configuration.
         // The next enablement receives a fresh, non-cancelled lease.

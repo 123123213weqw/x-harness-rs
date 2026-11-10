@@ -85,3 +85,8 @@ on Chromium/WebKit. Full editor acceptance additionally uses
 fixture executable, no model or credentials. This explicit harness is not a
 product API. Its real MCP calls/edit/save must be checked against saved DOCX
 contents. Rust builds and actual compiler-guard mutations run remotely only.
+
+Stopping an editor model call cancels that protocol request, not the entire
+plugin or another session's editor. Cancellation can race a completed edit:
+inspect before retrying. Ordinary non-editor MCP servers retain their existing
+transport/MRTR path.

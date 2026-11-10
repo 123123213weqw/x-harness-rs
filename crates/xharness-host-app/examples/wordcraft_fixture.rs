@@ -39,15 +39,28 @@ async fn tool(State(f): State<Fixture>, Json(args): Json<Value>) -> Json<Value> 
         {
             return Err("open the editor first".into());
         }
-        f.runtime
-            .call_tool(
-                "wordcraft-test",
-                &config,
-                name,
-                args["arguments"].as_object().cloned().unwrap_or_default(),
-            )
-            .await
-            .map_err(|e| e.to_string())
+        let lease = f.runtime.lease("wordcraft").await;
+        let cancellation = tokio_util::sync::CancellationToken::new();
+        let call = f.runtime.call_panel_tool_with_lease(
+            "wordcraft-test",
+            &config,
+            name,
+            args["arguments"].as_object().cloned().unwrap_or_default(),
+            &lease,
+            &cancellation,
+        );
+        tokio::pin!(call);
+        let result = if let Some(delay) = args.get("cancelAfterMs").and_then(Value::as_u64) {
+            tokio::select! {
+                result=&mut call=>result,
+                _=tokio::time::sleep(std::time::Duration::from_millis(delay.min(1000)))=>{
+                    cancellation.cancel();call.await
+                }
+            }
+        } else {
+            call.await
+        };
+        result.map_err(|e| e.to_string())
     }
     .await;
     Json(match result {
