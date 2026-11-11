@@ -194,10 +194,14 @@ mod tests {
             .as_nanos();
         let root = std::env::temp_dir().join(format!("xh-plugin-product-live-{id}"));
         let manager = open_product_plugin_manager(root.clone()).unwrap();
-        let installed = manager.install("github").await.unwrap();
+        let installed = manager.install("wordcraft").await.unwrap();
         assert!(!installed.enabled && !installed.mcp_enabled);
-        manager.set_enabled("github", true).await.unwrap();
-        assert!(!manager.read_skill("github", "pr").await.unwrap().is_empty());
+        manager.set_enabled("wordcraft", true).await.unwrap();
+        assert!(!manager
+            .read_skill("wordcraft", "wordcraft")
+            .await
+            .unwrap()
+            .is_empty());
         std::fs::remove_dir_all(root).unwrap();
     }
 

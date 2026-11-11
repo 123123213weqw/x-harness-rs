@@ -7,6 +7,18 @@ ZCode 0.2.3 MCP adapter; it changes only the transport/bootstrap and workspace
 launcher. Preserve the bundled upstream code, font and asset license notices.
 The registry uses a generic document icon, not upstream brand artwork.
 
+## Public store scope
+
+The public store now retains WordCraft only. The eleven old generic Skill
+packages are retired from the current registry sources, archives and listing.
+The Host removes only exact retired public name/version/digest/official-URL
+combinations from older bundled catalogs and seeds the retained WordCraft entry.
+Private or custom catalogs and already-installed packages are not silently
+uninstalled, rewritten or enabled. Users may explicitly uninstall retired packages through the authenticated desktop
+UI; catalog retirement itself is never a global uninstall command.
+The running desktop catalog can be imported/refreshed without restarting Host;
+WordCraft still requires a Host version supporting its editor before use.
+
 ## Opt in
 
 1. Install WordCraft from the public plugin catalog. The ZIP is approximately

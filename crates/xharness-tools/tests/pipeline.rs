@@ -535,6 +535,140 @@ async fn cancellation_while_waiting_for_approval_is_distinct_from_unavailability
     assert_eq!(result.failure_kind(), Some(ToolFailureKind::Cancelled));
 }
 
+#[derive(Clone, Copy, Debug)]
+enum ReplyAfterCancellation {
+    Error,
+    Denied,
+    Panic,
+    Approved,
+}
+
+struct CancellingApproval {
+    reply: ReplyAfterCancellation,
+    calls: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl ApprovalProvider for CancellingApproval {
+    async fn request_approval(
+        &self,
+        request: ApprovalRequest,
+    ) -> Result<ApprovalDecision, MiddlewareError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        request.context.cancellation.cancel();
+        match self.reply {
+            ReplyAfterCancellation::Error => Err(MiddlewareError::new("cancelled fixture")),
+            ReplyAfterCancellation::Denied => Ok(ApprovalDecision::denied("fixture denied")),
+            ReplyAfterCancellation::Panic => panic!("cancelled approval fixture"),
+            ReplyAfterCancellation::Approved => Ok(ApprovalDecision::Approved),
+        }
+    }
+}
+
+#[tokio::test]
+async fn cancellation_during_provider_poll_dominates_every_ready_reply() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let registry = Arc::new(ToolRegistry::new());
+    registry
+        .register(
+            ToolSpec::new(definition("cancel_reply"), {
+                let calls = Arc::clone(&calls);
+                move |_context| {
+                    let calls = Arc::clone(&calls);
+                    async move {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        Ok(ToolOutput::text("must not run"))
+                    }
+                }
+            })
+            .requiring_approval(true),
+        )
+        .await
+        .unwrap();
+    let approvals = Arc::new(AtomicUsize::new(0));
+    for reply in [
+        ReplyAfterCancellation::Error,
+        ReplyAfterCancellation::Denied,
+        ReplyAfterCancellation::Panic,
+        ReplyAfterCancellation::Approved,
+    ] {
+        let executor = ToolExecutor::new(Arc::clone(&registry)).with_approval_provider(Arc::new(
+            CancellingApproval {
+                reply,
+                calls: Arc::clone(&approvals),
+            },
+        ));
+        let result = executor
+            .execute(ToolRequest::new("cancel_reply", r#"{"value":"x"}"#))
+            .await;
+        assert_eq!(
+            result.failure_kind(),
+            Some(ToolFailureKind::Cancelled),
+            "reply: {reply:?}"
+        );
+    }
+    assert_eq!(approvals.load(Ordering::SeqCst), 4);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+struct ErrorOnCancellation(Arc<Notify>);
+
+#[async_trait]
+impl ApprovalProvider for ErrorOnCancellation {
+    async fn request_approval(
+        &self,
+        request: ApprovalRequest,
+    ) -> Result<ApprovalDecision, MiddlewareError> {
+        self.0.notify_one();
+        request.context.cancellation.cancelled().await;
+        Err(MiddlewareError::new("cancelled fixture"))
+    }
+}
+
+#[tokio::test]
+async fn cancellation_wins_a_provider_error_ready_on_the_same_wakeup() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let registry = Arc::new(ToolRegistry::new());
+    registry
+        .register(
+            ToolSpec::new(definition("cancel_wakeup"), {
+                let calls = Arc::clone(&calls);
+                move |_context| {
+                    let calls = Arc::clone(&calls);
+                    async move {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        Ok(ToolOutput::text("must not run"))
+                    }
+                }
+            })
+            .requiring_approval(true),
+        )
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        for _ in 0..64 {
+            let entered = Arc::new(Notify::new());
+            let executor = ToolExecutor::new(Arc::clone(&registry))
+                .with_approval_provider(Arc::new(ErrorOnCancellation(Arc::clone(&entered))));
+            let cancellation = CancellationToken::new();
+            let (result, ()) = tokio::join!(
+                executor.execute(
+                    ToolRequest::new("cancel_wakeup", r#"{"value":"x"}"#)
+                        .with_cancellation(cancellation.clone())
+                ),
+                async {
+                    entered.notified().await;
+                    cancellation.cancel();
+                }
+            );
+            assert_eq!(result.failure_kind(), Some(ToolFailureKind::Cancelled));
+        }
+    })
+    .await
+    .expect("approval cancellation must settle");
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
 #[tokio::test]
 async fn timeout_and_handler_panic_are_materialized() {
     let registry = Arc::new(ToolRegistry::new());

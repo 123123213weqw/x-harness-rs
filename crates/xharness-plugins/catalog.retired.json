@@ -1,0 +1,57 @@
+[
+  {
+    "name": "api-testing",
+    "version": "0.1.0-beta.1",
+    "sha256": "6fcd97e26313e8feb31ea9d92849577aaffc6f8822bcd67b5b867f1829c3ad10"
+  },
+  {
+    "name": "browser",
+    "version": "0.1.0-beta.1",
+    "sha256": "fb7e2bb7135ffce414ea70333d9e35f7425dc616d35412a5bb23795fb6458684"
+  },
+  {
+    "name": "database",
+    "version": "0.1.0-beta.1",
+    "sha256": "e1dda90210d67c3654ae7bb7d574170bc7a91faa2a7d5b5d46e1125645859bf0"
+  },
+  {
+    "name": "debugging",
+    "version": "0.1.0-beta.1",
+    "sha256": "69a1a49ca91f195d4b662d94574f8eb0ea06e0b776166446578104378784e33b"
+  },
+  {
+    "name": "docker",
+    "version": "0.1.0-beta.1",
+    "sha256": "322e74ca7ab4b26b71429c4644f428dcafe6f19af5dae3ef1005cf550cc9a6c5"
+  },
+  {
+    "name": "documents",
+    "version": "0.1.0-beta.1",
+    "sha256": "806225d13c7740b8a1d36f62a627994834ff8888ed71e3a71b744f8dcb32791e"
+  },
+  {
+    "name": "git-pr-workflows",
+    "version": "0.1.0-beta.1",
+    "sha256": "aedab38ac3f731485fd7062f38a7ee4f02bf68dc61db8735441facd7f8a14914"
+  },
+  {
+    "name": "github",
+    "version": "0.2.0",
+    "sha256": "2f1b40aadb5d8ee52af7e678f85fa7ab836f8835202e86c22ee388e3e98f9ab5"
+  },
+  {
+    "name": "pr-review",
+    "version": "0.1.0-beta.1",
+    "sha256": "24e690e077345d6d478078a590e49876f339a2eb3cd7395d3fcfb86eb14d70f1"
+  },
+  {
+    "name": "refactoring",
+    "version": "0.1.0-beta.1",
+    "sha256": "c750c4afe1898d96089bd04d79249eb9d6c5136bf38be7f575538688fb71d00e"
+  },
+  {
+    "name": "unit-testing",
+    "version": "0.1.0-beta.1",
+    "sha256": "22d8d32377684b0101ca0e9248f367103ad258780733c2475a069f5bf04314df"
+  }
+]
