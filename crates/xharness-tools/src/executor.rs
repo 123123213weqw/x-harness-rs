@@ -531,6 +531,7 @@ impl ToolExecutor {
             }
         };
         let response = tokio::select! {
+            biased;
             _ = context.cancellation.cancelled() => {
                 return Err(ToolFailure::new(
                     ToolFailureKind::Cancelled,
@@ -539,6 +540,14 @@ impl ToolExecutor {
             }
             response = wait => response,
         };
+        // A provider can observe cancellation and settle in the same poll. The
+        // invocation's cancellation must win over that reply, including errors.
+        if context.cancellation.is_cancelled() {
+            return Err(ToolFailure::new(
+                ToolFailureKind::Cancelled,
+                "tool invocation was cancelled while awaiting approval",
+            ));
+        }
         let result = match response {
             Err(limit) => Err(ToolFailure::new(
                 ToolFailureKind::ApprovalUnavailable,
