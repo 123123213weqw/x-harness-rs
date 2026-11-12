@@ -66,7 +66,7 @@ enum StopReason {
 
 enum TokenBudgetCheck {
     Admitted(Option<TokenBudgetReport>),
-    /// A non-exact rejection requires verification, never overflow recovery.
+    /// A non-exact rejection requires verification, never lossy overflow compaction.
     NeedsVerification(Box<TokenBudgetReport>),
     ConfirmedOverBudget {
         current_input_tokens: u64,
@@ -1084,6 +1084,33 @@ impl Runner {
                         );
                     }
                     TokenBudgetCheck::NeedsVerification(report) => {
+                        // A changed prompt can invalidate a restored selection
+                        // and expose the full journal during a counter outage.
+                        // Retire only recoverable history, once per step, then
+                        // run the COMPLETE candidate through the same hard guard.
+                        // An estimate is not permission to summarize/delete history
+                        // or to bypass a counter's explicit rate-limit backoff.
+                        if !working_set_attempted
+                            && report.counter_http_status != Some(429)
+                            && context_tools
+                                .iter()
+                                .any(|t| t.get("name").and_then(Value::as_str) == Some("history"))
+                            && self
+                                .activate_working_set(
+                                    report.estimate.total_input_tokens,
+                                    report.context_window_tokens,
+                                    &prepared,
+                                    &context_tools,
+                                )
+                                .await?
+                        {
+                            working_set_attempted = true;
+                            // This recovery must not cascade into an optional
+                            // lossy summary merely because the new estimate is
+                            // admissible but still above the pressure threshold.
+                            pressure_attempted = true;
+                            continue;
+                        }
                         self.debug(
                             "token_budget.needs_verification",
                             || json!({"budget": &report}),
@@ -1602,7 +1629,9 @@ impl Runner {
                     .map_err(|error| RunFailure::Failed(error.to_string()))?
                 {
                     // Compaction/edit/prompt changes invalidate the optional cache.
-                    // Count the new full surface before deciding whether to retire.
+                    // Re-admit the new full surface before deciding whether to
+                    // retire. Non-exact rejection can safely reselect too, but
+                    // must never reuse stale ranges or trigger lossy compaction.
                     self.workset_selection = None;
                     self.workset_pressure = false;
                     self.workset_reselect = false;
