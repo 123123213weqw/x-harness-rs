@@ -266,6 +266,52 @@ for(const engine of engines){
      await page.evaluate(text=>renderMath(text,false,'typography'),text)
      assert.equal(await page.locator('.md-code-block pre').textContent(),'code value','settling preserves exact code')
     }
+    // Additive owning-theme coverage only: never alter frozen/source parity.
+    // The semantic wrapper matches AssistantMarkdown; the nested Markdown
+    // represents reasoning and must not inherit the prose-only font/weight.
+    for(const theme of ['light','dark'])for(const width of [960,390])for(const streaming of [true,false]){
+     await page.setViewportSize({width,height:720})
+     const snapshots=[]
+     for(const enabled of [false,true]){
+      await page.evaluate(({text,theme,streaming,enabled})=>{
+       const R=staticModules.react,D=staticModules['react-dom'],P=staticModules['@xharness/dsh-client-ui-primitives']
+       document.body.toggleAttribute('data-ds-dark-theme',theme==='dark')
+       const prose=text+'\n\nInline `request_id`\n\n- A list **item**'
+       const md=(value,key)=>R.createElement(P.MarkdownText,{text:value,streaming,key,codeLabels:labels})
+       D.flushSync(()=>mount.render(R.createElement('div',{},
+        R.createElement('div',{id:'bookish-prose',...(enabled?{'data-xh-assistant-prose':''}:{})},
+         md(prose,'answer'),R.createElement('section',{id:'bookish-reasoning'},md('Reasoning **only**','reasoning'))),
+        R.createElement('section',{id:'bookish-user'},md('User **only**','user')),
+        R.createElement('section',{id:'bookish-tool'},md('Tool **only**','tool')),
+        R.createElement('button',{id:'bookish-control'},'Control'))))
+      },{text,theme,streaming,enabled})
+      await page.evaluate(()=>document.fonts.ready)
+      snapshots.push(await page.evaluate(()=>{
+       const css=node=>{const s=getComputedStyle(node);return Object.fromEntries(['fontFamily','fontSize','fontWeight','lineHeight','color','backgroundColor','outline','boxShadow'].map(k=>[k,s[k]]))}
+       const answer=document.querySelector('#bookish-prose > .MarkdownText_markdown')
+       const p=answer.querySelector('p')
+       return {
+        prose:css(p),emphasis:css(p.querySelector('strong')),list:css(answer.querySelector('li')),cell:css(answer.querySelector('td')),
+        unchanged:[...answer.querySelectorAll('h1,h2,h3,h4,h5,h6,th,pre,code'),...document.querySelectorAll('#bookish-reasoning p,#bookish-reasoning strong,#bookish-user p,#bookish-user strong,#bookish-tool p,#bookish-tool strong,#bookish-control')].map(css),
+        selection:['color','backgroundColor'].map(k=>getComputedStyle(p,'::selection')[k]),
+        error:getComputedStyle(document.body).getPropertyValue('--dsw-alias-state-error-primary'),
+        content:answer.textContent,
+       }
+      }))
+     }
+     const [before,after]=snapshots
+     assert.match(after.prose.fontFamily,/Georgia.*Songti SC/,'bookish answer font is scoped to prose')
+     assert.equal(after.list.fontFamily,after.prose.fontFamily)
+     assert.equal(after.cell.fontFamily,after.prose.fontFamily,'table body opts in despite its font shorthand')
+     const {fontFamily:oldFamily,...oldBody}=before.prose,{fontFamily:newFamily,...newBody}=after.prose
+     assert.notEqual(oldFamily,newFamily)
+     assert.deepEqual(newBody,oldBody,'16/28/400, colors and focus styling remain unchanged')
+     assert.equal(after.prose.fontSize,'16px');assert.equal(after.prose.lineHeight,'28px');assert.equal(after.prose.fontWeight,'400')
+     assert.equal(before.emphasis.fontWeight,'700');assert.equal(after.emphasis.fontWeight,'600')
+     assert.deepEqual(after.unchanged,before.unchanged,'headings/code/reasoning/user/tool/control styles stay unchanged')
+     assert.deepEqual(after.selection,before.selection);assert.equal(after.error,before.error)
+     assert.equal(after.content,before.content,'streaming and settled content is never rewritten')
+    }
    }
    // A fresh page has no fixture-wide animation suppression. Compare all
    // settled states exactly; separately assert the reviewed running-icon delta.

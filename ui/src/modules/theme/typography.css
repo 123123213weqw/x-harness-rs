@@ -1,5 +1,5 @@
-/* Reading hierarchy shared by all Markdown consumers. Keep system fonts:
-   no downloaded CJK fonts, rendering effects, or platform-specific weights. */
+/* Reading hierarchy shared by all Markdown consumers. Use installed fonts:
+   no downloaded CJK fonts or rendering effects. */
 body {
   /* Primitive fallbacks remain the independent platform baseline.
      The owning theme, not the primitive, opts into the reading hierarchy. */
@@ -25,4 +25,19 @@ body {
   --dsw-font-markdown-code-block: 14px/24px var(--ds-font-family-code);
   --dsw-font-markdown-code-block-font-size: 14px;
   --dsw-font-markdown-code-block-line-height: 24px;
+}
+
+/* Bookish final-answer prose. The direct-child boundary excludes reasoning,
+   tool output and other Markdown consumers. Headings and code retain their
+   own font shorthands; do not replace the global UI font or theme colors. */
+[data-xh-assistant-prose] > .MarkdownText_markdown {
+  --xh-assistant-reading-family: Georgia, "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "PingFang SC", serif;
+  --xh-markdown-emphasis-weight: 600;
+  font-family: var(--xh-assistant-reading-family);
+}
+
+/* Table cells have their own font shorthand, so opt their prose in explicitly.
+   Table headers keep their existing UI-font hierarchy. */
+[data-xh-assistant-prose] > .MarkdownText_markdown td {
+  font-family: var(--xh-assistant-reading-family);
 }
