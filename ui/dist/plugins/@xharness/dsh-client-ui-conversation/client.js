@@ -12024,7 +12024,7 @@ exports.AssistantMarkdown = (0, react_1.memo)(function AssistantMarkdown({ block
                 rendered.push((0, jsx_runtime_1.jsx)(primitives_1.JsonBlock, { label: t('message.unknownBlock'), payload: block.block, truncatedLabel: (total) => t('json.truncated', { total }) }, i));
         }
     }
-    return ((0, jsx_runtime_1.jsx)("div", { className: AssistantMarkdown_styles_1.default.root, "data-streaming": streaming || undefined, children: (0, jsx_runtime_1.jsxs)("div", { className: AssistantMarkdown_styles_1.default.body, children: [rendered, interrupted && (0, jsx_runtime_1.jsx)("span", { className: AssistantMarkdown_styles_1.default.stopped, children: t('message.stopped') })] }) }));
+    return ((0, jsx_runtime_1.jsx)("div", { className: AssistantMarkdown_styles_1.default.root, "data-streaming": streaming || undefined, children: (0, jsx_runtime_1.jsxs)("div", { className: AssistantMarkdown_styles_1.default.body, "data-xh-assistant-prose": "", children: [rendered, interrupted && (0, jsx_runtime_1.jsx)("span", { className: AssistantMarkdown_styles_1.default.stopped, children: t('message.stopped') })] }) }));
 });
 
 },
