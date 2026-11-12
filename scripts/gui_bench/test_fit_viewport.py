@@ -18,13 +18,43 @@ def fixture_png():
 
 
 class FitViewportTests(unittest.TestCase):
+    def test_full_size_png_requires_real_fine_detail_not_just_large_dimensions(self):
+        def png(detail):
+            width,height=1280,720
+            rows=[]
+            for y in range(height):
+                row=bytearray(bytes([255,255,255])*width)
+                for x,cy,c in [(20,20,(255,0,0)),(1260,20,(0,255,0)),(20,700,(0,0,255)),(1260,700,(255,255,0))]:
+                    if abs(y-cy)<8:row[(x-8)*3:(x+8)*3]=bytes(c)*16
+                if 400<=y<420:row[300*3:320*3]=bytes([255,0,255])*20
+                if 280<=y<300:
+                    for x in range(300,364):row[x*3:x*3+3]=bytes([255*((x-300)%2) if detail else 127])*3
+                rows.append(b'\0'+row)
+            return SIGNATURE+chunk(b'IHDR',struct.pack('!IIBBBBB',width,height,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(b''.join(rows)))+chunk(b'IEND',b'')
+        row=dict(passed=True,platform='windows',responsive_restored=True,cases=[dict(index=i,preview=dict(width=300,height=200),pane=[[426,500],[640,400],[360,500]][i],viewport=dict(width=1280,height=720),image=dict(width=1280,height=720),css_1x=True,detail=dict(x=300,y=290,samples=32),density_marker=dict(x=310,y=410),markers=[dict(x=x,y=y) for x,y in [(20,20),(1260,20),(20,700),(1260,700)]],trusted_corners=True,modal_checkbox=True,stale_frame='denied') for i in range(3)])
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            for i in range(3):(root/f'fit-{i}.png').write_bytes(png(True))
+            line='FIT_VIEWPORT_EVIDENCE '+json.dumps(row)
+            self.assertTrue(verify(line,root)['passed'])
+            moved=copy.deepcopy(row);moved['cases'][1]['density_marker']['x']=460
+            with self.assertRaisesRegex(ValueError,'resolution-dependent layout'):
+                verify('FIT_VIEWPORT_EVIDENCE '+json.dumps(moved),root)
+            (root/'fit-1.png').write_bytes(png(False))
+            with self.assertRaisesRegex(ValueError,'thin-line detail'):verify(line,root)
+
     def test_pixels_geometry_and_effects_are_required(self):
-        row=dict(passed=True,responsive_restored=True,cases=[dict(index=i,preview=dict(width=300,height=200),pane=[[426,500],[640,400],[360,500]][i],viewport=dict(width=1280,height=720),image=dict(width=2,height=2),markers=[dict(x=x,y=y) for x,y in [(0,0),(640,0),(0,360),(640,360)]],trusted_corners=True,modal_checkbox=True,stale_frame='denied') for i in range(3)])
+        row=dict(passed=True,platform='linux',responsive_restored=True,cases=[dict(index=i,preview=dict(width=300,height=200),pane=[[426,500],[640,400],[360,500]][i],viewport=dict(width=1280,height=720),image=dict(width=2,height=2),css_1x=False,markers=[dict(x=x,y=y) for x,y in [(0,0),(640,0),(0,360),(640,360)]],trusted_corners=True,modal_checkbox=True,stale_frame='denied') for i in range(3)])
         line=lambda r:'FIT_VIEWPORT_EVIDENCE '+json.dumps(r)
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
             for i in range(3): (root/f'fit-{i}.png').write_bytes(fixture_png())
             self.assertTrue(verify(line(row),root)['passed'])
+            for platform in ('windows', 'macos', None):
+                changed=copy.deepcopy(row);changed['platform']=platform
+                with self.subTest(platform=platform),self.assertRaises(ValueError):verify(line(changed),root)
+            changed=copy.deepcopy(row);changed['cases'][0]['css_1x']=True
+            with self.assertRaises(ValueError):verify(line(changed),root)
             for field,value in [('viewport',dict(width=426,height=720)),('image',dict(width=1280,height=720)),('trusted_corners',False),('trusted_corners','false'),('pane',[1280,720]),('preview',dict(width=1280,height=720)),('modal_checkbox',False),('stale_frame','accepted'),('markers',[dict(x=0,y=0)]*4)]:
                 changed=copy.deepcopy(row);changed['cases'][0][field]=value
                 with self.subTest(field=field),self.assertRaises(ValueError): verify(line(changed),root)

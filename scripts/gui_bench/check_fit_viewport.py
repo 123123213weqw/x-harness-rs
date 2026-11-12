@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from scripts.gui_bench.native_png import pixel
+from scripts.gui_bench.native_png import pixel, horizontal_contrast
 
 
 def verify(log: str, images: Path) -> dict:
@@ -15,6 +15,9 @@ def verify(log: str, images: Path) -> dict:
     if len(rows) != 1 or rows[0].get('passed') is not True:
         raise ValueError('missing unique successful fit receipt')
     result = rows[0]
+    platform = result.get('platform')
+    if platform not in ('linux', 'macos', 'windows'):
+        raise ValueError('missing native platform provenance')
     cases = result.get('cases')
     if not isinstance(cases, list) or len(cases) != 3 or result.get('responsive_restored') is not True:
         raise ValueError('incomplete fit matrix')
@@ -34,6 +37,24 @@ def verify(log: str, images: Path) -> dict:
         _, size = pixel(png, 0, 0)
         if tuple(size) != (case['image']['width'], case['image']['height']):
             raise ValueError('image geometry does not match actual PNG')
+        css_1x = size[0] >= w-2 and size[1] >= h-2
+        if case.get('css_1x') is not css_1x:
+            raise ValueError('native resolution claim does not match PNG evidence')
+        if platform != 'linux' and not css_1x:
+            raise ValueError('model evidence is limited by the narrow preview')
+        if platform != 'linux':
+            marker=case.get('density_marker', {})
+            color,_=pixel(png,int(marker['x']*size[0]/w),int(marker['y']*size[1]/h))
+            if color != (255,0,255):
+                raise ValueError('screenshot changed resolution-dependent layout relative to live input')
+            detail = case.get('detail', {})
+            if detail.get('samples') != 32:
+                raise ValueError('missing fine-detail fixture evidence')
+            xs = [int((detail['x'] + i + 0.5)*size[0]/w) for i in range(32)]
+            contrast = horizontal_contrast(png, xs, int(detail['y']*size[1]/h))
+            if contrast < 72:
+                raise ValueError('nominally large PNG did not preserve native thin-line detail')
+            case['native_detail_contrast'] = contrast
         markers = case['markers']
         if len(markers) != 4:
             raise ValueError('missing four corner markers')

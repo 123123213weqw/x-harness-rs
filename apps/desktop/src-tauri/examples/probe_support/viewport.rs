@@ -49,6 +49,9 @@ pub async fn run(app: &tauri::AppHandle, guest: &Webview) -> Result<(), String> 
         button.onclick=e=>fitClicks.push({id,trusted:e.isTrusted});layer.append(button);
       }
       const panel=document.createElement('div');panel.style.cssText='position:absolute;left:50%;top:90px;transform:translateX(-50%);width:1000px;height:160px;pointer-events:none';
+      const detail=document.createElement('div');detail.id='fit-detail';detail.style.cssText='position:absolute;left:300px;top:280px;width:64px;height:20px;pointer-events:none;background:repeating-linear-gradient(90deg,black 0,black 1px,white 1px,white 2px)';layer.append(detail);
+      const style=document.createElement('style');style.textContent='#fit-density-marker{position:fixed;left:300px;top:400px;width:20px;height:20px;background:rgb(255,0,255)}@media(min-resolution:.6dppx){#fit-density-marker{left:450px}}@media(min-resolution:1.1dppx){#fit-density-marker{left:600px}}';layer.append(style);
+      const density=document.createElement('div');density.id='fit-density-marker';layer.append(density);
       const check=document.createElement('input');check.type='checkbox';check.id='fit-checkbox';check.setAttribute('aria-label','Fit modal permission');check.style.cssText='position:absolute;left:20px;top:20px;width:24px;height:24px;margin:0;pointer-events:auto';panel.append(check);layer.append(panel);document.body.append(layer);return true;
     })()"#).await?;
     let mut cases = Vec::new();
@@ -88,7 +91,12 @@ pub async fn run(app: &tauri::AppHandle, guest: &Webview) -> Result<(), String> 
             tokio::time::sleep(Duration::from_millis(30)).await;
         }
         evidence(guest,"(() => {fitClicks=[];document.querySelector('#fit-checkbox').checked=false;return true})()").await?;
+        let density_marker=evidence(guest,"(() => {const r=document.getElementById('fit-density-marker').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()").await?;
         let capture = bridge_call(connection, "production-probe", "screenshot", json!({})).await?;
+        let density_after=evidence(guest,"(() => {const r=document.getElementById('fit-density-marker').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()").await?;
+        if density_marker != density_after {
+            return Err("screenshot changed live resolution-dependent page layout".into());
+        }
         let png = base64::engine::general_purpose::STANDARD
             .decode(
                 capture["result"]["png_base64"]
@@ -96,6 +104,29 @@ pub async fn run(app: &tauri::AppHandle, guest: &Webview) -> Result<(), String> 
                     .ok_or("fit PNG missing")?,
             )
             .map_err(|_| "invalid fit PNG")?;
+        if png.len() < 24 {
+            return Err("fit screenshot PNG header missing".into());
+        }
+        let iw = u32::from_be_bytes(
+            png[16..20]
+                .try_into()
+                .map_err(|_| "fit PNG width missing")?,
+        );
+        let ih = u32::from_be_bytes(
+            png[20..24]
+                .try_into()
+                .map_err(|_| "fit PNG height missing")?,
+        );
+        let vw = capture["result"]["viewport"]["width"]
+            .as_f64()
+            .ok_or("fit CSS width missing")?;
+        let vh = capture["result"]["viewport"]["height"]
+            .as_f64()
+            .ok_or("fit CSS height missing")?;
+        let css_1x = f64::from(iw) >= vw - 2.0 && f64::from(ih) >= vh - 2.0;
+        if !cfg!(target_os = "linux") && !css_1x {
+            return Err("native model screenshot is limited by preview resolution".into());
+        }
         let (native_width, native_height) = content_size(guest).await?;
         if native_width < 1.0
             || native_height < 1.0
@@ -105,6 +136,7 @@ pub async fn run(app: &tauri::AppHandle, guest: &Webview) -> Result<(), String> 
             return Err(format!("native preview overflowed its pane: native={native_width}x{native_height}, pane={width}x{height}, viewport={}",capture["result"]["viewport"]));
         }
         let markers=evidence(guest,"['tl','tr','bl','br'].map(id=>{const r=document.getElementById('fit-'+id).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})").await?;
+        let detail=evidence(guest,"(() => {const r=document.getElementById('fit-detail').getBoundingClientRect();return {x:r.x,y:r.y+r.height/2,samples:32}})()").await?;
         if let Some(root) = std::env::var_os("XHARNESS_NATIVE_API_EVIDENCE") {
             std::fs::write(
                 std::path::PathBuf::from(root).join(format!("fit-{index}.png")),
@@ -139,7 +171,7 @@ pub async fn run(app: &tauri::AppHandle, guest: &Webview) -> Result<(), String> 
         {
             return Err(format!("fit actual page effects mismatch: {effects}"));
         }
-        cases.push(json!({"index":index,"pane":[width,height],"preview":{"width":native_width,"height":native_height},"viewport":capture["result"]["viewport"],"image":capture["result"]["image"],"markers":markers,"trusted_corners":true,"modal_checkbox":true,"stale_frame":"denied"}));
+        cases.push(json!({"index":index,"pane":[width,height],"preview":{"width":native_width,"height":native_height},"viewport":capture["result"]["viewport"],"image":capture["result"]["image"],"css_1x":css_1x,"detail":detail,"density_marker":density_marker,"markers":markers,"trusted_corners":true,"modal_checkbox":true,"stale_frame":"denied"}));
     }
     browser::desktop_browser_bounds(
         main,
@@ -160,7 +192,7 @@ pub async fn run(app: &tauri::AppHandle, guest: &Webview) -> Result<(), String> 
     .await?;
     println!(
         "FIT_VIEWPORT_EVIDENCE {}",
-        json!({"passed":true,"cases":cases,"responsive_restored":true,"test_only":true})
+        json!({"passed":true,"platform":std::env::consts::OS,"cases":cases,"responsive_restored":true,"test_only":true})
     );
     Ok(())
 }

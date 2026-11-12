@@ -1,9 +1,11 @@
-use ::windows::core::{HSTRING, PCWSTR};
+use ::windows::core::{Interface, HSTRING, PCWSTR};
 use base64::Engine;
 use serde_json::{json, Value};
+use std::{cell::RefCell, rc::Rc};
 use tauri::webview::PlatformWebview;
 use tokio::sync::oneshot::Sender;
 use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
+use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller3;
 
 fn cdp(
     handle: &PlatformWebview,
@@ -144,26 +146,123 @@ pub fn input(
         let _ = reply.send(result);
     });
 }
-pub fn snapshot(handle: PlatformWebview, reply: Sender<Result<Vec<u8>, String>>) {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    cdp(
-        &handle,
-        "Page.captureScreenshot",
-        json!({"format":"png","captureBeyondViewport":false}),
-        tx,
-    );
-    tauri::async_runtime::spawn(async move {
-        let response = completed(rx).await;
-        if reply.is_closed() {
+pub fn snapshot(
+    handle: PlatformWebview,
+    plan: super::capture::CapturePlan,
+    reply: Sender<Result<Vec<u8>, String>>,
+) {
+    type Reply = Rc<RefCell<Option<Sender<Result<Vec<u8>, String>>>>>;
+    fn finish(reply: &Reply, result: Result<Vec<u8>, String>) {
+        if let Some(tx) = reply.borrow_mut().take() {
+            let _ = tx.send(result);
+        }
+    }
+    let reply = Rc::new(RefCell::new(Some(reply)));
+    // SAFETY: the controller and all callbacks stay on the owning UI apartment.
+    // Only the final byte vector crosses the oneshot; no COM object is sent to
+    // an async worker. Read native scale without changing zoom/DPI/emulation.
+    let setup = (|| unsafe {
+        let controller = handle.controller();
+        let mut zoom = 0.0;
+        controller
+            .ZoomFactor(&mut zoom)
+            .map_err(|_| "native browser zoom unavailable")?;
+        let controller3 = controller
+            .cast::<ICoreWebView2Controller3>()
+            .map_err(|_| "native browser raster scale unavailable")?;
+        let mut raster = 0.0;
+        controller3
+            .RasterizationScale(&mut raster)
+            .map_err(|_| "native browser raster scale unavailable")?;
+        let view = controller
+            .CoreWebView2()
+            .map_err(|_| "native browser unavailable")?;
+        Ok::<_, &str>((view, zoom * raster))
+    })();
+    let (view, density) = match setup {
+        Ok(v) => v,
+        Err(e) => {
+            finish(&reply, Err(e.into()));
             return;
         }
-        let result = response.and_then(|v| {
-            base64::engine::general_purpose::STANDARD
-                .decode(v["data"].as_str().ok_or("missing PNG")?)
-                .map_err(|_| "invalid native PNG".to_string())
-        });
-        let _ = reply.send(result);
-    });
+    };
+    let captured_view = view.clone();
+    let pending = reply.clone();
+    let metrics_callback =
+        CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |status, text| {
+            if pending.borrow().as_ref().is_none_or(|tx| tx.is_closed()) {
+                return Ok(());
+            }
+            let args = (|| {
+                if status.is_err() {
+                    return Err("native capture metrics unavailable".to_string());
+                }
+                let metrics: Value =
+                    serde_json::from_str(&text).map_err(|_| "invalid native capture metrics")?;
+                super::capture::chromium_parameters(plan, &metrics, density)
+            })();
+            let args = match args {
+                Ok(v) => v,
+                Err(e) => {
+                    finish(&pending, Err(e));
+                    return Ok(());
+                }
+            };
+            let output = pending.clone();
+            let callback = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(
+                move |status, text| {
+                    if output.borrow().as_ref().is_none_or(|tx| tx.is_closed()) {
+                        return Ok(());
+                    }
+                    let result = (|| {
+                        if status.is_err() {
+                            return Err("native screenshot unavailable".to_string());
+                        }
+                        let value: Value = serde_json::from_str(&text)
+                            .map_err(|_| "invalid native screenshot result")?;
+                        let data = value["data"]
+                            .as_str()
+                            .filter(|v| v.len() <= 12 * 1024 * 1024)
+                            .ok_or("native screenshot exceeds byte budget")?;
+                        base64::engine::general_purpose::STANDARD
+                            .decode(data)
+                            .map_err(|_| "invalid native PNG".into())
+                    })();
+                    finish(&output, result);
+                    Ok(())
+                },
+            ));
+            let method = HSTRING::from("Page.captureScreenshot");
+            let args = HSTRING::from(args.to_string());
+            // SAFETY: synchronous COM dispatch on this same UI callback apartment;
+            // WebView2 owns the completion handler until its terminal callback.
+            if unsafe {
+                captured_view.CallDevToolsProtocolMethod(
+                    PCWSTR(method.as_ptr()),
+                    PCWSTR(args.as_ptr()),
+                    &callback,
+                )
+            }
+            .is_err()
+            {
+                finish(&pending, Err("native screenshot dispatch failed".into()));
+            }
+            Ok(())
+        }));
+    let method = HSTRING::from("Page.getLayoutMetrics");
+    let args = HSTRING::from("{}");
+    // SAFETY: UI-thread COM object and live nul-terminated strings.
+    if unsafe {
+        view.CallDevToolsProtocolMethod(
+            PCWSTR(method.as_ptr()),
+            PCWSTR(args.as_ptr()),
+            &metrics_callback,
+        )
+    }
+    .is_err()
+    {
+        finish(&reply, Err("native capture metrics dispatch failed".into()));
+    }
 }
 
 #[cfg(test)]

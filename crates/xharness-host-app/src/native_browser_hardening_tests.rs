@@ -65,6 +65,7 @@ async fn fixture(
         address: listener.local_addr().unwrap(),
         token: "a".repeat(64),
         headless: false,
+        images: Default::default(),
     });
     let count = Arc::new(AtomicUsize::new(0));
     let seen = count.clone();
