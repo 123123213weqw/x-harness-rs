@@ -163,6 +163,10 @@ pub fn snapshot(
     // an async worker. Read native scale without changing zoom/DPI/emulation.
     let setup = (|| unsafe {
         let controller = handle.controller();
+        let mut zoom = 0.0;
+        controller
+            .ZoomFactor(&mut zoom)
+            .map_err(|_| "native browser zoom unavailable")?;
         let controller3 = controller
             .cast::<ICoreWebView2Controller3>()
             .map_err(|_| "native browser raster scale unavailable")?;
@@ -173,12 +177,11 @@ pub fn snapshot(
         let view = controller
             .CoreWebView2()
             .map_err(|_| "native browser unavailable")?;
-        // CDP clip is expressed in CSS pixels. Page zoom already maps
-        // CSS into the viewport; multiplying it into raster would compensate
-        // preview zoom twice and produce multi-megapixel oversized screenshots.
-        Ok::<_, &str>((view, raster))
+        // Page.Viewport uses DIP, whereas our frame/input coordinates use CSS.
+        // Keep the trusted page zoom separate from native raster density.
+        Ok::<_, &str>((view, zoom, raster))
     })();
-    let (view, density) = match setup {
+    let (view, zoom, raster) = match setup {
         Ok(v) => v,
         Err(e) => {
             finish(&reply, Err(e.into()));
@@ -198,7 +201,7 @@ pub fn snapshot(
                 }
                 let metrics: Value =
                     serde_json::from_str(&text).map_err(|_| "invalid native capture metrics")?;
-                super::capture::chromium_parameters(plan, &metrics, density)
+                super::capture::chromium_parameters(plan, &metrics, zoom, raster)
             })();
             let args = match args {
                 Ok(v) => v,

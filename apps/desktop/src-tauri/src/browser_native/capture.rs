@@ -47,13 +47,15 @@ impl CapturePlan {
     }
 }
 
-/// CDP's CSS clip output includes the native raster scale, not page zoom a
-/// second time. Read this scale from WebView2, not page-overridable JS/DPR.
+/// CDP Page.Viewport clips use DIP, not CSS pixels. Convert the CSS frame
+/// through trusted WebView2 page zoom, then compensate output raster density.
+/// Never infer either scale from page-overridable JS/DPR.
 #[cfg(any(windows, test))]
 pub(super) fn chromium_parameters(
     plan: CapturePlan,
     metrics: &serde_json::Value,
-    density: f64,
+    zoom: f64,
+    raster: f64,
 ) -> Result<serde_json::Value, String> {
     let visual = &metrics["cssVisualViewport"];
     let x = visual["pageX"]
@@ -68,16 +70,22 @@ pub(super) fn chromium_parameters(
         .as_f64()
         .filter(|n| n.is_finite() && (*n - 1.0).abs() < 0.01)
         .ok_or("pinch-scaled browser geometry requires a fresh unambiguous viewport")?;
-    if !density.is_finite() || !(0.1..=16.0).contains(&density) {
-        return Err("invalid native capture raster scale".into());
+    if !zoom.is_finite()
+        || !(0.1..=16.0).contains(&zoom)
+        || !raster.is_finite()
+        || !(0.1..=16.0).contains(&raster)
+    {
+        return Err("invalid native capture zoom or raster scale".into());
     }
-    let scale = f64::from(plan.width) / (plan.css.0 * density);
+    let dip_width = plan.css.0 * zoom;
+    let dip_height = plan.css.1 * zoom;
+    let scale = f64::from(plan.width) / (dip_width * raster);
     if !scale.is_finite() || !(0.01..=16.0).contains(&scale) {
         return Err("native capture scale exceeds budget".into());
     }
     let _ = pinch;
     Ok(
-        serde_json::json!({"format":"png","captureBeyondViewport":false,"fromSurface":true,"clip":{"x":x,"y":y,"width":plan.css.0,"height":plan.css.1,"scale":scale}}),
+        serde_json::json!({"format":"png","captureBeyondViewport":false,"fromSurface":true,"clip":{"x":x*zoom,"y":y*zoom,"width":dip_width,"height":dip_height,"scale":scale}}),
     )
 }
 
@@ -185,6 +193,7 @@ mod tests {
             let args = chromium_parameters(
                 plan,
                 &serde_json::json!({"cssVisualViewport":{"pageX":17,"pageY":900,"scale":1}}),
+                1.0,
                 density,
             )
             .unwrap();
@@ -199,10 +208,51 @@ mod tests {
         assert!(chromium_parameters(
             plan,
             &serde_json::json!({"cssVisualViewport":{"pageX":0,"pageY":0,"scale":2}}),
+            1.0,
             1.0
         )
         .is_err());
-        assert!(chromium_parameters(plan, &serde_json::json!({}), 1.0).is_err());
+        assert!(chromium_parameters(plan, &serde_json::json!({}), 1.0, 1.0).is_err());
+    }
+    #[test]
+    fn css_frame_is_converted_to_dip_once_before_output_scaling() {
+        let plan = CapturePlan::new((1280.0, 721.0), (426, 240)).unwrap();
+        for zoom in [0.1, 360.0 / 1280.0, 426.0 / 1280.0, 0.5, 1.0, 2.0] {
+            for raster in [1.0, 1.25, 1.5, 2.0] {
+                let args = chromium_parameters(
+                    plan,
+                    &serde_json::json!({"cssVisualViewport":{"pageX":17,"pageY":900,"scale":1}}),
+                    zoom,
+                    raster,
+                )
+                .unwrap();
+                let c = &args["clip"];
+                let width = c["width"].as_f64().unwrap();
+                let height = c["height"].as_f64().unwrap();
+                let scale = c["scale"].as_f64().unwrap();
+                assert!((width - 1280.0 * zoom).abs() < 0.001);
+                assert!((height - 721.0 * zoom).abs() < 0.001);
+                assert!((c["x"].as_f64().unwrap() - 17.0 * zoom).abs() < 0.001);
+                assert!((c["y"].as_f64().unwrap() - 900.0 * zoom).abs() < 0.001);
+                assert!((width * scale * raster - 1280.0).abs() < 0.001);
+                assert!((height * scale * raster - 721.0).abs() < 0.001);
+                assert_eq!(args["captureBeyondViewport"], false);
+            }
+        }
+        for (zoom, raster) in [
+            (f64::NAN, 1.0),
+            (0.0, 1.0),
+            (1.0, f64::INFINITY),
+            (1.0, 0.0),
+        ] {
+            assert!(chromium_parameters(
+                plan,
+                &serde_json::json!({"cssVisualViewport":{"pageX":0,"pageY":0,"scale":1}}),
+                zoom,
+                raster
+            )
+            .is_err());
+        }
     }
     #[test]
     fn native_png_must_match_plan_without_raising_existing_pixel_budget() {

@@ -41,7 +41,8 @@ class NativeProbeTests(unittest.TestCase):
             self.assertIn(api,backend)
         backend=(root/'apps/desktop/src-tauri/src/browser_native/windows.rs').read_text()
         self.assertIn('.RasterizationScale(',backend)
-        self.assertNotIn('.ZoomFactor(',backend)
+        self.assertIn('.ZoomFactor(',backend)
+        self.assertIn('chromium_parameters(plan, &metrics, zoom, raster)',backend)
         self.assertIn('validate_chromium_dimensions(plan, &png)',backend)
         # Tool capability is the private Host bridge, not an extra guest/main IPC
         # permission that a loaded page can impersonate.
@@ -149,6 +150,7 @@ class NativeProbeTests(unittest.TestCase):
         root=Path(__file__).resolve().parents[2]
         text=(root/'.github/workflows/windows-browser-bounds-lab.yml').read_text()
         self.assertIn('workflow_dispatch:',text)
+        self.assertIn('\"resources\":[]',text)
         self.assertIn("'^[0-9a-f]{40}$'",text)
         self.assertIn('Candidate source identity mismatch',text)
         self.assertIn('persist-credentials: false',text)

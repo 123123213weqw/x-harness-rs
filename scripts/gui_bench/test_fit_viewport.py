@@ -19,7 +19,7 @@ def fixture_png():
 
 class FitViewportTests(unittest.TestCase):
     def test_full_size_png_requires_real_fine_detail_not_just_large_dimensions(self):
-        def png(detail):
+        def png(detail, zoom=1):
             width,height=1280,720
             rows=[]
             for y in range(height):
@@ -30,6 +30,15 @@ class FitViewportTests(unittest.TestCase):
                 if 280<=y<300:
                     for x in range(300,364):row[x*3:x*3+3]=bytes([255*((x-300)%2) if detail else 127])*3
                 rows.append(b'\0'+row)
+            if zoom!=1:
+                source=rows;rows=[]
+                for y in range(height):
+                    row=bytearray(b'\xff'*(width*3))
+                    if y<round(height*zoom):
+                        sy=min(height-1,int(y/zoom))
+                        for x in range(round(width*zoom)):
+                            sx=min(width-1,int(x/zoom));row[x*3:x*3+3]=source[sy][1+sx*3:1+sx*3+3]
+                    rows.append(b'\0'+row)
             return SIGNATURE+chunk(b'IHDR',struct.pack('!IIBBBBB',width,height,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(b''.join(rows)))+chunk(b'IEND',b'')
         row=dict(passed=True,platform='windows',responsive_restored=True,cases=[dict(index=i,preview=dict(width=300,height=200),native_pixels=dict(width=300,height=200),pane=[[426,500],[640,400],[360,500]][i],viewport=dict(width=1280,height=720),image=dict(width=1280,height=720),css_1x=True,detail=dict(x=300,y=290,samples=32),density_marker=dict(x=310,y=410),markers=[dict(x=x,y=y) for x,y in [(20,20),(1260,20),(20,700),(1260,700)]],trusted_corners=True,modal_checkbox=True,stale_frame='denied') for i in range(3)])
         with tempfile.TemporaryDirectory() as directory:
@@ -52,6 +61,8 @@ class FitViewportTests(unittest.TestCase):
             moved=copy.deepcopy(row);moved['cases'][1]['density_marker']['x']=460
             with self.assertRaisesRegex(ValueError,'resolution-dependent layout'):
                 verify('FIT_VIEWPORT_EVIDENCE '+json.dumps(moved),root)
+            (root/'fit-1.png').write_bytes(png(True,426/1280))
+            with self.assertRaisesRegex(ValueError,'resolution-dependent layout'):verify(line,root)
             (root/'fit-1.png').write_bytes(png(False))
             with self.assertRaisesRegex(ValueError,'thin-line detail'):verify(line,root)
 
