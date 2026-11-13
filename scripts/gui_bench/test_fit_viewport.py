@@ -31,12 +31,24 @@ class FitViewportTests(unittest.TestCase):
                     for x in range(300,364):row[x*3:x*3+3]=bytes([255*((x-300)%2) if detail else 127])*3
                 rows.append(b'\0'+row)
             return SIGNATURE+chunk(b'IHDR',struct.pack('!IIBBBBB',width,height,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(b''.join(rows)))+chunk(b'IEND',b'')
-        row=dict(passed=True,platform='windows',responsive_restored=True,cases=[dict(index=i,preview=dict(width=300,height=200),pane=[[426,500],[640,400],[360,500]][i],viewport=dict(width=1280,height=720),image=dict(width=1280,height=720),css_1x=True,detail=dict(x=300,y=290,samples=32),density_marker=dict(x=310,y=410),markers=[dict(x=x,y=y) for x,y in [(20,20),(1260,20),(20,700),(1260,700)]],trusted_corners=True,modal_checkbox=True,stale_frame='denied') for i in range(3)])
+        row=dict(passed=True,platform='windows',responsive_restored=True,cases=[dict(index=i,preview=dict(width=300,height=200),native_pixels=dict(width=300,height=200),pane=[[426,500],[640,400],[360,500]][i],viewport=dict(width=1280,height=720),image=dict(width=1280,height=720),css_1x=True,detail=dict(x=300,y=290,samples=32),density_marker=dict(x=310,y=410),markers=[dict(x=x,y=y) for x,y in [(20,20),(1260,20),(20,700),(1260,700)]],trusted_corners=True,modal_checkbox=True,stale_frame='denied') for i in range(3)])
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
             for i in range(3):(root/f'fit-{i}.png').write_bytes(png(True))
             line='FIT_VIEWPORT_EVIDENCE '+json.dumps(row)
             self.assertTrue(verify(line,root)['passed'])
+            missing=copy.deepcopy(row);missing['cases'][0].pop('native_pixels')
+            with self.assertRaisesRegex(ValueError,'actual native pixel allocation'):verify('FIT_VIEWPORT_EVIDENCE '+json.dumps(missing),root)
+            wrong=copy.deepcopy(row);wrong['cases'][0]['native_pixels']['width']=1600
+            with self.assertRaisesRegex(ValueError,'capture geometry budget'):verify('FIT_VIEWPORT_EVIDENCE '+json.dumps(wrong),root)
+            # Decodable and below the old four-megapixel cap, but not the
+            # requested target. The stricter geometry check must reject it.
+            oversized=copy.deepcopy(row);oversized['cases'][1]['image']=dict(width=1408,height=792)
+            invalid_size=SIGNATURE+chunk(b'IHDR',struct.pack('!IIBBBBB',1408,792,8,2,0,0,0))+chunk(b'IDAT',zlib.compress((b'\0'+b'\xff'*(1408*3))*792))+chunk(b'IEND',b'')
+            (root/'fit-1.png').write_bytes(invalid_size)
+            with self.assertRaisesRegex(ValueError,'capture geometry budget'):
+                verify('FIT_VIEWPORT_EVIDENCE '+json.dumps(oversized),root)
+            (root/'fit-1.png').write_bytes(png(True))
             moved=copy.deepcopy(row);moved['cases'][1]['density_marker']['x']=460
             with self.assertRaisesRegex(ValueError,'resolution-dependent layout'):
                 verify('FIT_VIEWPORT_EVIDENCE '+json.dumps(moved),root)
@@ -44,7 +56,7 @@ class FitViewportTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'thin-line detail'):verify(line,root)
 
     def test_pixels_geometry_and_effects_are_required(self):
-        row=dict(passed=True,platform='linux',responsive_restored=True,cases=[dict(index=i,preview=dict(width=300,height=200),pane=[[426,500],[640,400],[360,500]][i],viewport=dict(width=1280,height=720),image=dict(width=2,height=2),css_1x=False,markers=[dict(x=x,y=y) for x,y in [(0,0),(640,0),(0,360),(640,360)]],trusted_corners=True,modal_checkbox=True,stale_frame='denied') for i in range(3)])
+        row=dict(passed=True,platform='linux',responsive_restored=True,cases=[dict(index=i,preview=dict(width=300,height=200),native_pixels=dict(width=300,height=200),pane=[[426,500],[640,400],[360,500]][i],viewport=dict(width=1280,height=720),image=dict(width=2,height=2),css_1x=False,markers=[dict(x=x,y=y) for x,y in [(0,0),(640,0),(0,360),(640,360)]],trusted_corners=True,modal_checkbox=True,stale_frame='denied') for i in range(3)])
         line=lambda r:'FIT_VIEWPORT_EVIDENCE '+json.dumps(r)
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)

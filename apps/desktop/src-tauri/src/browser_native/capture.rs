@@ -47,8 +47,8 @@ impl CapturePlan {
     }
 }
 
-/// CDP's output also includes the native raster scale and page zoom. Both are
-/// read from WebView2's controller, never from page-overridable JS properties.
+/// CDP's CSS clip output includes the native raster scale, not page zoom a
+/// second time. Read this scale from WebView2, not page-overridable JS/DPR.
 #[cfg(any(windows, test))]
 pub(super) fn chromium_parameters(
     plan: CapturePlan,
@@ -79,6 +79,27 @@ pub(super) fn chromium_parameters(
     Ok(
         serde_json::json!({"format":"png","captureBeyondViewport":false,"fromSurface":true,"clip":{"x":x,"y":y,"width":plan.css.0,"height":plan.css.1,"scale":scale}}),
     )
+}
+
+/// Verify the native renderer honored its requested output budget. Header-only
+/// geometry checking supplements (does not replace) downstream PNG validation.
+#[cfg(any(windows, test))]
+pub(super) fn validate_chromium_dimensions(plan: CapturePlan, png: &[u8]) -> Result<(), String> {
+    if png.len() < 33 || &png[..8] != b"\x89PNG\r\n\x1a\n" || &png[8..16] != b"\0\0\0\x0dIHDR" {
+        return Err("invalid native PNG geometry header".into());
+    }
+    let width = u32::from_be_bytes([png[16], png[17], png[18], png[19]]);
+    let height = u32::from_be_bytes([png[20], png[21], png[22], png[23]]);
+    if width == 0
+        || height == 0
+        || width > 1600
+        || height > 1600
+        || width.abs_diff(plan.width) > 1
+        || height.abs_diff(plan.height) > 1
+    {
+        return Err("native PNG geometry exceeds requested capture budget".into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -158,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn chromium_capture_accounts_for_trusted_page_zoom_dpi_and_scroll() {
+    fn chromium_capture_accounts_for_trusted_raster_dpi_and_scroll() {
         for density in [0.25, 0.5, 1.0, 1.5, 2.0] {
             let plan = CapturePlan::new((1280.0, 720.0), (426, 240)).unwrap();
             let args = chromium_parameters(
@@ -182,5 +203,36 @@ mod tests {
         )
         .is_err());
         assert!(chromium_parameters(plan, &serde_json::json!({}), 1.0).is_err());
+    }
+    #[test]
+    fn native_png_must_match_plan_without_raising_existing_pixel_budget() {
+        let plan = CapturePlan::new((1280.0, 720.0), (426, 240)).unwrap();
+        let header = |w: u32, h: u32| {
+            let mut bytes = vec![0; 33];
+            bytes[..16].copy_from_slice(b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR");
+            bytes[16..20].copy_from_slice(&w.to_be_bytes());
+            bytes[20..24].copy_from_slice(&h.to_be_bytes());
+            bytes
+        };
+        for (w, h) in [(1280, 720), (1279, 720), (1280, 721)] {
+            assert!(validate_chromium_dimensions(plan, &header(w, h)).is_ok());
+        }
+        for (w, h) in [
+            (3846, 2166),
+            (2560, 1440),
+            (4551, 2564),
+            (1408, 792),
+            (0, 720),
+            (1280, 0),
+        ] {
+            assert!(validate_chromium_dimensions(plan, &header(w, h)).is_err());
+        }
+        assert!(validate_chromium_dimensions(plan, &header(1280, 720)[..23]).is_err());
+        let mut bad = header(1280, 720);
+        bad[12] = b'X';
+        assert!(validate_chromium_dimensions(plan, &bad).is_err());
+        let capped = CapturePlan::new((1280.0, 720.0), (2560, 1440)).unwrap();
+        assert!(validate_chromium_dimensions(capped, &header(1600, 900)).is_ok());
+        assert!(validate_chromium_dimensions(capped, &header(1601, 900)).is_err());
     }
 }

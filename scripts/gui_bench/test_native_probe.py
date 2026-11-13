@@ -39,6 +39,10 @@ class NativeProbeTests(unittest.TestCase):
         for name,api in [('windows','Input.dispatchMouseEvent'),('linux','view.event(&event)'),('macos','view.mouseDown(&event)')]:
             backend=(root/f'apps/desktop/src-tauri/src/browser_native/{name}.rs').read_text()
             self.assertIn(api,backend)
+        backend=(root/'apps/desktop/src-tauri/src/browser_native/windows.rs').read_text()
+        self.assertIn('.RasterizationScale(',backend)
+        self.assertNotIn('.ZoomFactor(',backend)
+        self.assertIn('validate_chromium_dimensions(plan, &png)',backend)
         # Tool capability is the private Host bridge, not an extra guest/main IPC
         # permission that a loaded page can impersonate.
         main=(root/'apps/desktop/src-tauri/build.rs').read_text()
@@ -140,6 +144,21 @@ class NativeProbeTests(unittest.TestCase):
                 self.assertEqual(receipt['native_api_core_passed'], bool(evidence))
                 self.assertEqual(receipt['passed'], expected)
                 self.assertEqual(exit_code, 0 if expected else 1)
+
+    def test_windows_vm_builder_binds_exact_source_and_keeps_previous_oracle(self):
+        root=Path(__file__).resolve().parents[2]
+        text=(root/'.github/workflows/windows-browser-bounds-lab.yml').read_text()
+        self.assertIn('workflow_dispatch:',text)
+        self.assertIn("'^[0-9a-f]{40}$'",text)
+        self.assertIn('Candidate source identity mismatch',text)
+        self.assertIn('persist-credentials: false',text)
+        self.assertIn('permissions:\n  contents: read',text)
+        self.assertIn('git restore --source=$env:BASELINE_SHA --worktree -- apps/desktop/src-tauri/src/browser_native/windows.rs apps/desktop/src-tauri/src/browser_native/capture.rs',text)
+        self.assertIn('--example browser-inspect-probe',text)
+        self.assertIn('Get-FileHash dist/browser-bounds/browser-bounds-baseline.exe -Algorithm SHA256',text)
+        self.assertIn('Get-FileHash dist/browser-bounds/browser-inspect-probe.exe -Algorithm SHA256',text)
+        self.assertIn('if-no-files-found: error',text)
+        self.assertNotIn('continue-on-error',text)
 
     def test_core_api_gate_requires_trusted_state_and_changed_pixels(self):
         api = dict(status='tested', native_mouse={'passed':True}, native_keyboard={'passed':True},

@@ -163,10 +163,6 @@ pub fn snapshot(
     // an async worker. Read native scale without changing zoom/DPI/emulation.
     let setup = (|| unsafe {
         let controller = handle.controller();
-        let mut zoom = 0.0;
-        controller
-            .ZoomFactor(&mut zoom)
-            .map_err(|_| "native browser zoom unavailable")?;
         let controller3 = controller
             .cast::<ICoreWebView2Controller3>()
             .map_err(|_| "native browser raster scale unavailable")?;
@@ -177,7 +173,10 @@ pub fn snapshot(
         let view = controller
             .CoreWebView2()
             .map_err(|_| "native browser unavailable")?;
-        Ok::<_, &str>((view, zoom * raster))
+        // CDP clip is expressed in CSS pixels. Page zoom already maps
+        // CSS into the viewport; multiplying it into raster would compensate
+        // preview zoom twice and produce multi-megapixel oversized screenshots.
+        Ok::<_, &str>((view, raster))
     })();
     let (view, density) = match setup {
         Ok(v) => v,
@@ -224,9 +223,11 @@ pub fn snapshot(
                             .as_str()
                             .filter(|v| v.len() <= 12 * 1024 * 1024)
                             .ok_or("native screenshot exceeds byte budget")?;
-                        base64::engine::general_purpose::STANDARD
+                        let png = base64::engine::general_purpose::STANDARD
                             .decode(data)
-                            .map_err(|_| "invalid native PNG".into())
+                            .map_err(|_| "invalid native PNG")?;
+                        super::capture::validate_chromium_dimensions(plan, &png)?;
+                        Ok(png)
                     })();
                     finish(&output, result);
                     Ok(())

@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse
 import json
+import math
 from pathlib import Path
 import sys
 if __package__ in (None, ''):
@@ -40,6 +41,16 @@ def verify(log: str, images: Path) -> dict:
         css_1x = size[0] >= w-2 and size[1] >= h-2
         if case.get('css_1x') is not css_1x:
             raise ValueError('native resolution claim does not match PNG evidence')
+        if platform != 'linux':
+            native=case.get('native_pixels', {})
+            nw,nh=native.get('width'),native.get('height')
+            if any(type(v) is not int or not 0<v<=32768 for v in (nw,nh)):
+                raise ValueError('missing actual native pixel allocation')
+            density=min(max(nw/w,1),1600/max(w,h))
+            target=tuple(max(1,min(1600,math.floor(v*density+.5))) for v in (w,h))
+            if max(size)>1600 or any(abs(a-b)>1 for a,b in zip(size,target)):
+                raise ValueError('native PNG exceeds requested capture geometry budget')
+            case['capture_target_verified']=list(target)
         if platform != 'linux' and not css_1x:
             raise ValueError('model evidence is limited by the narrow preview')
         if platform != 'linux':

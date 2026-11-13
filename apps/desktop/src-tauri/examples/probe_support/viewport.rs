@@ -128,6 +128,9 @@ pub async fn run(app: &tauri::AppHandle, guest: &Webview) -> Result<(), String> 
             return Err("native model screenshot is limited by preview resolution".into());
         }
         let (native_width, native_height) = content_size(guest).await?;
+        let native_pixels = guest
+            .size()
+            .map_err(|_| "native pixel allocation missing")?;
         if native_width < 1.0
             || native_height < 1.0
             || native_width > f64::from(width) + 2.0
@@ -171,7 +174,7 @@ pub async fn run(app: &tauri::AppHandle, guest: &Webview) -> Result<(), String> 
         {
             return Err(format!("fit actual page effects mismatch: {effects}"));
         }
-        cases.push(json!({"index":index,"pane":[width,height],"preview":{"width":native_width,"height":native_height},"viewport":capture["result"]["viewport"],"image":capture["result"]["image"],"css_1x":css_1x,"detail":detail,"density_marker":density_marker,"markers":markers,"trusted_corners":true,"modal_checkbox":true,"stale_frame":"denied"}));
+        cases.push(json!({"index":index,"pane":[width,height],"preview":{"width":native_width,"height":native_height},"native_pixels":{"width":native_pixels.width,"height":native_pixels.height},"viewport":capture["result"]["viewport"],"image":capture["result"]["image"],"css_1x":css_1x,"detail":detail,"density_marker":density_marker,"markers":markers,"trusted_corners":true,"modal_checkbox":true,"stale_frame":"denied"}));
     }
     browser::desktop_browser_bounds(
         main,
