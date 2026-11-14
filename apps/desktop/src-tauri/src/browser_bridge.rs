@@ -49,6 +49,7 @@ enum Operation {
     Control,
     Observe,
     Perform,
+    Evaluate,
     Screenshot,
     Input,
     Request,
@@ -230,7 +231,12 @@ async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
     }
     let tab = match state.delegated_tab(&request.owner) {
         Ok(tab) => tab,
-        Err(error) if matches!(request.op, Operation::Perform | Operation::Input) => {
+        Err(error)
+            if matches!(
+                request.op,
+                Operation::Perform | Operation::Input | Operation::Evaluate
+            ) =>
+        {
             return Ok(rejected_action(&error))
         }
         Err(error) => return Err(error),
@@ -238,6 +244,7 @@ async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
     let operation = match &request.op {
         Operation::Observe => crate::browser_activity::Operation::Observe,
         Operation::Perform => crate::browser_activity::Operation::Perform,
+        Operation::Evaluate => crate::browser_activity::Operation::Evaluate,
         Operation::Screenshot => crate::browser_activity::Operation::Screenshot,
         Operation::Input => crate::browser_activity::Operation::Input,
         Operation::Request => crate::browser_activity::Operation::Request,
@@ -251,6 +258,19 @@ async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
             let _ = app.emit_to("main", "xharness-browser-activity", event);
         });
     match request.op {
+        Operation::Evaluate => {
+            match browser_inspect::execution::execute(
+                &state,
+                &tab,
+                &request.owner,
+                request.arguments,
+            )
+            .await
+            {
+                Ok(receipt) => Ok(receipt),
+                Err(error) => Ok(rejected_action(&error)),
+            }
+        }
         Operation::Request => {
             crate::browser_request::request(&state, &tab, &request.owner, request.arguments).await
         }
@@ -313,6 +333,7 @@ fn headless_operation(operation: &Operation) -> Result<&'static str, String> {
         Operation::Control => Ok("control"),
         Operation::Observe => Ok("observe"),
         Operation::Perform => Ok("perform"),
+        Operation::Evaluate => Ok("evaluate"),
         Operation::Screenshot => Ok("screenshot"),
         Operation::Input => Ok("input"),
         Operation::Request | Operation::ReadResponse => Err("login requests are supported only by the explicitly selected WebView backend; no cookies were transferred".into()),
@@ -369,7 +390,7 @@ mod tests {
         );
     }
     #[test]
-    fn private_protocol_has_no_tab_override_eval_or_guest_control() {
+    fn private_protocol_keeps_target_ownership_with_explicit_evaluate() {
         let token = "a".repeat(64);
         assert!(matches_token(&token, &token));
         assert!(!matches_token(&"b".repeat(64), &token));
@@ -379,6 +400,8 @@ mod tests {
         request["tab_id"] = json!("another-session");
         assert!(serde_json::from_value::<Request>(request.clone()).is_err());
         request.as_object_mut().unwrap().remove("tab_id");
+        request["op"] = json!("evaluate");
+        assert!(serde_json::from_value::<Request>(request.clone()).is_ok());
         request["op"] = json!("eval");
         assert!(serde_json::from_value::<Request>(request).is_err());
     }

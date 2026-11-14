@@ -1,5 +1,6 @@
 //! Chat-owned background browser. Presentation never grants/revokes control.
 #![forbid(unsafe_code)]
+mod evaluate;
 mod helper;
 mod process;
 pub use helper::run_if_requested as run_helper;
@@ -106,7 +107,7 @@ impl Browsers {
             Err(_) => false,
         };
         json!({"available":!process::candidates().is_empty(),"bound":bound,"engine":"chromium-headless","version":1,
-            "session":"chat-owned-independent-profile","capabilities":{"open":true,"close":true,"observe":true,"dom_actions":true,"browser_input_actions":["click","move","key"],"native_input":true,"cross_origin_pointer":true,"screenshot":true,"hidden_tab_actions":true,"recording":false,"global_os_input":false,"cross_origin_frames":false},
+            "session":"chat-owned-independent-profile","capabilities":{"open":true,"close":true,"observe":true,"dom_actions":true,"browser_input_actions":["click","move","key"],"native_input":true,"cross_origin_pointer":true,"screenshot":true,"hidden_tab_actions":true,"recording":false,"global_os_input":false,"cross_origin_frames":false,"javascript":true,"async_javascript":true,"console_capture":true},
             "constraints":["new isolated Chrome/Edge instance; no existing login/profile inherited","one page per chat, at most four live chats; close releases its browser","sidebar is optional preview; it does not authorize or own the browser","DOM refs are one-shot; screenshot/input use CSS viewport coordinates"]})
     }
     pub async fn close(&self, owner: &str) -> Result<Value, String> {
@@ -183,6 +184,7 @@ impl Browsers {
                 instance.screenshot().await
             }
             "perform" => instance.perform(arguments).await,
+            "evaluate" => instance.evaluate(arguments).await,
             "input" => instance.input(arguments).await,
             _ => Err("unknown background browser operation".into()),
         }

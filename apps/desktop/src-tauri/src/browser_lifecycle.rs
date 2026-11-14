@@ -45,10 +45,11 @@ pub fn descriptor(state: &BrowserState, owner: &str) -> Value {
     json!({"available":true,"bound":state.delegated_tab(owner).is_ok(),"version":2,
         "engine":"tauri-webview","capabilities":{
             "open":true,"close":true,"observe":true,"dom_actions":true,"browser_input_actions":["click","move","key"],"cross_origin_pointer":true,"global_os_input":false,
-            "authenticated_requests":true,"response_read":true,"request_redirects":false,"native_input":true,"cross_origin_frames":false,
+            "authenticated_requests":true,"response_read":true,"request_redirects":false,"native_input":true,"cross_origin_frames":false,"javascript":true,"async_javascript":true,"console_capture":true,
             "screenshot":true,"screenshot_scope":"system WebView viewport snapshot; accelerated media may be omitted","recording":false,"hidden_tab_actions":false
         },"constraints":["open requires the requesting chat to be visible; no focus stealing",
-            "observe/perform/screenshot/input/request/read_response require a loaded, visible, chat-bound tab",
+            "observe/perform/evaluate/screenshot/input/request/read_response require a loaded, visible, chat-bound tab",
+            "evaluate executes arbitrary page JavaScript with the action grant; browser same-origin rules apply; timeout does not roll back effects",
             "perform uses DOM actions; input uses browser-owned native events, not global OS input",
             "cross-origin iframe pixels/pointer input supported; cross-origin DOM traversal and recording unsupported"]})
 }

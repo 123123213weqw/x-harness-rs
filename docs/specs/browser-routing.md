@@ -26,6 +26,39 @@ The native implementation and schemas stay in the existing Host-app adapter.
 This is model routing guidance, not an engine-level prohibition or a guarantee
 that every model always chooses correctly.
 
+## Page JavaScript execution
+
+`browser_evaluate` is a fixed, typed AI tool on both `webview` (the visible,
+chat-bound WebView) and `browser` (the independent chat-owned background page).
+It is also discoverable as `evaluate` through the existing native-browser MCP
+adapter. `code` is an async function body: use `return` for values, `await` for
+promises, and optional JSON `args` for data. There is no keyword allowlist or
+read-only script classifier. DOM writes, page globals, ordinary page-accessible
+storage/cookies, same-origin frames and in-page `fetch` work under the browser's
+normal same-origin/CORS rules. This is page JavaScript, not Node.js or Host IPC.
+
+Console output during the invocation and return values/exceptions are bounded
+and returned as untrusted evidence. The script body is injected as a function,
+not compiled with page `eval`/`Function`; async results use an invocation-correlated
+page mailbox polled through the native callback API on all platforms. BigInt,
+undefined, cyclic data and oversized values have explicit serialization markers.
+
+Existing invocation approval and WebView action delegation apply; observation-only
+delegation is insufficient. Owner/tab selection comes from the native binding,
+never model arguments. Evaluation invalidates old action/image refs. The default
+wait is 5 seconds (maximum 10); input is capped at 12000 UTF-8 code bytes and
+the serialized page result at 7 KiB, with an explicit truncation flag.
+Timeout/cancellation stops waiting, not arbitrary JavaScript or its effects.
+Synchronous infinite loops can hang a page; pending asynchronous effects can run
+after a timeout. Exceptions, navigation and callback loss report unknown effects,
+and no execution is retried automatically. This tool does not require exposing
+the trusted shell's developer tools or granting guest pages desktop permissions.
+
+The shipped JS runtime test, native bridge probe and owned Chrome/Edge acceptance
+cover execution, console/async results, output limits, partial effects, timeouts,
+stale refs, malformed code and session/Host boundaries. These do not claim a
+specific LLM task-success rate or that an installed app has been upgraded.
+
 ## Discovery compatibility
 
 `plugin_mcp` advertises the embedded browser first in its description. Its existing

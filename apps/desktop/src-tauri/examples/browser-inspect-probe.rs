@@ -38,6 +38,8 @@ mod native_api;
 mod native_startup;
 #[path = "probe_support/readiness.rs"]
 mod readiness;
+#[path = "probe_support/evaluate.rs"]
+mod script_execution_probe;
 #[path = "probe_support/session_request.rs"]
 mod session_request;
 #[path = "probe_support/viewport.rs"]
@@ -1100,6 +1102,16 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
     if denied["result"]["ok"] != false || denied["result"]["effect"] != "not_started" {
         return Err("read-only denial did not report an unstarted action".into());
     }
+    let script_denied = bridge_call(
+        connection,
+        "parent",
+        "evaluate",
+        json!({"code":"window.mustNotRun=true"}),
+    )
+    .await?;
+    if script_denied["result"]["effect"] != "not_started" {
+        return Err("read-only binding allowed arbitrary JavaScript".into());
+    }
     browser_delegation::desktop_browser_delegate(
         main.clone(),
         app.state(),
@@ -1161,6 +1173,7 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
     )?)
     .unwrap();
     bridge_call(connection, "parent", "perform", restore).await?;
+    script_execution_probe::run(connection).await?;
     browser::desktop_browser_activate(main.clone(), app.state(), None).await?;
     browser::desktop_browser_activate(main.clone(), app.state(), Some("probe".into())).await?;
     if bridge_call(connection, "parent", "list", json!({})).await?["result"]["bound"] != false {
