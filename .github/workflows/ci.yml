@@ -121,6 +121,8 @@ jobs:
       - run: node scripts/test-desktop-bootstrap.mjs
       - run: node scripts/test-desktop-startup.mjs
       - run: node scripts/test-desktop-titlebar.mjs
+      - run: node scripts/test-browser-javascript.mjs
+      - run: node scripts/test-browser-activity.mjs
       - name: macOS AX snapshot budgets and window-only regression
         run: node --test scripts/test-macos-accessibility-snapshot.mjs
       - run: python -B scripts/test-linux-appimage-compat.py

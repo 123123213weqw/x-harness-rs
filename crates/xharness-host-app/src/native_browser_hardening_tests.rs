@@ -81,7 +81,9 @@ async fn fixture(
             assert_eq!(request["owner"], "hardening-owner");
             seen.fetch_add(1, Ordering::SeqCst);
             // Simulate connection loss AFTER a write may have been dispatched.
-            if request["op"] == "control" && request["arguments"]["action"] == "close" {
+            if request["op"] == "control" && request["arguments"]["action"] == "close"
+                || request["op"] == "evaluate" && request["arguments"]["code"] == "lost-reply"
+            {
                 continue;
             }
             let result = match request["op"].as_str().unwrap() {
@@ -91,6 +93,9 @@ async fn fixture(
                 "control" => json!({"ok":true,"state":"ready","effect":"applied"}),
                 "observe" => {
                     json!({"scope":"page","frame_id":"1".repeat(32),"text":"fixture marker","nodes":[]})
+                }
+                "evaluate" => {
+                    json!({"ok":true,"effect":"applied","status":"completed","value":request["arguments"]["args"],"console":[]})
                 }
                 _ => panic!("unexpected fixture operation"),
             };
@@ -186,7 +191,7 @@ async fn incident_errors_offer_one_step_repairs_before_any_browser_request() {
 async fn fixed_browser_tools_are_typed_and_keep_existing_approval() {
     let (executor, registry, count, server) = fixture(false).await;
     let definitions = registry.definitions().await;
-    assert_eq!(definitions.len(), 8);
+    assert_eq!(definitions.len(), 9);
     let observe = definitions
         .iter()
         .find(|d| d.name == "browser_observe")
@@ -210,6 +215,67 @@ async fn fixed_browser_tools_are_typed_and_keep_existing_approval() {
         ToolFailureKind::ApprovalUnavailable
     );
     assert_eq!(count.load(Ordering::SeqCst), 0);
+    let denied = call(
+        &executor,
+        "browser_evaluate",
+        json!({"backend":"webview","code":"return document.cookie"}),
+    )
+    .await;
+    assert_eq!(
+        denied.failure.unwrap().kind,
+        ToolFailureKind::ApprovalUnavailable
+    );
+    assert_eq!(count.load(Ordering::SeqCst), 0);
+    server.abort();
+    assert!(server.await.unwrap_err().is_cancelled());
+}
+
+#[tokio::test]
+async fn arbitrary_javascript_is_direct_discoverable_scoped_and_never_replayed() {
+    let (executor, registry, count, server) = fixture(true).await;
+    let definitions = registry.definitions().await;
+    let evaluate = definitions
+        .iter()
+        .find(|d| d.name == "browser_evaluate")
+        .unwrap();
+    assert_eq!(
+        evaluate.parameters["properties"]["code"]["maxLength"],
+        12000
+    );
+    for backend in [SERVER, HEADLESS_SERVER] {
+        let result=call(&executor,"browser_evaluate",json!({"backend":backend,"code":"window.changed=true;return await fetch('/api',{method:'POST'});","args":{"proof":backend}})).await;
+        assert!(result.is_ok(), "{result:?}");
+        let described = call(
+            &executor,
+            "plugin_mcp",
+            json!({"action":"describe","plugin":PLUGIN,"server":backend,"tool":"evaluate"}),
+        )
+        .await;
+        assert!(described.is_ok(), "{described:?}");
+    }
+    let sent = count.load(Ordering::SeqCst);
+    for args in [
+        json!({"backend":SERVER,"code":"return 1","tab_id":"main"}),
+        json!({"backend":SERVER,"code":"return 1","owner":"other"}),
+        json!({"backend":SERVER,"code":"return 1","timeout_ms":10001}),
+        json!({"backend":SERVER,"code":"x".repeat(12001)}),
+    ] {
+        assert!(call(&executor, "browser_evaluate", args)
+            .await
+            .failure
+            .is_some());
+    }
+    assert_eq!(count.load(Ordering::SeqCst), sent);
+    let lost = call(
+        &executor,
+        "browser_evaluate",
+        json!({"backend":SERVER,"code":"lost-reply"}),
+    )
+    .await;
+    let message = lost.failure.unwrap().message;
+    assert!(message.contains("effect: unknown"));
+    assert!(message.contains("do not replay automatically"));
+    assert_eq!(count.load(Ordering::SeqCst), sent + 1);
     server.abort();
     assert!(server.await.unwrap_err().is_cancelled());
 }

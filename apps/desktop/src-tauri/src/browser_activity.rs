@@ -13,6 +13,7 @@ pub(super) enum Operation {
     Close,
     Observe,
     Perform,
+    Evaluate,
     Screenshot,
     Input,
     Request,

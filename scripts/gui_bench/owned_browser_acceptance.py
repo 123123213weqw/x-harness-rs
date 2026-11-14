@@ -133,6 +133,23 @@ def main():
         state=call('control',{'action':'status'});assert state['available'] and not state['bound']
         opened=call('control',{'action':'open','url':fixture.url});assert opened['state']=='ready' and opened['preview_optional']
         tab=opened['tab_id'];cases.append('open without sidebar/UI rendezvous')
+        frame=call('observe')
+        executed=call('evaluate',{'code':"window.aiScriptValue=args.value;localStorage.setItem('ai-script',args.value);document.cookie='ai_eval=ok;path=/';console.log('script-proof',args.value);const r=await fetch(location.href);return {value:window.aiScriptValue,stored:localStorage.getItem('ai-script'),fetched:(await r.text()).includes('Ready'),cookie:document.cookie.includes('ai_eval=ok'),host:typeof window.__TAURI__,big:123n};",'args':{'value':'arbitrary-js'}})
+        assert executed['ok'] and executed['value']=={'value':'arbitrary-js','stored':'arbitrary-js','fetched':True,'cookie':True,'host':'undefined','big':{'type':'bigint','value':'123'}},executed
+        assert executed['console'][0]['level']=='log',executed
+        assert call('perform',{'action':'scroll','delta_y':1,'frame_id':frame['frame_id']})['effect']=='not_started'
+        failed=call('evaluate',{'code':"window.partialScriptEffect=true;throw new Error('script-exception');"})
+        assert not failed['ok'] and failed['status']=='exception' and failed['effect']=='unknown' and failed['error']['message']=='script-exception',failed
+        timed=call('evaluate',{'code':'await new Promise(()=>{});','timeout_ms':10})
+        assert not timed['ok'] and timed['status']=='timeout' and timed['effect']=='unknown',timed
+        huge=call('evaluate',{'code':"return Array(10000).fill('🧪'.repeat(100));"})
+        assert huge['ok'] and huge['truncated'] and len(json.dumps(huge).encode())<12*1024,huge
+        syntax=call('evaluate',{'code':'return ('});assert not syntax['ok'] and syntax['effect']=='unknown',syntax
+        spoof=call('evaluate',{'code':'return 1','tab_id':'main'});assert spoof['effect']=='not_started',spoof
+        foreign=call('evaluate',{'code':'window.foreignScript=true'},owner='other-chat',allow_error=True);assert not foreign['ok'],foreign
+        recovered=call('evaluate',{'code':"console.warn('recovered');return window.partialScriptEffect;"})
+        assert recovered['ok'] and recovered['value'] is True and recovered['console'][0]['level']=='warn',recovered
+        cases.append('arbitrary async JavaScript: fetch/storage/cookie/BigInt/console, partial exceptions, timeout, bounds, syntax failure, stale frames and exact owner')
         assert not call('preview',{'tab_id':tab},owner='other-chat',allow_error=True)['ok'];cases.append('preview owner isolation')
         frame=call('observe');preview=preview_until(tab)
         with Image.open(io.BytesIO(base64.b64decode(preview['image'],validate=True))) as jpeg:assert jpeg.size==(640,360)

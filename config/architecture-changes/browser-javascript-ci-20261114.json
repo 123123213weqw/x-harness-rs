@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Enroll the shipped arbitrary browser JavaScript runtime and scoped activity regressions in the existing desktop contract job.",
+  "compatibility": "Only two additive Node regression steps are added. Existing jobs, matrices, required checks, native acceptance, approvals, permissions and release policies are unchanged.",
+  "paths": {
+    ".github/workflows/ci.yml": {
+      "before": "7d6e6e4ce47b2651687a2d7b0c2e49237028496f2151176a0414ca56cd427877",
+      "after": "b4dd5fb100dd47b32049656e8ec69d3c85f7fec2d720adf5af300413887769c5"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}
