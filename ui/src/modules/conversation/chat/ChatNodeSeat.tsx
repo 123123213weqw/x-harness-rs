@@ -51,7 +51,7 @@ export const TurnProcessSummarySeat = memo(function TurnProcessSummarySeat({ nod
   const [tools = 0, thoughts = 0] = counts.split(':').map(Number)
   if (tail === undefined && tools === 0 && thoughts === 0) return null
   return <TranscriptWindowRow estimatedHeight={32} className={css.flowItem} data-chat-anchor-key={`turn-process:${currentTurn.turn}`} data-chat-anchor-seq={currentTurn.start?.seq ?? node?.anchorSeq}>
-    {tail === undefined ? <AdaptiveToolSummary turn={currentTurn.turn} count={tools} thoughts={thoughts} startTime={currentTurn.start?.time} t={t}
+    {tail === undefined ? <AdaptiveToolSummary useSession={useSession} turn={currentTurn.turn} count={tools} thoughts={thoughts} startTime={currentTurn.start?.time} t={t}
       expanded={expandedTurns?.has(currentTurn.turn) ?? false} onToggle={() => { toggleTurnProcess(currentTurn.turn) }} />
       : <TurnProcessSummary turn={currentTurn} data={tail} tools={tools} thoughts={thoughts} t={t}
         collapsed={!(expandedTurns?.has(currentTurn.turn) ?? false)} onToggle={() => { toggleTurnProcess(currentTurn.turn) }} />}
