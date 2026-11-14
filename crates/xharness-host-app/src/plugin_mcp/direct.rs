@@ -13,6 +13,7 @@ pub(super) fn is_direct(name: &str) -> bool {
         "browser_control"
             | "browser_observe"
             | "browser_perform"
+            | "browser_evaluate"
             | "browser_input"
             | "browser_screenshot"
             | "browser_request"

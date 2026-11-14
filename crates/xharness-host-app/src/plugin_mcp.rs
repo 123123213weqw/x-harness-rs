@@ -284,7 +284,7 @@ fn scoped_spec(
                             let server = capability["server"].clone();
                             capability["tools"] = json!(contract::definitions(server == crate::native_browser::HEADLESS_SERVER).iter().map(|d| d["name"].clone()).collect::<Vec<_>>());
                             capability["next_call"] = json!({"action":"describe","plugin":crate::native_browser::PLUGIN,"server":server,"tool":"control"});
-                            capability["direct_tools"] = json!(["browser_control","browser_observe","browser_perform","browser_input","browser_screenshot"]);
+                            capability["direct_tools"] = json!(["browser_control","browser_observe","browser_perform","browser_evaluate","browser_input","browser_screenshot"]);
                         }
                     }
                     return Ok(ToolOutput::text(json!({"plugins":plugins,"capabilities":capabilities}).to_string()));
