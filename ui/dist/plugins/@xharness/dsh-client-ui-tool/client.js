@@ -1261,9 +1261,8 @@ const terminal_card_model_1 = require("../models/terminal-card-model");
 const ToolRow_styles_1 = __importDefault(require("./ToolRow.styles"));
 const ReviewDiffBlock_1 = require("./ReviewDiffBlock");
 const ToolGlyph_1 = require("../../../shared/ToolGlyph");
-/** Leading-slot state substitution: the tool icon yields to the terminal state
- *  semantic (error = red, interrupted = amber halo). Running keeps the icon —
- *  the row sweep (CSS on data-state) carries the in-flight signal. */
+/** Keep tool identity and terminal state orthogonal. The row sweep carries
+ * the in-flight signal; a small badge carries error/interrupted state. */
 function leadingFor(state, icon) {
     switch (state) {
         case 'error': return (0, jsx_runtime_1.jsxs)("span", { className: "xh-tool-identity", children: [icon, (0, jsx_runtime_1.jsx)("span", { className: "xh-tool-state-badge", children: (0, jsx_runtime_1.jsx)(primitives_1.StateDot, { state: "error" }) })] });
