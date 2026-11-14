@@ -1,6 +1,6 @@
 /** Assistant reasoning disclosure, independent of Tool-call presentation. */
 import { useEffect, useRef } from 'react'
-import { DisclosureRow, IconThinkOutline14 } from '../primitives'
+import { DisclosureRow, IconChevronRightOutline14 } from '../primitives'
 import type { ChatViewSlotProps } from '../contract/slots'
 import { useThrottledVisualUpdate } from './use-throttled-visual-update'
 import a11yCss from './accessibility.styles'
@@ -9,6 +9,7 @@ import { useTranscriptState } from './transcript-state'
 import { useProcessMode } from './process-mode'
 import { firstReasoningLine } from './reasoning-summary'
 import { useReasoningSummary } from './use-reasoning-summary'
+import { ToolGlyph } from '../../shared/ToolGlyph'
 
 /**
  * Render one assistant reasoning block as the Think disclosure row.
@@ -46,11 +47,14 @@ export function ReasoningRow({ text, running, t, stateKey = 0 }: { text: string;
         leadingClassName={css.leading}
         titleClassName={css.title}
         chevronClassName={css.chevron}
-        icon={<IconThinkOutline14 size={14} />}
-        title="Think"
+        icon={<ToolGlyph kind="thought" size={14} />}
+        title="Thought"
         open={expanded}
         expandable
         expandOnRowClick
+        keepIconWhenOpen
+        previewChevron={false}
+        keepContentWhenOpen
         onToggle={() => { setExpanded(value => !value) }}
         collapsedContent={(
           <>
@@ -63,6 +67,7 @@ export function ReasoningRow({ text, running, t, stateKey = 0 }: { text: string;
                 </span>
               ) : summary}
             </span>
+            <span className="xh-thought-chevron" aria-hidden="true"><IconChevronRightOutline14 /></span>
           </>
         )}
       >

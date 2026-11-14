@@ -49,3 +49,4 @@ export { permissionFeedback, PermissionSelect } from './skeleton/PermissionSelec
 export { ConversationSession, ConversationSessionHeader } from './skeleton/ConversationSession'
 
 export { planToolFold, toolCanAutoFold } from './chat/adaptive-tool-fold'
+export { turnProcessCounts } from './chat/turn-process-summary'

@@ -146,7 +146,7 @@ try {
   await page.evaluate(()=>setPressure({phase:'model_changed'}));assert.equal(await page.getByRole('button').isDisabled(),true);
  }
  // Actual resident conversation tree: user editing, reasoning, compaction disclosure, limit notices.
- await page.evaluate(()=>{installNodes();setMode('conversation')});await page.getByText('final answer',{exact:true}).waitFor();await page.getByRole('button',{name:/Think/}).click();await page.getByText('first line\nreasoning details',{exact:true}).waitFor();await page.getByRole('button',{name:/Context compacted/}).click();await page.getByText('saved summary',{exact:true}).waitFor();
+ await page.evaluate(()=>{installNodes();setMode('conversation')});await page.getByText('final answer',{exact:true}).waitFor();await page.getByRole('button',{name:impl==='source'?/Thought/:/Think/}).click();await page.getByText('first line\nreasoning details',{exact:true}).waitFor();await page.getByRole('button',{name:/Context compacted/}).click();await page.getByText('saved summary',{exact:true}).waitFor();
  // Linux WebKit appends a layout LF to aggregate details.innerText. Verify
  // the exact producer content in each DOM seat, without trimming either.
  const checkpoint=page.locator('details[open]');assert.equal(await checkpoint.count(),1);

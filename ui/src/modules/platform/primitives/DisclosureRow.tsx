@@ -16,6 +16,8 @@ export interface DisclosureRowProps {
   previewChevron?: boolean | undefined
   /** Keeps `collapsedContent` inline while open. */
   keepContentWhenOpen?: boolean | undefined
+  /** Tool timelines keep identity visible and put their chevron at the end. */
+  keepIconWhenOpen?: boolean | undefined
   collapsedContent?: ReactNode
   children?: ReactNode
   className?: string | undefined
@@ -39,6 +41,7 @@ export function DisclosureRow({
   expandOnRowClick = false,
   previewChevron = expandable,
   keepContentWhenOpen = false,
+  keepIconWhenOpen = false,
   collapsedContent,
   children,
   className,
@@ -65,7 +68,7 @@ export function DisclosureRow({
       </>
     )
     : icon
-  const leading: ReactNode = open
+  const leading: ReactNode = open && !keepIconWhenOpen
     ? <IconChevronDownOutline14 className={chevronClassName} />
     : collapsedLeading
 

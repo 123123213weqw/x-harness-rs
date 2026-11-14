@@ -299,9 +299,10 @@ export function ChatView({
     if (commit && row !== null && key !== undefined) processAnchorRef.current = { key, top: flowTop(row, port) }
     return key
   }
-  const { foldedTools, invalidateFoldedTool } = useAdaptiveToolFold(sessionId, listRef, expandedTurns, captureAutoFoldAnchor, nodeStore)
+  const { foldedTools, invalidateFoldedTool, collapseTurn } = useAdaptiveToolFold(sessionId, listRef, expandedTurns, captureAutoFoldAnchor, nodeStore)
 
   const toggleTurnProcess = useCallback((turn: number): void => {
+    if (expandedTurns.has(turn)) collapseTurn(turn)
     pageIntent.cancel()
     const local = listRef.current
     if (local !== null) {
@@ -321,7 +322,7 @@ export function ChatView({
       choices.set(turn, !(choices.get(turn) ?? processMode === 'expanded'))
       return { sessionId, mode: processMode, choices }
     })
-  }, [pageIntent, sessionId, processMode])
+  }, [pageIntent, sessionId, processMode, expandedTurns, collapseTurn])
 
   useLayoutEffect(() => {
     const local = listRef.current

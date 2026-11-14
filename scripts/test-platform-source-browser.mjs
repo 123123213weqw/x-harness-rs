@@ -300,11 +300,12 @@ for(const engine of engines){
       }))
      }
      const [before,after]=snapshots
-     assert.match(after.prose.fontFamily,/Georgia.*Songti SC/,'bookish answer font is scoped to prose')
+     assert.equal(after.prose.fontFamily,before.prose.fontFamily,'assistant prose uses the ordinary system UI font')
+     assert.doesNotMatch(after.prose.fontFamily,/Georgia|Songti|Noto Serif|Source Han Serif/)
      assert.equal(after.list.fontFamily,after.prose.fontFamily)
      assert.equal(after.cell.fontFamily,after.prose.fontFamily,'table body opts in despite its font shorthand')
      const {fontFamily:oldFamily,...oldBody}=before.prose,{fontFamily:newFamily,...newBody}=after.prose
-     assert.notEqual(oldFamily,newFamily)
+     assert.equal(oldFamily,newFamily,'the assistant wrapper must not switch the font family')
      assert.deepEqual(newBody,oldBody,'16/28/400, colors and focus styling remain unchanged')
      assert.equal(after.prose.fontSize,'16px');assert.equal(after.prose.lineHeight,'28px');assert.equal(after.prose.fontWeight,'400')
      assert.equal(before.emphasis.fontWeight,'700');assert.equal(after.emphasis.fontWeight,'600')

@@ -11,6 +11,7 @@
 // that produces the values).
 import {isRecord, isUnknownArray} from '../../value-guards'
 import {shellErrorSummary} from './shell-error-summary'
+import { toolFailurePreview } from './tool-failure-preview'
 import { abbreviateHomePath } from '../../runtime'
 import type { ToolCallBlock, ToolResultNode } from '../../types'
 
@@ -256,7 +257,7 @@ export function toolRowModel(toolName: string, block: ToolCallBlock, cwd?: strin
   const output = done ? (resultText(block) || null) : null
   const errorSummary = done
     ? shellErrorSummary(toolName, block, output ?? '')
-      ?? (state === 'error' && output !== null ? firstLine(output) : null) : null
+      ?? (state === 'error' && output !== null ? toolFailurePreview(output) : null) : null
   return {
     variant,
     title: toolTitle ?? VARIANT_TITLES[variant],

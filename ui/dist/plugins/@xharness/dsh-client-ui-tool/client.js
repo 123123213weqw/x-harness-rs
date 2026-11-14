@@ -157,7 +157,7 @@ function GenericToolCard({ toolName, block, cwd, home, openFile, inspect, t }) {
         ? 'error'
         : model.state;
     const singleFile = model.filePath !== undefined;
-    return ((0, jsx_runtime_1.jsx)(ToolRow_1.ToolRow, { stateKey: block.callId, t: t, variant: model.variant, toolName: toolName, icon: VARIANT_ICONS[model.variant], title: communicationCopy?.title ?? model.title,
+    return ((0, jsx_runtime_1.jsx)(ToolRow_1.ToolRow, { stateKey: block.callId, t: t, variant: model.variant, toolName: toolName, ...(toolName === 'plugin_mcp' ? { glyphArgsRaw: ('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? '' } : {}), icon: VARIANT_ICONS[model.variant], title: communicationCopy?.title ?? model.title,
         // A terminal presenter's description is the contract's above-card text, so
         // it outranks the args-derived summary here exactly as it does in BashRow;
         // a search result view's replacement title outranks it the same way.
@@ -338,6 +338,7 @@ exports.toolRowModel = toolRowModel;
 // that produces the values).
 const value_guards_1 = require("../../value-guards");
 const shell_error_summary_1 = require("./shell-error-summary");
+const tool_failure_preview_1 = require("./tool-failure-preview");
 const runtime_1 = require("../../runtime");
 /** Figma row titles per variant (design literals, not translatable copy). */
 exports.VARIANT_TITLES = {
@@ -558,7 +559,7 @@ function toolRowModel(toolName, block, cwd, home) {
     const output = done ? (resultText(block) || null) : null;
     const errorSummary = done
         ? (0, shell_error_summary_1.shellErrorSummary)(toolName, block, output ?? '')
-            ?? (state === 'error' && output !== null ? firstLine(output) : null) : null;
+            ?? (state === 'error' && output !== null ? (0, tool_failure_preview_1.toolFailurePreview)(output) : null) : null;
     return {
         variant,
         title: toolTitle ?? exports.VARIANT_TITLES[variant],
@@ -682,6 +683,48 @@ function shellErrorSummary(toolName, node, output) {
     }
     // Execution/permission failures may not have launched a process at all.
     return envelope.data.ok === false ? lines(envelope.data.error)[0]?.slice(0, LINE_CHARS) ?? null : null;
+}
+
+},
+"src/modules/tool/tool/models/tool-failure-preview.js": function(module, exports, require) {
+// source: src/modules/tool/tool/models/tool-failure-preview.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.toolFailurePreview = toolFailurePreview;
+/** The disclosure retains full output; its one-line preview must not be a raw
+ * JSON envelope or an unbounded transcript. Parsing is strictly size-bounded. */
+function toolFailurePreview(output, fallback = 'Tool execution failed') {
+    const line = (value) => {
+        let text = '', count = 0;
+        for (const character of value.trim()) {
+            if (character === '\n' || count++ >= 240)
+                break;
+            text += character;
+        }
+        return text.trimEnd();
+    };
+    const raw = output.trim();
+    if (!raw.startsWith('{') && !raw.startsWith('['))
+        return line(raw) || fallback;
+    if (raw.length > 16384)
+        return fallback;
+    try {
+        const value = JSON.parse(raw);
+        if (typeof value !== 'object' || value === null)
+            return fallback;
+        for (const key of ['message', 'error']) {
+            if (!(key in value))
+                continue;
+            const field = Reflect.get(value, key);
+            if (typeof field === 'string' && field.trim() !== '' && !/^[\[{]/.test(field.trim()))
+                return line(field);
+            if (typeof field === 'object' && field !== null && 'message' in field && typeof field.message === 'string' && field.message.trim() !== '')
+                return line(field.message);
+        }
+    }
+    catch { /* A malformed error still has its verbatim expanded output. */ }
+    return fallback;
 }
 
 },
@@ -1217,13 +1260,14 @@ const search_card_model_1 = require("../models/search-card-model");
 const terminal_card_model_1 = require("../models/terminal-card-model");
 const ToolRow_styles_1 = __importDefault(require("./ToolRow.styles"));
 const ReviewDiffBlock_1 = require("./ReviewDiffBlock");
+const ToolGlyph_1 = require("../../../shared/ToolGlyph");
 /** Leading-slot state substitution: the tool icon yields to the terminal state
  *  semantic (error = red, interrupted = amber halo). Running keeps the icon —
  *  the row sweep (CSS on data-state) carries the in-flight signal. */
 function leadingFor(state, icon) {
     switch (state) {
-        case 'error': return (0, jsx_runtime_1.jsx)(primitives_1.StateDot, { state: "error" });
-        case 'stopped': return (0, jsx_runtime_1.jsx)(primitives_1.StateDot, { state: "warning" });
+        case 'error': return (0, jsx_runtime_1.jsxs)("span", { className: "xh-tool-identity", children: [icon, (0, jsx_runtime_1.jsx)("span", { className: "xh-tool-state-badge", children: (0, jsx_runtime_1.jsx)(primitives_1.StateDot, { state: "error" }) })] });
+        case 'stopped': return (0, jsx_runtime_1.jsxs)("span", { className: "xh-tool-identity", children: [icon, (0, jsx_runtime_1.jsx)("span", { className: "xh-tool-state-badge", children: (0, jsx_runtime_1.jsx)(primitives_1.StateDot, { state: "warning" }) })] });
         default: return icon;
     }
 }
@@ -1240,7 +1284,7 @@ function stateStatus(state, t) {
         default: return null;
     }
 }
-function ToolRow({ stateKey = '', t, variant, toolName, icon, title, summary, summarySuffix, body, output, errorSummary, terminal, diff, read, search, web, state, filePath, onOpenFile, inspect, }) {
+function ToolRow({ stateKey = '', t, variant, toolName, glyphArgsRaw, icon, title, summary, summarySuffix, body, output, errorSummary, terminal, diff, read, search, web, state, filePath, onOpenFile, inspect, }) {
     const [expanded, setExpanded] = (0, transcript_state_1.useTranscriptState)('tool:' + stateKey, false);
     const processMode = (0, process_mode_1.useProcessMode)();
     const [appliedMode, setAppliedMode] = (0, transcript_state_1.useTranscriptState)('tool-mode:' + stateKey, null);
@@ -1297,10 +1341,10 @@ function ToolRow({ stateKey = '', t, variant, toolName, icon, title, summary, su
     // The state substitution rides the idle icon slot, so an expandable error
     // row keeps DisclosureRow's icon→chevron hover preview (its default) instead
     // of losing it with the icon.
-    return ((0, jsx_runtime_1.jsxs)("div", { className: ToolRow_styles_1.default.root, "data-variant": variant, "data-tool": toolName, "data-state": state, children: [status !== null && (0, jsx_runtime_1.jsx)("span", { className: ToolRow_styles_1.default.visuallyHidden, children: status }), (0, jsx_runtime_1.jsx)(primitives_1.DisclosureRow, { rowClassName: ToolRow_styles_1.default.row, leadingClassName: ToolRow_styles_1.default.leading, titleClassName: ToolRow_styles_1.default.title, chevronClassName: ToolRow_styles_1.default.chevron, icon: leadingFor(state, icon), title: state === 'preparing' ? `${title} · ${(document.documentElement.lang || '').startsWith('zh') ? '准备中' : 'Preparing'}` : title, open: open, expandable: expandable, expandOnRowClick: true, keepContentWhenOpen: true, onToggle: toggleExpand, collapsedContent: summaryText !== '' && (
-                /* An empty summary drops the separator with it (a row that is only
-                   its title shows no trailing dot). */
-                (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("span", { className: ToolRow_styles_1.default.sep, "aria-hidden": true }), fileLink ? ((0, jsx_runtime_1.jsx)("button", { type: "button", className: ToolRow_styles_1.default.fileLink, onClick: openFile, onKeyDown: fileLinkKeyDown, children: summaryText })) : webHref !== null ? ((0, jsx_runtime_1.jsx)("a", { className: ToolRow_styles_1.default.fileLink, href: webHref, target: "_blank", rel: "noopener noreferrer", onClick: event => event.stopPropagation(), onKeyDown: event => event.stopPropagation(), children: summaryText })) : ((0, jsx_runtime_1.jsx)("span", { className: (0, class_names_1.clsx)(ToolRow_styles_1.default.summary, failureLine !== null && ToolRow_styles_1.default.errorSummary), children: summaryText })), suffix !== null && (0, jsx_runtime_1.jsx)("span", { className: ToolRow_styles_1.default.summarySuffix, children: suffix })] })), children: (0, jsx_runtime_1.jsxs)("div", { className: ToolRow_styles_1.default.bodyWrap, children: [terminalBody !== null
+    return ((0, jsx_runtime_1.jsxs)("div", { className: ToolRow_styles_1.default.root, "data-variant": variant, "data-tool": toolName, "data-state": state, children: [status !== null && (0, jsx_runtime_1.jsx)("span", { className: ToolRow_styles_1.default.visuallyHidden, children: status }), (0, jsx_runtime_1.jsx)(primitives_1.DisclosureRow, { rowClassName: ToolRow_styles_1.default.row, leadingClassName: ToolRow_styles_1.default.leading, titleClassName: ToolRow_styles_1.default.title, chevronClassName: ToolRow_styles_1.default.chevron, icon: leadingFor(state, toolName === undefined ? icon : (0, jsx_runtime_1.jsx)(ToolGlyph_1.ToolGlyph, { name: toolName, argsRaw: glyphArgsRaw })), title: state === 'preparing' ? `${title} · ${(document.documentElement.lang || '').startsWith('zh') ? '准备中' : 'Preparing'}` : title === 'Tool call' ? (0, ToolGlyph_1.toolDisplayName)(toolName ?? '') ?? title : title, open: open, expandable: expandable, expandOnRowClick: true, keepContentWhenOpen: true, keepIconWhenOpen: true, previewChevron: false, onToggle: toggleExpand, collapsedContent: (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [summaryText !== '' && (
+                        /* An empty summary drops the separator with it (a row that is only
+                           its title shows no trailing dot). */
+                        (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("span", { className: ToolRow_styles_1.default.sep, "aria-hidden": true }), fileLink ? ((0, jsx_runtime_1.jsx)("button", { type: "button", className: ToolRow_styles_1.default.fileLink, onClick: openFile, onKeyDown: fileLinkKeyDown, children: summaryText })) : webHref !== null ? ((0, jsx_runtime_1.jsx)("a", { className: ToolRow_styles_1.default.fileLink, href: webHref, target: "_blank", rel: "noopener noreferrer", onClick: event => event.stopPropagation(), onKeyDown: event => event.stopPropagation(), children: summaryText })) : ((0, jsx_runtime_1.jsx)("span", { className: (0, class_names_1.clsx)(ToolRow_styles_1.default.summary, failureLine !== null && ToolRow_styles_1.default.errorSummary), children: summaryText })), suffix !== null && (0, jsx_runtime_1.jsx)("span", { className: ToolRow_styles_1.default.summarySuffix, children: suffix })] })), expandable && (0, jsx_runtime_1.jsx)(primitives_1.IconChevronDownOutline14, { className: "xh-tool-trailing-chevron" })] }), children: (0, jsx_runtime_1.jsxs)("div", { className: ToolRow_styles_1.default.bodyWrap, children: [terminalBody !== null
                             ? ((0, jsx_runtime_1.jsx)(primitives_1.TerminalBlock, { ...terminalBody.card, maxLines: Infinity, labels: (0, terminal_card_model_1.terminalBlockLabels)(t), className: ToolRow_styles_1.default.terminalBody }))
                             : diffBody !== null
                                 ? (0, jsx_runtime_1.jsx)(ReviewDiffBlock_1.ReviewDiffBlock, { stateKey: stateKey, ...diffBody.card, maxLines: diff_card_model_1.CHAT_DIFF_MAX_LINES, className: ToolRow_styles_1.default.diffBody })
@@ -1477,7 +1521,7 @@ exports.default = {
 // source: src/modules/tool/tool/components/ToolRow.css
 
 Object.defineProperty(exports, '__esModule', { value: true });
-exports.default = ".Dh215a_root{flex-direction:column;display:flex}.Dh215a_row{position:relative;overflow:hidden}.Dh215a_root[data-state=running] .Dh215a_row:after{content:\"\";background:linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%, transparent 100%);pointer-events:none;width:300px;animation:2.6s ease-out infinite Dh215a_dsh-tool-row-sweep;position:absolute;top:0;bottom:0;left:0}@keyframes Dh215a_dsh-tool-row-sweep{0%{left:-300px}90%,to{left:100%}}.Dh215a_leading{flex-shrink:0}.Dh215a_root[data-tool^=cordis_] .Dh215a_leading,.Dh215a_root[data-tool^=cordis_] .Dh215a_title{color:var(--dsw-alias-state-business-primary)}.Dh215a_root[data-tool^=cordis_] .Dh215a_title{font-weight:500}.Dh215a_root[data-tool^=cordis_] .Dh215a_sep{background:var(--dsw-alias-state-business-primary)}.Dh215a_chevron{color:var(--dsw-alias-label-secondary)}.Dh215a_title{font-weight:400}.Dh215a_sep{background:var(--dsw-alias-label-caption);border-radius:1px;flex:none;width:2px;height:2px;margin:0 8px}.Dh215a_summary{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-tertiary);flex:auto;font-size:14px;line-height:24px;overflow:hidden}.Dh215a_summarySuffix{white-space:nowrap;color:var(--dsw-alias-label-tertiary);flex:none;margin-left:4px;font-size:14px;line-height:24px}.Dh215a_fileLink{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:inherit;text-align:left;color:var(--dsw-alias-label-secondary);text-decoration:underline;text-decoration-color:var(--dsw-alias-label-quaternary);text-underline-offset:3px;cursor:pointer;background:0 0;border:none;flex:auto;margin:0;padding:0;font-size:14px;line-height:24px;overflow:hidden}.Dh215a_fileLink:hover{color:var(--dsw-alias-label-primary);text-decoration-color:currentColor}.Dh215a_errorSummary{color:var(--dsw-alias-state-error-primary)}.Dh215a_bodyWrap{flex-direction:column;display:flex}.Dh215a_inspectButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);cursor:pointer;opacity:0;border-radius:999px;align-self:flex-start;align-items:center;gap:4px;margin:4px 0 2px 4px;padding:2px 8px;font-size:11px;line-height:16px;transition:opacity .1s;display:inline-flex}.Dh215a_root:hover .Dh215a_inspectButton,.Dh215a_inspectButton:focus-visible{opacity:1}.Dh215a_inspectButton:hover{background:var(--dsw-alias-interactive-bg-hover-solid);color:var(--dsw-alias-label-primary)}.Dh215a_bodyScroll{max-height:260px;overflow-y:auto}.Dh215a_ioCard{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-markdown-code-block);font:var(--dsw-font-markdown-code-block-small);border-radius:12px;flex-direction:column;margin:4px 0 4px 4px;display:flex}.Dh215a_ioSection{grid-template-columns:max-content 1fr;align-items:baseline;column-gap:14px;max-height:150px;padding:12px 16px;display:grid;overflow-y:auto}.Dh215a_ioSection::-webkit-scrollbar-thumb{background-clip:padding-box;border:2px solid #0000;border-radius:6px}.Dh215a_ioSection::-webkit-scrollbar-track{margin:6px 0}.Dh215a_ioLabel{color:var(--dsw-alias-label-caption);align-self:start;position:sticky;top:0}.Dh215a_ioDivider{background:var(--dsw-alias-border-l2);flex:none;height:1px}.Dh215a_ioText{white-space:pre-wrap;word-break:break-word;min-width:0;color:var(--dsw-alias-label-secondary)}.Dh215a_ioText[data-error]{color:var(--dsw-alias-state-error-primary)}.Dh215a_codeBody,.Dh215a_terminalBody,.Dh215a_diffBody,.Dh215a_readBody,.Dh215a_searchBody,.Dh215a_webBody{margin:4px 0 4px 4px}.Dh215a_searchRecovery{white-space:pre-wrap;overflow-wrap:anywhere;font:var(--dsw-font-xs-13);color:var(--dsw-alias-label-tertiary);margin:4px 0 4px 4px}.Dh215a_codeBody{--dsl-code-block-content-font:var(--dsw-font-markdown-code-block-small)}.Dh215a_terminalBody{--dsl-terminal-font:var(--dsw-font-markdown-code-block-small);--dsl-terminal-line-height:18px;--dsl-terminal-output-max-height:224px;border:1px solid var(--dsw-alias-border-l1)}.Dh215a_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}";
+exports.default = ".Dh215a_root{flex-direction:column;display:flex}.Dh215a_row{position:relative;overflow:hidden}.Dh215a_root[data-state=running] .Dh215a_row:after{content:\"\";background:linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%, transparent 100%);pointer-events:none;width:300px;animation:2.6s ease-out infinite Dh215a_dsh-tool-row-sweep;position:absolute;top:0;bottom:0;left:0}@keyframes Dh215a_dsh-tool-row-sweep{0%{left:-300px}90%,to{left:100%}}.Dh215a_leading{flex-shrink:0}.Dh215a_root[data-tool^=cordis_] .Dh215a_leading,.Dh215a_root[data-tool^=cordis_] .Dh215a_title{color:var(--dsw-alias-state-business-primary)}.Dh215a_root[data-tool^=cordis_] .Dh215a_title{font-weight:500}.Dh215a_root[data-tool^=cordis_] .Dh215a_sep{background:var(--dsw-alias-state-business-primary)}.Dh215a_chevron{color:var(--dsw-alias-label-secondary)}.Dh215a_title{font-weight:400}.Dh215a_sep{background:var(--dsw-alias-label-caption);border-radius:1px;flex:none;width:2px;height:2px;margin:0 8px}.Dh215a_summary{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-tertiary);flex:auto;font-size:14px;line-height:24px;overflow:hidden}.Dh215a_summarySuffix{white-space:nowrap;color:var(--dsw-alias-label-tertiary);flex:none;margin-left:4px;font-size:14px;line-height:24px}.Dh215a_fileLink{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:inherit;text-align:left;color:var(--dsw-alias-label-secondary);text-decoration:underline;text-decoration-color:var(--dsw-alias-label-quaternary);text-underline-offset:3px;cursor:pointer;background:0 0;border:none;flex:auto;margin:0;padding:0;font-size:14px;line-height:24px;overflow:hidden}.Dh215a_fileLink:hover{color:var(--dsw-alias-label-primary);text-decoration-color:currentColor}.Dh215a_errorSummary{color:var(--dsw-alias-state-error-primary)}.Dh215a_bodyWrap{flex-direction:column;display:flex}.Dh215a_inspectButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);cursor:pointer;opacity:0;border-radius:999px;align-self:flex-start;align-items:center;gap:4px;margin:4px 0 2px 4px;padding:2px 8px;font-size:11px;line-height:16px;transition:opacity .1s;display:inline-flex}.Dh215a_root:hover .Dh215a_inspectButton,.Dh215a_inspectButton:focus-visible{opacity:1}.Dh215a_inspectButton:hover{background:var(--dsw-alias-interactive-bg-hover-solid);color:var(--dsw-alias-label-primary)}.Dh215a_bodyScroll{max-height:260px;overflow-y:auto}.Dh215a_ioCard{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-markdown-code-block);font:var(--dsw-font-markdown-code-block-small);border-radius:12px;flex-direction:column;margin:4px 0 4px 4px;display:flex}.Dh215a_ioSection{grid-template-columns:max-content 1fr;align-items:baseline;column-gap:14px;max-height:150px;padding:12px 16px;display:grid;overflow-y:auto}.Dh215a_ioSection::-webkit-scrollbar-thumb{background-clip:padding-box;border:2px solid #0000;border-radius:6px}.Dh215a_ioSection::-webkit-scrollbar-track{margin:6px 0}.Dh215a_ioLabel{color:var(--dsw-alias-label-caption);align-self:start;position:sticky;top:0}.Dh215a_ioDivider{background:var(--dsw-alias-border-l2);flex:none;height:1px}.Dh215a_ioText{white-space:pre-wrap;word-break:break-word;min-width:0;color:var(--dsw-alias-label-secondary)}.Dh215a_ioText[data-error]{color:var(--dsw-alias-state-error-primary)}.Dh215a_codeBody,.Dh215a_terminalBody,.Dh215a_diffBody,.Dh215a_readBody,.Dh215a_searchBody,.Dh215a_webBody{margin:4px 0 4px 4px}.Dh215a_searchRecovery{white-space:pre-wrap;overflow-wrap:anywhere;font:var(--dsw-font-xs-13);color:var(--dsw-alias-label-tertiary);margin:4px 0 4px 4px}.Dh215a_codeBody{--dsl-code-block-content-font:var(--dsw-font-markdown-code-block-small)}.Dh215a_terminalBody{--dsl-terminal-font:var(--dsw-font-markdown-code-block-small);--dsl-terminal-line-height:18px;--dsl-terminal-output-max-height:224px;border:1px solid var(--dsw-alias-border-l1)}.Dh215a_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}/* Keep identity and state orthogonal, including failed and interrupted tools. */\n.xh-tool-identity{display:inline-flex;position:relative;width:16px;height:16px;flex:none}\n.xh-tool-state-badge{position:absolute;right:-3px;bottom:-2px;display:flex;width:8px;height:8px}\n.xh-tool-state-badge>*{width:8px!important;height:8px!important}\n.Dh215a_row{font-size:13px;line-height:22px}\n.xh-tool-trailing-chevron{flex:none;width:12px;height:12px;margin-left:auto;color:var(--dsw-alias-label-tertiary);transform:rotate(-90deg)}\n[data-open]>.Dh215a_row .xh-tool-trailing-chevron{transform:none}\n";
 
 },
 "src/modules/tool/tool/components/ReviewDiffBlock.js": function(module, exports, require) {
@@ -1633,6 +1677,122 @@ if (typeof document !== 'undefined' && !document.getElementById('xh-review-diff-
 
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.default = "\n.xh-review{min-width:0;margin:4px 0;color:var(--dsw-alias-label-primary)}\n.xh-review-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:5px 4px}\n.xh-review-title{font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary)}\n.xh-review-actions{display:flex;gap:3px;align-items:center}\n.xh-review-actions button{border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:3px 8px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;cursor:pointer}\n.xh-review-actions button:hover,.xh-review-actions button:focus-visible{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-primary);outline:none}\n.xh-review-actions button[aria-pressed=true]{color:var(--dsw-alias-bg-base);background:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-primary)}\n.xh-review-file{min-width:0;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;overflow:hidden;margin:4px 0 9px;background:var(--dsw-alias-markdown-code-block)}\n.xh-review-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:8px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);font:600 11px/17px ui-monospace,SFMono-Regular,Menlo,monospace}\n.xh-review-panes{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}\n.xh-review-pane{min-width:0;max-height:400px;overflow:auto;scrollbar-gutter:stable;font:11px/19px ui-monospace,SFMono-Regular,Menlo,monospace}\n.xh-review-pane:first-child{border-right:1px solid var(--dsw-alias-border-l2)}\n.xh-review-pane-heading{position:sticky;top:0;z-index:1;display:block;padding:4px 8px;background:var(--dsw-alias-bg-base);border-bottom:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font:600 10px/16px system-ui,sans-serif}\n.xh-review-line{display:flex;white-space:pre;min-height:19px;padding-right:8px}.xh-review-line[data-changed=true]{background:var(--dsw-alias-interactive-bg-hover)}\n.xh-review-line-number{position:sticky;left:0;flex:none;box-sizing:border-box;width:35px;text-align:right;padding-right:7px;color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-markdown-code-block);user-select:none}\n.xh-review-line-code{display:block}.xh-review-truncated{padding:7px 10px;color:var(--dsw-alias-label-tertiary);font-size:11px;border-top:1px solid var(--dsw-alias-border-l2)}\n@media(max-width:650px){.xh-review-panes{grid-template-columns:minmax(0,1fr)}.xh-review-pane:first-child{border-right:0;border-bottom:1px solid var(--dsw-alias-border-l2)}}\n";
+
+},
+"src/modules/shared/ToolGlyph.js": function(module, exports, require) {
+// source: src/modules/shared/ToolGlyph.tsx
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.toolDisplayName = toolDisplayName;
+exports.toolGlyphKind = toolGlyphKind;
+exports.ToolGlyph = ToolGlyph;
+const jsx_runtime_1 = require("react/jsx-runtime");
+const GLYPHS = {
+    thought: 'thought', read: 'read', write: 'write', edit: 'edit', grep: 'search', glob: 'search',
+    bash: 'terminal', pwsh: 'terminal', job_output: 'terminal', job_list: 'list', job_kill: 'stop',
+    web_search: 'search', web_fetch: 'web', run_code: 'code', computer: 'computer', display: 'image',
+    agent: 'agent', history: 'history', todolist: 'list', todo_write: 'list', ask_question: 'question',
+    edit_goal_objective: 'goal', goal_report: 'goal', plugin_skill: 'plugin', plugin_mcp: 'plugin',
+    cordis_define: 'code', cordis_package_inspect: 'plugin', cordis_runtime_inspect: 'plugin',
+    cordis_run: 'plugin', cordis_stop: 'stop', cordis_undefine: 'plugin',
+};
+const LABELS = {
+    computer: 'Computer', display: 'Image', history: 'History', agent: 'Agent',
+    plugin_mcp: 'MCP', plugin_skill: 'Skill', job_list: 'Jobs', job_output: 'Job output',
+    job_kill: 'Stop job', edit_goal_objective: 'Edit objective', goal_report: 'Goal report',
+};
+function toolDisplayName(name) {
+    return Object.hasOwn(LABELS, name) ? LABELS[name] : undefined;
+}
+function record(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+/** Decode only the exact MCP presentation target. Streamed/malformed/large
+ * arguments keep the neutral plugin glyph; no substring-based tool guessing. */
+function toolGlyphKind(name, argsRaw) {
+    if (name === 'plugin_mcp' && argsRaw !== undefined && argsRaw.length <= 16384) {
+        try {
+            const args = JSON.parse(argsRaw);
+            if (record(args) && args.action === 'call') {
+                if (args.plugin === '@xharness/native-browser' && (args.server === 'browser' || args.server === 'webview')
+                    || args.plugin === 'browser-use' && args.server === 'browser')
+                    return 'browser';
+                if (args.plugin === 'wordcraft')
+                    return 'document';
+            }
+        }
+        catch { /* Incomplete arguments are normal during streaming. */ }
+    }
+    return Object.hasOwn(GLYPHS, name) ? GLYPHS[name] ?? 'tool' : 'tool';
+}
+/** Small, monochrome SVGs share one stroke and do not load fonts or images.
+ * Tool identity stays stable when execution changes to failed/interrupted. */
+function ToolGlyph({ name, argsRaw, kind, size = 16 }) {
+    const glyph = kind ?? toolGlyphKind(name ?? '', argsRaw);
+    let body;
+    switch (glyph) {
+        case 'thought':
+            body = (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("path", { d: "M12 5a3 3 0 0 0-6-1 4 4 0 0 0-3 6 4 4 0 0 0 1 7 4 4 0 0 0 8 1V5Zm0 0a3 3 0 0 1 6-1 4 4 0 0 1 3 6 4 4 0 0 1-1 7 4 4 0 0 1-8 1" }), (0, jsx_runtime_1.jsx)("path", { d: "M6 4v3m-3 3h4m-3 7h3m11-13v3m3 3h-4m3 7h-3M7 11v3m10-3v3" })] });
+            break;
+        case 'read':
+            body = (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("path", { d: "M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" }), (0, jsx_runtime_1.jsx)("path", { d: "M14 3v6h6M8 13h8m-8 4h6" })] });
+            break;
+        case 'write':
+            body = (0, jsx_runtime_1.jsx)(jsx_runtime_1.Fragment, { children: (0, jsx_runtime_1.jsx)("path", { d: "M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9M14 3v6h6V9l-6-6M19 14v8m-4-4h8" }) });
+            break;
+        case 'edit':
+            body = (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("path", { d: "M12 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7" }), (0, jsx_runtime_1.jsx)("path", { d: "m12 12 7-7a2 2 0 0 1 3 3l-7 7-4 1Zm5-5 3 3M8 17h2" })] });
+            break;
+        case 'search':
+            body = (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("circle", { cx: "10.5", cy: "10.5", r: "7" }), (0, jsx_runtime_1.jsx)("path", { d: "m16 16 5 5" })] });
+            break;
+        case 'terminal':
+            body = (0, jsx_runtime_1.jsx)(jsx_runtime_1.Fragment, { children: (0, jsx_runtime_1.jsx)("path", { d: "m4 6 6 6-6 6m10 0h7" }) });
+            break;
+        case 'browser':
+            body = (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("rect", { x: "3", y: "4", width: "18", height: "16", rx: "2" }), (0, jsx_runtime_1.jsx)("path", { d: "M3 9h18M6 6.5h.01M9 6.5h.01" })] });
+            break;
+        case 'computer':
+            body = (0, jsx_runtime_1.jsx)(jsx_runtime_1.Fragment, { children: (0, jsx_runtime_1.jsx)("path", { d: "m5 3 14 9-7 1-3 7-4-17Zm7 10 5 7" }) });
+            break;
+        case 'image':
+            body = (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("rect", { x: "3", y: "3", width: "18", height: "18", rx: "2" }), (0, jsx_runtime_1.jsx)("circle", { cx: "8", cy: "8", r: "1.5" }), (0, jsx_runtime_1.jsx)("path", { d: "m21 15-5-5L5 21" })] });
+            break;
+        case 'document':
+            body = (0, jsx_runtime_1.jsx)(jsx_runtime_1.Fragment, { children: (0, jsx_runtime_1.jsx)("path", { d: "M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9ZM14 3v6h6M8 13h8m-4 0v5" }) });
+            break;
+        case 'web':
+            body = (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("circle", { cx: "12", cy: "12", r: "9" }), (0, jsx_runtime_1.jsx)("path", { d: "M3 12h18M12 3c-5 5-5 13 0 18 5-5 5-13 0-18Z" })] });
+            break;
+        case 'agent':
+            body = (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("circle", { cx: "6", cy: "5", r: "2" }), (0, jsx_runtime_1.jsx)("circle", { cx: "18", cy: "5", r: "2" }), (0, jsx_runtime_1.jsx)("circle", { cx: "12", cy: "19", r: "2" }), (0, jsx_runtime_1.jsx)("path", { d: "M6 7v3c0 4 6 2 6 7m6-10v3c0 4-6 2-6 7" })] });
+            break;
+        case 'list':
+            body = (0, jsx_runtime_1.jsx)(jsx_runtime_1.Fragment, { children: (0, jsx_runtime_1.jsx)("path", { d: "m3 6 1.5 1.5L7 5m3 1h11m-18 6h3m4 0h11M3 18h3m4 0h11" }) });
+            break;
+        case 'code':
+            body = (0, jsx_runtime_1.jsx)(jsx_runtime_1.Fragment, { children: (0, jsx_runtime_1.jsx)("path", { d: "m7 7-5 5 5 5m10-10 5 5-5 5M14 4l-4 16" }) });
+            break;
+        case 'plugin':
+            body = (0, jsx_runtime_1.jsx)(jsx_runtime_1.Fragment, { children: (0, jsx_runtime_1.jsx)("path", { d: "M8 3v5m8-5v5M6 8h12v4a6 6 0 0 1-12 0Zm6 10v4" }) });
+            break;
+        case 'history':
+            body = (0, jsx_runtime_1.jsx)(jsx_runtime_1.Fragment, { children: (0, jsx_runtime_1.jsx)("path", { d: "M3 5v5h5M3 10a9 9 0 1 1 1 7m8-11v6l4 2" }) });
+            break;
+        case 'stop':
+            body = (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("rect", { x: "4", y: "4", width: "16", height: "16", rx: "3" }), (0, jsx_runtime_1.jsx)("path", { d: "M9 9h6v6H9Z" })] });
+            break;
+        case 'goal':
+            body = (0, jsx_runtime_1.jsx)(jsx_runtime_1.Fragment, { children: (0, jsx_runtime_1.jsx)("path", { d: "M5 22V3m0 0c5-5 9 5 14 0v10c-5 5-9-5-14 0" }) });
+            break;
+        case 'question':
+            body = (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("circle", { cx: "12", cy: "12", r: "9" }), (0, jsx_runtime_1.jsx)("path", { d: "M9 9a3 3 0 0 1 6 0c0 2-3 2-3 5m0 3h.01" })] });
+            break;
+        default: body = (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("path", { d: "M9 3 7 8l-4 2v4l4 2 2 5h6l2-5 4-2v-4l-4-2-2-5Z" }), (0, jsx_runtime_1.jsx)("circle", { cx: "12", cy: "12", r: "3" })] });
+    }
+    return (0, jsx_runtime_1.jsx)("svg", { "data-tool-glyph": glyph, width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true", focusable: "false", children: body });
+}
 
 },
 "src/modules/tool/tool/models/agent-communication-model.js": function(module, exports, require) {
@@ -2516,6 +2676,7 @@ exports.searchToolview = {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.todoToolview = void 0;
 exports.TodoRow = TodoRow;
+exports.summarizeTodoList = summarizeTodoList;
 const jsx_runtime_1 = require("react/jsx-runtime");
 // todo_write toolview: plan-flavored summary row replacing the generic
 // "Tool call" card, registered into the keyed 'tool.call.toolview'
@@ -2564,8 +2725,31 @@ function summarize(argsRaw, t) {
 function TodoRow({ toolName, block, inspect, t }) {
     const model = (0, tool_call_model_1.toolRowModel)(toolName, block);
     const argsRaw = ('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? '';
-    const summary = summarize(argsRaw, t) ?? { text: model.summary, extra: 0 };
-    return ((0, jsx_runtime_1.jsx)(ToolRow_1.ToolRow, { stateKey: block.callId, t: t, variant: model.variant, toolName: toolName, icon: (0, jsx_runtime_1.jsx)(primitives_1.IconChecklistOutline14, {}), title: t('todo.rowTitle'), summary: summary.text, summarySuffix: summary.extra > 0 ? `+${summary.extra}` : null, body: model.body, output: model.output, errorSummary: model.errorSummary, state: model.state, inspect: inspect }));
+    const summary = (toolName === 'todolist' ? summarizeTodoList(argsRaw, t) : summarize(argsRaw, t)) ?? { text: model.summary, extra: 0 };
+    return ((0, jsx_runtime_1.jsx)(ToolRow_1.ToolRow, { stateKey: block.callId, t: t, variant: model.variant, toolName: toolName, icon: (0, jsx_runtime_1.jsx)(primitives_1.IconChecklistOutline14, {}), title: toolName === 'todolist' ? 'TodoList' : t('todo.rowTitle'), summary: summary.text, summarySuffix: summary.extra > 0 ? `+${summary.extra}` : null, body: model.body, output: model.output, errorSummary: model.errorSummary, state: model.state, inspect: inspect }));
+}
+/** The new tool edits titles, not runtime-owned completion statuses. Never turn
+ * an update request, item count or successful tool return into a completion. */
+function summarizeTodoList(argsRaw, t) {
+    if (argsRaw.length > 262144)
+        return null;
+    let parsed;
+    try {
+        parsed = JSON.parse(argsRaw);
+    }
+    catch {
+        return null;
+    }
+    if (!(0, value_guards_1.isRecord)(parsed))
+        return null;
+    if (parsed.action === 'get')
+        return Object.keys(parsed).length === 1 ? { text: t('todo.readList'), extra: 0 } : null;
+    if (parsed.action !== 'update' || Object.keys(parsed).some(key => !['action', 'revision', 'items'].includes(key))
+        || typeof parsed.revision !== 'number' || !Number.isSafeInteger(parsed.revision) || parsed.revision < 0
+        || !(0, value_guards_1.isUnknownArray)(parsed.items) || parsed.items.length > 128
+        || !parsed.items.every(item => (0, value_guards_1.isRecord)(item) && Object.keys(item).length === 2 && typeof item.id === 'string' && item.id !== '' && typeof item.title === 'string' && item.title !== ''))
+        return null;
+    return { text: t('todo.listItems', { count: parsed.items.length }), extra: 0 };
 }
 /**
  * The todo row as a plain registrant plugin following the atomic Tool-view
@@ -2579,7 +2763,10 @@ exports.todoToolview = {
      * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
      */
     apply(ctx) {
-        ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({ name: 'tool.call.toolview', key: 'todo_write', locale: locale_1.CONVERSATION_NS }, TodoRow));
+        ctx.slots.inject('tool.call.toolview', function* () {
+            yield ctx.slots.register({ name: 'tool.call.toolview', key: 'todo_write', locale: locale_1.CONVERSATION_NS }, TodoRow);
+            yield ctx.slots.register({ name: 'tool.call.toolview', key: 'todolist', locale: locale_1.CONVERSATION_NS }, TodoRow);
+        });
     },
 };
 
@@ -2677,7 +2864,7 @@ exports.webToolview = {
 
 }
 };
-const __dependencies = {"src/modules/tool/index.js":{"./apply":"src/modules/tool/apply.js"},"src/modules/tool/apply.js":{"./tool/ToolCallTree":"src/modules/tool/tool/ToolCallTree.js","./tool/ToolDetails":"src/modules/tool/tool/ToolDetails.js","./locale":"src/modules/tool/locale.js","./tool/toolviews/ask-question-row":"src/modules/tool/tool/toolviews/ask-question-row.js","./tool/toolviews/bash-sample":"src/modules/tool/tool/toolviews/bash-sample.js","./tool/toolviews/file-mutation-row":"src/modules/tool/tool/toolviews/file-mutation-row.js","./tool/toolviews/read-row":"src/modules/tool/tool/toolviews/read-row.js","./tool/toolviews/search-row":"src/modules/tool/tool/toolviews/search-row.js","./tool/toolviews/todo-row":"src/modules/tool/tool/toolviews/todo-row.js","./tool/toolviews/web-row":"src/modules/tool/tool/toolviews/web-row.js"},"src/modules/tool/tool/ToolCallTree.js":{"./toolviews/GenericToolCard":"src/modules/tool/tool/toolviews/GenericToolCard.js","./ToolCallTree.styles":"src/modules/tool/tool/ToolCallTree.styles.js"},"src/modules/tool/tool/toolviews/GenericToolCard.js":{"../../primitives":"src/modules/tool/primitives.js","../models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","../models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","../models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","../models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","../models/web-card-model":"src/modules/tool/tool/models/web-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../models/agent-communication-model":"src/modules/tool/tool/models/agent-communication-model.js"},"src/modules/tool/primitives.js":{},"src/modules/tool/tool/models/read-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../runtime":"src/modules/tool/runtime.js","./tool-call-model":"src/modules/tool/tool/models/tool-call-model.js"},"src/modules/tool/tool/models/view-codec.js":{},"src/modules/tool/runtime.js":{},"src/modules/tool/tool/models/tool-call-model.js":{"../../value-guards":"src/modules/tool/value-guards.js","./shell-error-summary":"src/modules/tool/tool/models/shell-error-summary.js","../../runtime":"src/modules/tool/runtime.js"},"src/modules/tool/value-guards.js":{},"src/modules/tool/tool/models/shell-error-summary.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js"},"src/modules/tool/tool/models/diff-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../value-guards":"src/modules/tool/value-guards.js"},"src/modules/tool/tool/models/search-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../value-guards":"src/modules/tool/value-guards.js"},"src/modules/tool/tool/models/terminal-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../runtime":"src/modules/tool/runtime.js"},"src/modules/tool/tool/models/web-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js"},"src/modules/tool/tool/components/ToolRow.js":{"../../transcript-state":"src/modules/tool/transcript-state.js","../../process-mode":"src/modules/tool/process-mode.js","../../class-names":"src/modules/tool/class-names.js","../../primitives":"src/modules/tool/primitives.js","../models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","../models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","../models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","../models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","./ToolRow.styles":"src/modules/tool/tool/components/ToolRow.styles.js","./ReviewDiffBlock":"src/modules/tool/tool/components/ReviewDiffBlock.js"},"src/modules/tool/transcript-state.js":{},"src/modules/tool/process-mode.js":{"../shared/process-display":"src/modules/shared/process-display.js"},"src/modules/shared/process-display.js":{},"src/modules/tool/class-names.js":{},"src/modules/tool/tool/components/ToolRow.styles.js":{"./ToolRow.css":"src/modules/tool/tool/components/ToolRow.css"},"src/modules/tool/tool/components/ToolRow.css":{},"src/modules/tool/tool/components/ReviewDiffBlock.js":{"../../primitives":"src/modules/tool/primitives.js","../../transcript-state":"src/modules/tool/transcript-state.js","./ReviewDiffBlock.styles":"src/modules/tool/tool/components/ReviewDiffBlock.styles.js"},"src/modules/tool/tool/components/ReviewDiffBlock.styles.js":{"./ReviewDiffBlock.css":"src/modules/tool/tool/components/ReviewDiffBlock.css"},"src/modules/tool/tool/components/ReviewDiffBlock.css":{},"src/modules/tool/tool/models/agent-communication-model.js":{"../../value-guards":"src/modules/tool/value-guards.js","./tool-call-model":"src/modules/tool/tool/models/tool-call-model.js"},"src/modules/tool/tool/ToolCallTree.styles.js":{"./ToolCallTree.css":"src/modules/tool/tool/ToolCallTree.css"},"src/modules/tool/tool/ToolCallTree.css":{},"src/modules/tool/tool/ToolDetails.js":{"../primitives":"src/modules/tool/primitives.js","./components/ReviewDiffBlock":"src/modules/tool/tool/components/ReviewDiffBlock.js","./models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","./models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","./models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","./models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","./models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","./models/web-card-model":"src/modules/tool/tool/models/web-card-model.js","./ToolDetails.styles":"src/modules/tool/tool/ToolDetails.styles.js"},"src/modules/tool/tool/ToolDetails.styles.js":{"./ToolDetails.css":"src/modules/tool/tool/ToolDetails.css"},"src/modules/tool/tool/ToolDetails.css":{},"src/modules/tool/locale.js":{},"src/modules/tool/tool/toolviews/ask-question-row.js":{"../../value-guards":"src/modules/tool/value-guards.js","../../primitives":"src/modules/tool/primitives.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/bash-sample.js":{"../../transcript-state":"src/modules/tool/transcript-state.js","../../class-names":"src/modules/tool/class-names.js","../../primitives":"src/modules/tool/primitives.js","../models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../../locale":"src/modules/tool/locale.js","./bash-sample.styles":"src/modules/tool/tool/toolviews/bash-sample.styles.js","../../../jobs/RunPanel":"src/modules/jobs/RunPanel.js"},"src/modules/tool/tool/toolviews/bash-sample.styles.js":{"./bash-sample.css":"src/modules/tool/tool/toolviews/bash-sample.css"},"src/modules/tool/tool/toolviews/bash-sample.css":{},"src/modules/jobs/RunPanel.js":{"./RunPanel.css":"src/modules/jobs/RunPanel.css","../views-types":"src/modules/views-types.js","./model":"src/modules/jobs/model.js"},"src/modules/jobs/RunPanel.css":{},"src/modules/views-types.js":{},"src/modules/jobs/model.js":{},"src/modules/tool/tool/toolviews/file-mutation-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/read-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/search-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/todo-row.js":{"../../value-guards":"src/modules/tool/value-guards.js","../../primitives":"src/modules/tool/primitives.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js","./plan-summary":"src/modules/tool/tool/toolviews/plan-summary.js"},"src/modules/tool/tool/toolviews/plan-summary.js":{},"src/modules/tool/tool/toolviews/web-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/web-card-model":"src/modules/tool/tool/models/web-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"}};
+const __dependencies = {"src/modules/tool/index.js":{"./apply":"src/modules/tool/apply.js"},"src/modules/tool/apply.js":{"./tool/ToolCallTree":"src/modules/tool/tool/ToolCallTree.js","./tool/ToolDetails":"src/modules/tool/tool/ToolDetails.js","./locale":"src/modules/tool/locale.js","./tool/toolviews/ask-question-row":"src/modules/tool/tool/toolviews/ask-question-row.js","./tool/toolviews/bash-sample":"src/modules/tool/tool/toolviews/bash-sample.js","./tool/toolviews/file-mutation-row":"src/modules/tool/tool/toolviews/file-mutation-row.js","./tool/toolviews/read-row":"src/modules/tool/tool/toolviews/read-row.js","./tool/toolviews/search-row":"src/modules/tool/tool/toolviews/search-row.js","./tool/toolviews/todo-row":"src/modules/tool/tool/toolviews/todo-row.js","./tool/toolviews/web-row":"src/modules/tool/tool/toolviews/web-row.js"},"src/modules/tool/tool/ToolCallTree.js":{"./toolviews/GenericToolCard":"src/modules/tool/tool/toolviews/GenericToolCard.js","./ToolCallTree.styles":"src/modules/tool/tool/ToolCallTree.styles.js"},"src/modules/tool/tool/toolviews/GenericToolCard.js":{"../../primitives":"src/modules/tool/primitives.js","../models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","../models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","../models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","../models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","../models/web-card-model":"src/modules/tool/tool/models/web-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../models/agent-communication-model":"src/modules/tool/tool/models/agent-communication-model.js"},"src/modules/tool/primitives.js":{},"src/modules/tool/tool/models/read-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../runtime":"src/modules/tool/runtime.js","./tool-call-model":"src/modules/tool/tool/models/tool-call-model.js"},"src/modules/tool/tool/models/view-codec.js":{},"src/modules/tool/runtime.js":{},"src/modules/tool/tool/models/tool-call-model.js":{"../../value-guards":"src/modules/tool/value-guards.js","./shell-error-summary":"src/modules/tool/tool/models/shell-error-summary.js","./tool-failure-preview":"src/modules/tool/tool/models/tool-failure-preview.js","../../runtime":"src/modules/tool/runtime.js"},"src/modules/tool/value-guards.js":{},"src/modules/tool/tool/models/shell-error-summary.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js"},"src/modules/tool/tool/models/tool-failure-preview.js":{},"src/modules/tool/tool/models/diff-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../value-guards":"src/modules/tool/value-guards.js"},"src/modules/tool/tool/models/search-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../value-guards":"src/modules/tool/value-guards.js"},"src/modules/tool/tool/models/terminal-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../runtime":"src/modules/tool/runtime.js"},"src/modules/tool/tool/models/web-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js"},"src/modules/tool/tool/components/ToolRow.js":{"../../transcript-state":"src/modules/tool/transcript-state.js","../../process-mode":"src/modules/tool/process-mode.js","../../class-names":"src/modules/tool/class-names.js","../../primitives":"src/modules/tool/primitives.js","../models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","../models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","../models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","../models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","./ToolRow.styles":"src/modules/tool/tool/components/ToolRow.styles.js","./ReviewDiffBlock":"src/modules/tool/tool/components/ReviewDiffBlock.js","../../../shared/ToolGlyph":"src/modules/shared/ToolGlyph.js"},"src/modules/tool/transcript-state.js":{},"src/modules/tool/process-mode.js":{"../shared/process-display":"src/modules/shared/process-display.js"},"src/modules/shared/process-display.js":{},"src/modules/tool/class-names.js":{},"src/modules/tool/tool/components/ToolRow.styles.js":{"./ToolRow.css":"src/modules/tool/tool/components/ToolRow.css"},"src/modules/tool/tool/components/ToolRow.css":{},"src/modules/tool/tool/components/ReviewDiffBlock.js":{"../../primitives":"src/modules/tool/primitives.js","../../transcript-state":"src/modules/tool/transcript-state.js","./ReviewDiffBlock.styles":"src/modules/tool/tool/components/ReviewDiffBlock.styles.js"},"src/modules/tool/tool/components/ReviewDiffBlock.styles.js":{"./ReviewDiffBlock.css":"src/modules/tool/tool/components/ReviewDiffBlock.css"},"src/modules/tool/tool/components/ReviewDiffBlock.css":{},"src/modules/shared/ToolGlyph.js":{},"src/modules/tool/tool/models/agent-communication-model.js":{"../../value-guards":"src/modules/tool/value-guards.js","./tool-call-model":"src/modules/tool/tool/models/tool-call-model.js"},"src/modules/tool/tool/ToolCallTree.styles.js":{"./ToolCallTree.css":"src/modules/tool/tool/ToolCallTree.css"},"src/modules/tool/tool/ToolCallTree.css":{},"src/modules/tool/tool/ToolDetails.js":{"../primitives":"src/modules/tool/primitives.js","./components/ReviewDiffBlock":"src/modules/tool/tool/components/ReviewDiffBlock.js","./models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","./models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","./models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","./models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","./models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","./models/web-card-model":"src/modules/tool/tool/models/web-card-model.js","./ToolDetails.styles":"src/modules/tool/tool/ToolDetails.styles.js"},"src/modules/tool/tool/ToolDetails.styles.js":{"./ToolDetails.css":"src/modules/tool/tool/ToolDetails.css"},"src/modules/tool/tool/ToolDetails.css":{},"src/modules/tool/locale.js":{},"src/modules/tool/tool/toolviews/ask-question-row.js":{"../../value-guards":"src/modules/tool/value-guards.js","../../primitives":"src/modules/tool/primitives.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/bash-sample.js":{"../../transcript-state":"src/modules/tool/transcript-state.js","../../class-names":"src/modules/tool/class-names.js","../../primitives":"src/modules/tool/primitives.js","../models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../../locale":"src/modules/tool/locale.js","./bash-sample.styles":"src/modules/tool/tool/toolviews/bash-sample.styles.js","../../../jobs/RunPanel":"src/modules/jobs/RunPanel.js"},"src/modules/tool/tool/toolviews/bash-sample.styles.js":{"./bash-sample.css":"src/modules/tool/tool/toolviews/bash-sample.css"},"src/modules/tool/tool/toolviews/bash-sample.css":{},"src/modules/jobs/RunPanel.js":{"./RunPanel.css":"src/modules/jobs/RunPanel.css","../views-types":"src/modules/views-types.js","./model":"src/modules/jobs/model.js"},"src/modules/jobs/RunPanel.css":{},"src/modules/views-types.js":{},"src/modules/jobs/model.js":{},"src/modules/tool/tool/toolviews/file-mutation-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/read-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/search-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/todo-row.js":{"../../value-guards":"src/modules/tool/value-guards.js","../../primitives":"src/modules/tool/primitives.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js","./plan-summary":"src/modules/tool/tool/toolviews/plan-summary.js"},"src/modules/tool/tool/toolviews/plan-summary.js":{},"src/modules/tool/tool/toolviews/web-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/web-card-model":"src/modules/tool/tool/models/web-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

@@ -22,7 +22,7 @@ import {useTranscriptState} from '../../transcript-state'
 import {useProcessMode} from '../../process-mode'
 import {clsx} from '../../class-names'
 import {
-  CodeBlock, DisclosureRow, IconInspectOutline12, ReadBlock, SearchBlock, StateDot, TerminalBlock, WebBlock,
+  CodeBlock, DisclosureRow, IconInspectOutline12, IconChevronDownOutline14, ReadBlock, SearchBlock, StateDot, TerminalBlock, WebBlock,
 } from '../../primitives'
 import type { WebBlockProps } from '../../primitives'
 import type { TranslateNS } from '../../types'
@@ -33,6 +33,7 @@ import { terminalBlockLabels, type TerminalCardModel } from '../models/terminal-
 import type { ToolRowState, ToolRowVariant } from '../models/tool-call-model'
 import css from './ToolRow.styles'
 import {ReviewDiffBlock} from './ReviewDiffBlock'
+import { ToolGlyph, toolDisplayName } from '../../../shared/ToolGlyph'
 
 export interface ToolRowProps {
   stateKey?: string | undefined
@@ -41,7 +42,9 @@ export interface ToolRowProps {
   variant: ToolRowVariant
   /** Wire tool name for tool-owned styling layered over the generic variant. */
   toolName?: string | undefined
-  /** Leading 16px tool icon, shown while collapsed and not running/failed. */
+  /** Bounded, display-only MCP identity; never used for dispatch. */
+  glyphArgsRaw?: string | undefined
+  /** Fallback 16px identity for rows without a wire tool name. */
   icon: ReactNode
   title: string
   summary: string
@@ -105,13 +108,12 @@ export interface ToolRowProps {
   inspect?: (() => void) | undefined
 }
 
-/** Leading-slot state substitution: the tool icon yields to the terminal state
- *  semantic (error = red, interrupted = amber halo). Running keeps the icon —
- *  the row sweep (CSS on data-state) carries the in-flight signal. */
+/** Keep tool identity and terminal state orthogonal. The row sweep carries
+ * the in-flight signal; a small badge carries error/interrupted state. */
 function leadingFor(state: ToolRowState, icon: ReactNode): ReactNode {
   switch (state) {
-    case 'error': return <StateDot state="error" />
-    case 'stopped': return <StateDot state="warning" />
+    case 'error': return <span className="xh-tool-identity">{icon}<span className="xh-tool-state-badge"><StateDot state="error" /></span></span>
+    case 'stopped': return <span className="xh-tool-identity">{icon}<span className="xh-tool-state-badge"><StateDot state="warning" /></span></span>
     default: return icon
   }
 }
@@ -135,6 +137,7 @@ export function ToolRow({
   t,
   variant,
   toolName,
+  glyphArgsRaw,
   icon,
   title,
   summary,
@@ -213,14 +216,17 @@ export function ToolRow({
         leadingClassName={css.leading}
         titleClassName={css.title}
         chevronClassName={css.chevron}
-        icon={leadingFor(state, icon)}
-        title={state === 'preparing' ? `${title} · ${(document.documentElement.lang || '').startsWith('zh') ? '准备中' : 'Preparing'}` : title}
+        icon={leadingFor(state, toolName === undefined ? icon : <ToolGlyph name={toolName} argsRaw={glyphArgsRaw} />)}
+        title={state === 'preparing' ? `${title} · ${(document.documentElement.lang || '').startsWith('zh') ? '准备中' : 'Preparing'}` : title === 'Tool call' ? toolDisplayName(toolName ?? '') ?? title : title}
         open={open}
         expandable={expandable}
         expandOnRowClick
         keepContentWhenOpen
+        keepIconWhenOpen
+        previewChevron={false}
         onToggle={toggleExpand}
-        collapsedContent={summaryText !== '' && (
+        collapsedContent={<>
+          {summaryText !== '' && (
           /* An empty summary drops the separator with it (a row that is only
              its title shows no trailing dot). */
           <>
@@ -246,7 +252,9 @@ export function ToolRow({
             )}
             {suffix !== null && <span className={css.summarySuffix}>{suffix}</span>}
           </>
-        )}
+          )}
+          {expandable && <IconChevronDownOutline14 className="xh-tool-trailing-chevron" />}
+        </>}
       >
         {/* The wrapper (sibling of the header row, so clicks inside never
             toggle it) carries the expanded body and the Inspect pill below. */}

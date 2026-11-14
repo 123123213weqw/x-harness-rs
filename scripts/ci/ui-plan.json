@@ -4416,6 +4416,30 @@
       ],
       "env": {},
       "weight": 2
+    },
+    {
+      "id": "browser-256",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-turn-tool-timeline-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 35
+    },
+    {
+      "id": "browser-257",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-turn-tool-timeline-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 35
     }
   ]
 }

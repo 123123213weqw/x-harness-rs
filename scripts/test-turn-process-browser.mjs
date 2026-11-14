@@ -225,7 +225,7 @@ try {
  assert.equal(await page.locator('[data-turn-process-summary]').count(),0)
  const scroll=page.locator('[data-conversation-scroll]')
  const finalThink=page.locator('[data-chat-flow-key="final1"] [data-variant=think] button')
- await finalThink.waitFor();await finalThink.click();assert.equal(await finalThink.getAttribute('aria-expanded'),'true')
+ await page.locator('[data-live-tool-summary="1"]').click();await finalThink.waitFor();await finalThink.click();assert.equal(await finalThink.getAttribute('aria-expanded'),'true');await page.locator('[data-chat-anchor-key="turn-process:1"]').scrollIntoViewIfNeeded();await page.locator('[data-live-tool-summary="1"]').click()
  await page.evaluate(()=>snapshot.set({...snapshot.getSnapshot(),running:false}))
  await rotor.waitFor({state:'detached'})
  await page.locator('[data-chat-flow-key="a1"]').waitFor({state:'attached'})
@@ -233,7 +233,7 @@ try {
  const summary=page.locator('[data-turn-process-summary="1"]')
  // Linux WebKit may serialize the decorative SVG's final line break in
  // innerText. Compare the complete label, without that browser-only suffix.
- await summary.waitFor();assert.equal((await summary.innerText()).trim(),'Ran for 2m 45s')
+ await summary.waitFor();assert.equal((await summary.locator('.xh-turn-process-time').innerText()).trim(),'2m 45s');assert.match(await summary.innerText(),/80 tool calls · 2 Thought/)
  assert.equal(await summary.getAttribute('aria-expanded'),'false')
  assert.equal(await page.locator('[data-tool-card]').count(),0)
  assert.equal(await page.getByText('intermediate reply',{exact:true}).count(),0)
@@ -300,9 +300,9 @@ try {
  assert.equal(await page.locator('[data-chat-flow-key="job0"]').count(),0)
  await page.evaluate(()=>{setId('no-answer');seed();toolFixture('job0',{isError:true});finish(false,false,true)})
  await page.getByRole('button',{name:/Show this turn's work/}).waitFor()
- assert.equal((await summary.innerText()).trim(),'Turn finished')
+ assert.equal((await summary.innerText()).trim(),'Loaded: 80 tool calls · 2 Thought')
  await page.getByText('network failed',{exact:true}).waitFor()
- assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),0)
+ assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),1,'failed result remains outside the closed disclosure')
  await summary.click();await page.locator('[data-chat-flow-key="a1"]').waitFor({state:'attached'})
  assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),80)
  assert.equal(await page.evaluate(()=>snapshot.getSnapshot().chat.nodes.get('job0').data.root.isError),true,'failed result survives collapse/reopen')
@@ -351,6 +351,7 @@ try {
  await page.evaluate(()=>toolFixture('job1',{subCalls:[{callId:'pending',callView:null,time:1,name:'ask_question',argsRaw:'{}',turn:1,step:1,subCalls:[]}]}))
  await page.locator('[data-chat-flow-key="job1"]').waitFor({state:'attached'})
  await page.locator('[data-chat-flow-key="job1"]').scrollIntoViewIfNeeded()
+ assert.equal(await page.locator('[data-native-tool="job1"]').evaluate(e=>e.open),false,'recovery manual-open starts from a closed native detail')
  await page.locator('[data-tool-card="job1"] details summary').click()
  await page.waitForFunction(()=>document.querySelector('[data-native-tool="job1"]').open)
  await page.evaluate(()=>{document.activeElement?.blur();toolFixture('job1',{subCalls:[]})})
@@ -386,13 +387,13 @@ try {
  await page.evaluate(()=>finish());await summary.waitFor()
  assert.equal(await summary.getAttribute('aria-expanded'),'true','manual choice is not overridden by end')
  await summary.click()
- assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),1,'known failure folds; pending root remains visible')
- assert.equal(await page.locator('[data-chat-flow-key="job0"]').count(),0,'Failed must not keep a completed process row open')
+ assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),2,'known failure and pending root both remain visible')
+ assert.equal(await page.locator('[data-chat-flow-key="job0"]').count(),1,'Failed must remain outside the completed disclosure')
  assert.equal(await page.locator('[data-chat-flow-key="job1"]').count(),1)
  // Refresh-style remount of the same final graph defaults folded without losing work.
  await page.evaluate(()=>setId('adaptive-replayed'))
  assert.equal(await summary.getAttribute('aria-expanded'),'false')
- assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),1)
+ assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),2)
  await summary.click()
  assert.equal(await page.locator('[data-chat-flow-key="job0"]').count(),1,'explicit reopening restores Failed')
  assert.equal(await page.evaluate(()=>snapshot.getSnapshot().chat.nodes.get('job0').data.root.isError),true)
@@ -400,15 +401,16 @@ try {
  // An offscreen/zero-size viewport must not trigger speculative collapse.
  await page.evaluate(()=>{document.querySelector('[data-conversation-scroll]').style.height='0px';setId('zero');seed()})
  await page.waitForTimeout(120)
- assert.equal(await live.count(),0)
+ // The zero-height viewport windows heavy contents out, including the header button.
+ assert.equal(await page.locator('[data-chat-anchor-key="turn-process:1"]').count(),1,'zero viewport retains the lightweight process entry')
  assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),80)
  await page.evaluate(()=>document.querySelector('[data-conversation-scroll]').style.height='650px')
  await live.waitFor()
  assert.equal(await live.getAttribute('aria-expanded'),'false','new session does not inherit expanded choice')
  // Protect actual focused controls, selected text and user-opened native details.
- await page.evaluate(()=>{document.querySelector('[data-conversation-scroll]').style.height='4000px';setId('reading');seedFew()})
+ await page.evaluate(()=>{document.querySelector('[data-conversation-scroll]').style.height='4000px';setId('reading');seedFew();for(let i=0;i<6;i++)toolFixture('job'+i,{isError:true})})
  await page.waitForFunction(()=>document.querySelectorAll('[data-tool-card]').length===6)
- assert.equal(await live.count(),0)
+ assert.equal(await live.count(),1,'compact header is available before testing reader protections')
  await page.locator('[data-tool-card="job0"] details summary').click()
  await page.waitForFunction(()=>document.querySelector('[data-native-tool="job0"]').open)
  await page.locator('[data-tool-card="job1"] button').first().focus()
@@ -416,6 +418,9 @@ try {
   const text=document.querySelector('[data-native-tool="job2"] summary').firstChild
   const range=document.createRange();range.selectNodeContents(text)
   getSelection().removeAllRanges();getSelection().addRange(range)
+  // Compact mode no longer waits for a height threshold. Establish real
+  // reader protections while failed rows are exposed, then recover them.
+  for(let i=0;i<6;i++)toolFixture('job'+i,{isError:false})
   document.querySelector('[data-conversation-scroll]').style.height='150px'
  })
  // A focused/selected reader can be scrolled far enough that the process
@@ -441,9 +446,10 @@ try {
   window.dispatchEvent(new Event('xh-process-mode'))
  })
  await page.waitForFunction(()=>document.querySelectorAll('[data-chat-flow-kind="tool-call"]').length===80)
- assert.equal(await live.count(),0,'expanded mode disables live auto fold')
+ assert.equal(await page.locator('[data-chat-anchor-key="turn-process:1"]').count(),1,'expanded mode retains its group header without auto-folding tools')
  await scroll.evaluate(e=>{e.scrollTop=0})
  await jobButton.waitFor()
+ await live.waitFor();assert.equal(await live.getAttribute('aria-expanded'),'true','group header reflects the global expanded policy')
  await page.waitForFunction(()=>document.querySelector('[data-tool-card="job0"] [aria-expanded]')?.getAttribute('aria-expanded')==='true')
  assert.equal(await firstThink.getAttribute('aria-expanded'),'true','expanded mode includes reasoning')
  await jobButton.click()
@@ -474,10 +480,10 @@ try {
  for (const item of realWindows) {
   await page.evaluate(item=>installRealWindow(item.chat,'wire-'+item.name),item)
   const footer=page.locator('[data-turn-process-summary="1"]')
-  await footer.waitFor();assert.equal((await footer.innerText()).trim(),'Ran for 2m 45s',item.name)
+  await footer.waitFor();assert.equal((await footer.locator('.xh-turn-process-time').innerText()).trim(),'2m 45s',item.name);assert.match(await footer.innerText(),/1 tool calls · 1 Thought/)
   assert.equal(await footer.getAttribute('aria-expanded'),'false')
   await page.getByText('answer',{exact:true}).waitFor()
-  assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),item.outcome==='unknown'?1:0,item.name)
+  assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),item.outcome==='success'?0:1,item.name)
   if(item.failure)await page.getByText(item.failure,{exact:true}).waitFor()
   await footer.click();assert.equal(await footer.getAttribute('aria-expanded'),'true')
   await page.locator('[data-chat-flow-kind="tool-call"]').waitFor()
@@ -499,5 +505,5 @@ try {
  assert.equal(await page.evaluate(()=>__foldObservers.size),0,'all adaptive and window resize observers disposed on unmount')
  assert.equal(await page.evaluate(()=>__foldMutations.size),0,'adaptive mutation observer disposed on unmount')
  assert.deepEqual(errors,[])
- console.log(`${engine}: running/idle/turn-end fold, persistent footer, final answer, keyboard reopening/scroll anchor, no data mutation, session/turn isolation, Think/Tool/Compaction/native-details state, bounded remount, malformed/foreign tail, image-only/no-answer/unknown-start/error; adaptive live failure protection, settled failure folding, pending/unknown-outcome protection, manual override, zero viewport, native-details/focus/selection protection and observer cleanup; 42 Rust-fixture -> Session/Assembler -> DOM terminal windows and persistent agent communication rows passed`)
+ console.log(`${engine}: running/idle/turn-end fold, persistent footer, final answer, keyboard reopening/scroll anchor, no data mutation, session/turn isolation, Think/Tool/Compaction/native-details state, bounded remount, malformed/foreign tail, image-only/no-answer/unknown-start/error; adaptive live failure protection, settled failure visibility, pending/unknown-outcome protection, manual override, zero viewport, native-details/focus/selection protection and observer cleanup; 42 Rust-fixture -> Session/Assembler -> DOM terminal windows and persistent agent communication rows passed`)
 } finally {await browser.close();await new Promise(r=>server.close(r))}
