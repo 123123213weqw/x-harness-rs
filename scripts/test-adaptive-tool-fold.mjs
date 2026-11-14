@@ -33,13 +33,13 @@ test('recursive calls: only all-successful settled roots eligible, output never 
  assert.equal(plugin.toolCanAutoFold({kind:'unknown',data:{}}),false)
  assert.equal(JSON.stringify(root),before)
 })
-test('turn/end folds settled failures but preserves pending/unknown outcomes; expansion restores every row',()=>{
+test('turn/end folds success but preserves failures/pending/unknown outcomes; expansion restores every row',()=>{
  const tail={turn:1,closing:null}
- for(const root of [block({subCalls:[{callId:'live',subCalls:[]}]}),block({isError:true,error:{name:'OutcomeUnknown',code:'OUTCOME_UNKNOWN'}}),block({subCalls:[block({isError:true,error:{name:'OutcomeUnknown',code:'OUTCOME_UNKNOWN'}})]}),block({isError:true,error:{name:'Interrupted',code:'interrupted'}}),block({subCalls:[block({isError:true,error:{name:'Interrupted',code:'interrupted'}})]})]){
+ for(const root of [block({isError:true}),block({subCalls:[block({isError:true})]}),block({subCalls:[{callId:'live',subCalls:[]}]}),block({isError:true,error:{name:'OutcomeUnknown',code:'OUTCOME_UNKNOWN'}}),block({subCalls:[block({isError:true,error:{name:'OutcomeUnknown',code:'OUTCOME_UNKNOWN'}})]}),block({isError:true,error:{name:'Interrupted',code:'interrupted'}}),block({subCalls:[block({isError:true,error:{name:'Interrupted',code:'interrupted'}})]})]){
   assert.deepEqual(json(plugin.turnProcessPresentation(tool(root),tail,false)),{collapsed:true,hidden:false})
   assert.deepEqual(json(plugin.turnProcessPresentation(tool(root),tail,true)),{collapsed:false,hidden:false})
  }
- for(const root of [block(),block({isError:true}),block({subCalls:[block({isError:true})]})]){
+ for(const root of [block(),block({subCalls:[block()]})]){
   const before=JSON.stringify(root)
   assert.deepEqual(json(plugin.turnProcessPresentation(tool(root),tail,false)),{collapsed:true,hidden:true})
   assert.deepEqual(json(plugin.turnProcessPresentation(tool(root),tail,true)),{collapsed:false,hidden:false})
@@ -76,4 +76,44 @@ test('Actual Session/Assembler keeps agent call identity and acknowledgement in 
   assert.equal(plugin.toolCanAutoFold(node),false)
   assert.deepEqual(json(plugin.turnProcessPresentation(node,chat.timeline.turns.get(1).data.get('turn-tail'),false)),{collapsed:true,hidden:false})
  }
+})
+
+test('compact mode folds earlier success even below the old budget, but newest/protected/hidden viewport remain safe',()=>{
+ const rows=[row('first',24),row('focused',24,{protected:true}),row('last',24)]
+ assert.deepEqual([...plugin.planToolFold(rows,1000,0.4,true)],['first'])
+ assert.deepEqual([...plugin.planToolFold(rows,0,0.4,true)],[])
+ for(const root of [block({resultView:{card:'terminal',exitCode:7}}),block({resultView:{card:'terminal',signal:'SIGTERM'}}),block({subCalls:[block({resultView:{card:'terminal',exitCode:1}})]})]){
+  assert.equal(plugin.toolCanAutoFold(tool(root)),false)
+  assert.equal(plugin.turnProcessPresentation(tool(root),{turn:1,closing:null},false).hidden,false)
+ }
+})
+test('live reasoning is grouped without hiding prose, images, preparing inputs, unknown blocks or interruption',()=>{
+ const assistant=(blocks,status='running')=>({kind:'assistant-step',data:{blocks,status}})
+ const present=node=>json(plugin.turnProcessPresentation(node,undefined,false,true))
+ assert.deepEqual(present(assistant([{kind:'reasoning',text:'thinking'}])),{collapsed:true,hidden:true})
+ for(const blocks of [[{kind:'text',text:'visible narration'}],[{kind:'image',attachment:{}}],[{kind:'other',block:{}}],[{kind:'tool-call',callId:'x',name:'edit',argsRaw:'{"path":'}]])assert.deepEqual(present(assistant(blocks)),{collapsed:true,hidden:false})
+ assert.deepEqual(present(assistant([{kind:'reasoning',text:'stopped'}],'interrupted')),{collapsed:true,hidden:false})
+ assert.deepEqual(json(plugin.turnProcessPresentation(assistant([{kind:'reasoning',text:'thinking'}]),undefined,true,true)),{collapsed:false,hidden:false})
+ assert.equal(present(tool(block({isError:true}))).hidden,false)
+})
+test('loaded-window counts deduplicate subcalls and never mutate or retain a second transcript',()=>{
+ const assistant={key:'a',kind:'assistant-step',data:{turn:1,step:0,time:1,status:'running',blocks:[{kind:'reasoning',text:'summary'},{kind:'text',text:'answer'}]}}
+ const one={key:'t',...tool(block({callId:'root',subCalls:[block({callId:'child'})]}))}
+ const child={key:'c',...tool(block({callId:'child'}))}
+ const nodes=new Map([['a',assistant],['t',one],['c',child],['unknown',{kind:'extension',data:{}}]])
+ const before=JSON.stringify([...nodes]);const count=keys=>json(plugin.turnProcessCounts(keys,key=>nodes.get(key)))
+ assert.deepEqual(count(['a','t','c','unknown','missing']),{tools:2,thoughts:1})
+ assert.deepEqual(count(['c']),{tools:1,thoughts:0},'partial windows do not count unloaded roots')
+ assert.deepEqual(count(['a','t','c']),{tools:2,thoughts:1},'cached immutable metadata remains exact')
+ nodes.set('a',{...assistant,data:{...assistant.data,blocks:[...assistant.data.blocks,{kind:'reasoning',text:'later'}]}})
+ assert.deepEqual(count(['a']),{tools:0,thoughts:2},'new immutable streaming node invalidates metadata')
+ nodes.set('a',assistant);assert.equal(JSON.stringify([...nodes]),before)
+})
+
+test('tool counts namespace call IDs by owning step, not a globally unique model-generated ID',()=>{
+ const location=step=>({kind:'step',turn:{turn:1},step:{step}})
+ const first={key:'one',...tool(block({callId:'reused'})),location:location(0)}
+ const second={key:'two',...tool(block({callId:'reused'})),location:location(1)}
+ const nodes=new Map([['one',first],['two',second]])
+ assert.deepEqual(json(plugin.turnProcessCounts(['one','two'],key=>nodes.get(key))),{tools:2,thoughts:0})
 })

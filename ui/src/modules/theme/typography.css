@@ -27,13 +27,26 @@ body {
   --dsw-font-markdown-code-block-line-height: 24px;
 }
 
-/* Bookish final-answer prose. The direct-child boundary excludes reasoning,
-   tool output and other Markdown consumers. Headings and code retain their
-   own font shorthands; do not replace the global UI font or theme colors. */
+/* Final-answer prose shares the ordinary system UI font. Preserve the current
+   emphasis, spacing and colors; code retains its own monospace shorthand.
+   The direct-child boundary excludes reasoning and tool output. */
 [data-xh-assistant-prose] > .MarkdownText_markdown {
-  --xh-assistant-reading-family: Georgia, "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "PingFang SC", serif;
+  --xh-assistant-reading-family: var(--dsw-font-family);
   --xh-markdown-emphasis-weight: 600;
+  --dsw-font-markdown-h1: 600 22px/32px var(--dsw-font-family);
+  --dsw-font-markdown-h2: 600 18px/28px var(--dsw-font-family);
+  --dsw-font-markdown-h3: 600 17px/26px var(--dsw-font-family);
+  --xh-markdown-h12-margin: 30px 0 8px;
+  --xh-markdown-h3-margin: 24px 0 8px;
+  --xh-markdown-paragraph-margin: 12px 0;
   font-family: var(--xh-assistant-reading-family);
+}
+
+[data-xh-assistant-prose] > .MarkdownText_markdown > :first-child {
+  margin-top: 0;
+}
+[data-xh-assistant-prose] > .MarkdownText_markdown > h1:first-child {
+  margin-bottom: 16px;
 }
 
 /* Table cells have their own font shorthand, so opt their prose in explicitly.

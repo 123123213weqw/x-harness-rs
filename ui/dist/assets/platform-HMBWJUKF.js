@@ -32767,6 +32767,7 @@ function DisclosureRow({
   expandOnRowClick = false,
   previewChevron = expandable,
   keepContentWhenOpen = false,
+  keepIconWhenOpen = false,
   collapsedContent,
   children,
   className,
@@ -32789,7 +32790,7 @@ function DisclosureRow({
     /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: DisclosureRow_default.iconIdle, children: icon }),
     /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(IconChevronDownOutline14, { className: clsx_default(chevronClassName, DisclosureRow_default.chevronHover) })
   ] }) : icon;
-  const leading = open3 ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(IconChevronDownOutline14, { className: chevronClassName }) : collapsedLeading;
+  const leading = open3 && !keepIconWhenOpen ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(IconChevronDownOutline14, { className: chevronClassName }) : collapsedLeading;
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: clsx_default(DisclosureRow_default.root, className), "data-open": open3 || void 0, children: [
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
       "div",
@@ -59795,4 +59796,4 @@ init_define_process_execArgv();
 var el = document.getElementById("root");
 if (el === null) throw new Error("web app: missing #root");
 void new AppWebEntry(el).run();
-//# sourceMappingURL=platform-OBYOA4U6.js.map
+//# sourceMappingURL=platform-HMBWJUKF.js.map

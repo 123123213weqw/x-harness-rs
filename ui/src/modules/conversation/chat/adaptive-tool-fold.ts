@@ -8,17 +8,15 @@ export const NO_FOLDED_TOOLS: FoldedTools = new Map()
 
 /** Fail open on active, failed, recursive pending, or unknown tool carriers. */
 export function toolCanAutoFold(node: ChatNode): boolean {
-  return toolCanFold(node, false)
+  return toolCanFold(node)
 }
 
-/** An authoritative turn/end can fold known failures too, but not an unresolved
- * call or an unknown execution outcome. The original failure remains inspectable.
- */
+/** Failures remain outside the disclosure even after an authoritative turn/end. */
 export function toolCanFoldAfterTurn(node: ChatNode): boolean {
-  return toolCanFold(node, true)
+  return toolCanFold(node)
 }
 
-function toolCanFold(node: ChatNode, includeFailures: boolean): boolean {
+function toolCanFold(node: ChatNode): boolean {
   if (node.kind !== 'tool-call') return false
   const stack: ToolCallBlock[] = [node.data.root]
   for (let block = stack.pop(); block !== undefined; block = stack.pop()) {
@@ -29,7 +27,12 @@ function toolCanFold(node: ChatNode, includeFailures: boolean): boolean {
     // Projection's synthetic interrupted result has no settled tool/result.
     if (!('kind' in block) || block.kind !== 'tool-result'
       || block.error?.code === 'OUTCOME_UNKNOWN' || block.error?.code === 'interrupted'
-      || (!includeFailures && block.isError)) return false
+      || block.isError) return false
+    // Shell cards can report a nonzero exit without isError on the envelope.
+    const view = block.resultView
+    if (typeof view === 'object' && view !== null && 'card' in view && view.card === 'terminal'
+      && (('exitCode' in view && typeof view.exitCode === 'number' && view.exitCode !== 0)
+        || ('signal' in view && typeof view.signal === 'string' && view.signal !== ''))) return false
     stack.push(...block.subCalls)
   }
   return true
@@ -47,7 +50,7 @@ export interface ToolFoldRow {
  * Sticky folding avoids resize oscillation; explicit expansion bypasses it.
  * Window placeholders contribute their bounded estimate, without mounting them.
  */
-export function planToolFold(rows: readonly ToolFoldRow[], viewportHeight: number, share = TOOL_FOLD_VIEWPORT_SHARE): ReadonlySet<string> {
+export function planToolFold(rows: readonly ToolFoldRow[], viewportHeight: number, share = TOOL_FOLD_VIEWPORT_SHARE, compact = false): ReadonlySet<string> {
   const hidden = new Set<string>()
   if (!Number.isFinite(viewportHeight) || viewportHeight <= 0 || !Number.isFinite(share) || share <= 0 || share >= 1) return hidden
   const turns = new Map<number, ToolFoldRow[]>()
@@ -59,7 +62,7 @@ export function planToolFold(rows: readonly ToolFoldRow[], viewportHeight: numbe
   for (const group of turns.values()) {
     let height = group.reduce((sum, row) => sum + (Number.isFinite(row.height) ? Math.max(0, row.height) : 0), 0)
     for (const row of group.slice(0, -1)) {
-      if (height <= budget) break
+      if (!compact && height <= budget) break
       if (!row.eligible || row.protected || !Number.isFinite(row.height) || row.height <= 0) continue
       hidden.add(row.key); height -= row.height
     }

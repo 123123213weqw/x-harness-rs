@@ -1,3 +1,4 @@
+import {stripTurnToolStyles} from './fixtures/reviewed-turn-tool-style.mjs'
 import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
 import assert from 'node:assert/strict'
 import {test} from 'node:test'
@@ -6,9 +7,9 @@ import vm from 'node:vm'
 import {stripReviewedJobStyle} from './fixtures/reviewed-job-ui-contract.mjs'
 import {compileSourceModules} from './build-source-modules.mjs'
 const id='@xharness/dsh-client-ui-tool',compiled=compileSourceModules(new URL('../ui',import.meta.url).pathname,[{id,source:'src/modules/tool/index.ts'},{id:id+'/test',source:'src/modules/tool/test-exports.ts'},{id:'path',source:'src/modules/client-runtime/workspaces/path.ts'}]);const frozen=readFileSync(`ui/reference/master-a613970/plugins/${id}/client.js`,'utf8');const names=['classifyTool','resultText','relativizeToCwd','toolRowModel','terminalBlockLabels','terminalFailed','terminalCardModel','readCardModel','diffCardModel','searchCardModel','webCardModel','ToolRow','BashRow','GenericToolCard','ToolDetails','ToolCallTree'];const json=x=>JSON.parse(JSON.stringify(x,(_k,v)=>typeof v==='function'?`function:${v.name}`:v));let path;vm.runInNewContext(compiled.get('path').bytes.toString(),{window:{__ModuleLoader__:{load:row=>{path=row.factory()}}}})
-function harness(code){let row;const styles=[],slots=[],plugins=[];const document={documentElement:{dataset:{},lang:'en'},getElementById:()=>null,querySelector:()=>null,createElement:()=>({dataset:{}}),head:{appendChild:tag=>styles.push(tag)}};const jsx=(type,props,key)=>({type,props,key});const react={memo:fn=>fn,useMemo:fn=>fn(),useEffect:()=>{},useState:initial=>[typeof initial==='function'?initial():initial,()=>{}]};vm.runInNewContext(code,{window:{__ModuleLoader__:{load:x=>row=x}},document,console});const plugin=row.factory(name=>{if(name==='zod')return sharedVendors.zod;if(name==='react')return react;if(name==='react/jsx-runtime')return {jsx,jsxs:jsx,Fragment:'fragment'};if(name==='@xharness/dsh-client-ui-primitives')return new Proxy({},{get:(_t,key)=>key});if(name==='@xharness/dsh-client-runtime/client')return path;throw Error(name)});const ctx={get:()=>({hostDescription:{getSnapshot:()=>({home:'/home/u'})}}),slots:{inject:(_n,fn)=>fn(),register:(spec,component)=>slots.push({spec,component})},plugin:p=>{plugins.push(p.name);p.apply(ctx)}};return{plugin,styles,slots,plugins,ctx}}
+function harness(code){let row;const styles=[],slots=[],plugins=[];const document={documentElement:{dataset:{},lang:'en'},getElementById:()=>null,querySelector:()=>null,createElement:()=>({dataset:{}}),head:{appendChild:tag=>styles.push(tag)}};const jsx=(type,props,key)=>({type,props,key});const react={memo:fn=>fn,useMemo:fn=>fn(),useEffect:()=>{},useState:initial=>[typeof initial==='function'?initial():initial,()=>{}]};vm.runInNewContext(code,{window:{__ModuleLoader__:{load:x=>row=x}},document,console});const plugin=row.factory(name=>{if(name==='zod')return sharedVendors.zod;if(name==='react')return react;if(name==='react/jsx-runtime')return {jsx,jsxs:jsx,Fragment:'fragment'};if(name==='@xharness/dsh-client-ui-primitives')return new Proxy({},{get:(_t,key)=>key});if(name==='@xharness/dsh-client-runtime/client')return path;throw Error(name)});const ctx={get:()=>({hostDescription:{getSnapshot:()=>({home:'/home/u'})}}),slots:{inject:(_n,fn)=>{const r=fn();if(r&&typeof r[Symbol.iterator]==='function')for(const _ of r){};return r},register:(spec,component)=>slots.push({spec,component})},plugin:p=>{plugins.push(p.name);p.apply(ctx)}};return{plugin,styles,slots,plugins,ctx}}
 const a=harness(frozen.replace('return module.exports;',`Object.assign(exports,{${names.join(',')}});return module.exports;`)),b=harness(compiled.get(id+'/test').bytes.toString());const apis=[a,b];const settled=(patch={})=>({kind:'tool-result',seq:8,time:100,callId:'c',call:{name:'bash',argsRaw:'{"command":"echo hi"}'},callTime:20,content:[{type:'text',text:'hi'}],isError:false,subCalls:[],callView:null,resultView:null,...patch});const running=(patch={})=>({callId:'c',name:'bash',argsRaw:'{"command":"echo hi"}',turn:1,step:1,time:20,callView:null,subCalls:[],...patch});const safe=(fn,...args)=>{try{return json(fn(...args)??null)}catch(e){return{failure:e.message}}};
-test('Tool: strict production ABI, inject, all CSS/classmap lifecycle and registered slots unchanged',()=>{const old=harness(frozen),source=harness(compiled.get(id).bytes.toString());assert.deepEqual(Object.keys(source.plugin).sort(),Object.keys(old.plugin).sort());assert.deepEqual(json(source.plugin.inject),json(old.plugin.inject));for(const x of[old,source])x.plugin.apply(x.ctx);assert.deepEqual(json(stripReviewedJobStyle(source.styles)),json(old.styles));assert.deepEqual(source.plugins,old.plugins);assert.deepEqual(json(source.slots.map(x=>x.spec)),json(old.slots.map(x=>x.spec)))})
+test('Tool: strict production ABI, inject, all CSS/classmap lifecycle and registered slots unchanged',()=>{const old=harness(frozen),source=harness(compiled.get(id).bytes.toString());assert.deepEqual(Object.keys(source.plugin).sort(),Object.keys(old.plugin).sort());assert.deepEqual(json(source.plugin.inject),json(old.plugin.inject));for(const x of[old,source])x.plugin.apply(x.ctx);assert.deepEqual(json(stripTurnToolStyles(stripReviewedJobStyle(source.styles))),json(old.styles));assert.deepEqual(source.plugins,old.plugins);const added=source.slots.filter(x=>x.spec.key==='todolist');assert.equal(added.length,1);assert.deepEqual(json(added[0].spec),{name:'tool.call.toolview',key:'todolist',locale:'conversation'});assert.deepEqual(json(source.slots.filter(x=>x.spec.key!=='todolist').map(x=>x.spec)),json(old.slots.map(x=>x.spec)))})
 test('Tool: row variants, stream prefixes, filesystem summary, nonzero exit and interruption are frozen-compatible',()=>{const tools=['bash','pwsh','read','write','edit','grep','glob','web_fetch','web_search','run_code','cordis_run','unknown'];const blocks=[running(),running({argsRaw:'{"command":'}),running({argsRaw:'plain'}),settled(),settled({isError:true,error:{code:'denied',name:'ToolError'}}),settled({isError:true,error:{code:'interrupted',name:'Cancelled'}}),settled({content:[]}),settled({content:[{type:'text',text:'a'},{type:'image',mediaType:'image/png',data:'secret pixels'}]})];for(const name of tools){assert.equal(b.plugin.classifyTool(name),a.plugin.classifyTool(name));for(const block of blocks)assert.deepEqual(safe(b.plugin.toolRowModel,name,block,'/home/u/work','/home/u'),safe(a.plugin.toolRowModel,name,block,'/home/u/work','/home/u'))}})
 
 test('Tool: exact browser MCP calls identify embedded/background without changing dispatch or run state',()=>{
@@ -132,7 +133,7 @@ test('Shell errors: interrupted, permission, unknown tools and malformed records
  assert.equal(b.plugin.toolRowModel('bash',denied).errorSummary,'Approval required')
  for(const name of ['read','agent','unknown']){
   const block=shellResult(receipt)
-  assert.equal(b.plugin.toolRowModel(name,block).errorSummary,JSON.stringify(processEnvelope(receipt)))
+  assert.equal(b.plugin.toolRowModel(name,block).errorSummary,'shell command exited with code 1');assert.equal(b.plugin.toolRowModel(name,block).output,JSON.stringify(processEnvelope(receipt)))
  }
  for(const meta of [null,[],{}, {...receipt,exit_code:'1'}, {...receipt,stdout:3}, {...receipt,kind:'background'}]){
   const block=settled({isError:true,meta,content:[{type:'text',text:'original failure'}]})
@@ -159,4 +160,37 @@ test('Shell errors: bounded preview, empty output and legacy terminal status nev
  assert.equal(b.plugin.toolRowModel('bash',empty).errorSummary,'Exit 1')
  const long=shellResult(processReceipt({stderr:'error: '+'e'.repeat(10000)}))
  assert.ok(b.plugin.toolRowModel('bash',long).errorSummary.length<=252)
+})
+
+test('Tool identity: real built-in names, stable thought/browser/image/search glyphs, MCP target bounds and unknown fallbacks',()=>{
+ const glyph=b.plugin.toolGlyphKind
+ for(const [name,kind] of Object.entries({thought:'thought',todolist:'list',todo_write:'list',read:'read',write:'write',edit:'edit',grep:'search',glob:'search',web_search:'search',web_fetch:'web',bash:'terminal',pwsh:'terminal',job_output:'terminal',job_list:'list',job_kill:'stop',agent:'agent',computer:'computer',display:'image',history:'history',plugin_mcp:'plugin',plugin_skill:'plugin',run_code:'code',edit_goal_objective:'goal',goal_report:'goal'}))assert.equal(glyph(name),kind,name)
+ const args=patch=>JSON.stringify({action:'call',plugin:'@xharness/native-browser',server:'webview',...patch})
+ assert.equal(glyph('plugin_mcp',args()),'browser')
+ assert.equal(glyph('plugin_mcp',args({plugin:'browser-use',server:'browser'})),'browser')
+ assert.equal(glyph('plugin_mcp',args({plugin:'wordcraft'})),'document')
+ for(const raw of ['{',args({action:'describe'}),args({server:'wrong'}),args({plugin:'fake-browser'}),' '.repeat(16385)])assert.equal(glyph('plugin_mcp',raw),'plugin')
+ for(const name of ['plan','automation','my_browser','read_other','constructor','__proto__'])assert.equal(glyph(name),'tool',name)
+ assert.equal(b.plugin.ToolGlyph({name:'todolist'}).props['data-tool-glyph'],'list')
+})
+test('TodoList get/update presentation is distinct from legacy status-writing todos and never infers completion',()=>{
+ const t=(key,v={})=>key+JSON.stringify(v)
+ assert.match(b.plugin.summarizeTodoList('{"action":"get"}',t).text,/todo.readList/)
+ assert.equal(b.plugin.summarizeTodoList('{"action":"update","revision":0,"items":[]}',t).text,'todo.listItems{"count":0}')
+ assert.equal(b.plugin.summarizeTodoList('{"action":"update","revision":0,"items":[{"id":"a","title":"verify"}]}',t).text,'todo.listItems{"count":1}')
+ for(const raw of ['{','null','[]','{"action":"clear"}','{"action":"update","items":[null]}','{"action":"update","items":{}}','{"action":"get","status":"completed"}','{"action":"update","items":[]}','{"action":"update","revision":0,"items":[{"id":"a","title":"verify","status":"completed"}]}','{"action":"update","items":[{"id":1,"title":"bad"}]}'])assert.equal(b.plugin.summarizeTodoList(raw,t),null)
+ const card=b.plugin.TodoRow({toolName:'todolist',block:running({name:'todolist',argsRaw:'{"action":"get"}'}),t})
+ assert.equal(card.props.title,'TodoList');assert.match(card.props.summary,/todo.readList/);assert.equal(card.props.state,'running')
+ const failed=b.plugin.TodoRow({toolName:'todolist',block:settled({isError:true,call:{name:'todolist',argsRaw:'{"action":"get"}'},content:[{type:'text',text:'not available'}]}),t})
+ assert.equal(failed.props.state,'error');assert.equal(failed.props.errorSummary,'not available')
+})
+test('Failure preview unwraps bounded JSON but preserves verbatim expanded output',()=>{
+ const preview=b.plugin.toolFailurePreview
+ assert.equal(preview('{"ok":false,"error":"stale_frame: observe again"}'),'stale_frame: observe again')
+ assert.equal(preview('{"error":{"message":"first\\nsecond"}}'),'first')
+ for(const raw of ['[]','{','{"payload":"'+ 'x'.repeat(17000)+'"}'])assert.equal(preview(raw),'Tool execution failed')
+ assert.equal(preview('x'.repeat(1000)).length,240);assert.equal([...preview('🧠'.repeat(241))].length,240,'Unicode preview cannot split a surrogate pair')
+ const output='{"ok":false,"error":"permission denied","content":"raw evidence"}'
+ const model=b.plugin.toolRowModel('read',settled({isError:true,content:[{type:'text',text:output}]}))
+ assert.equal(model.errorSummary,'permission denied');assert.equal(model.output,output)
 })

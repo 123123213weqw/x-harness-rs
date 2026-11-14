@@ -292,7 +292,8 @@ for(const engine of engines){
        const p=answer.querySelector('p')
        return {
         prose:css(p),emphasis:css(p.querySelector('strong')),list:css(answer.querySelector('li')),cell:css(answer.querySelector('td')),
-        unchanged:[...answer.querySelectorAll('h1,h2,h3,h4,h5,h6,th,pre,code'),...document.querySelectorAll('#bookish-reasoning p,#bookish-reasoning strong,#bookish-user p,#bookish-user strong,#bookish-tool p,#bookish-tool strong,#bookish-control')].map(css),
+        headings:[...answer.querySelectorAll('h1,h2,h3')].map(css),
+        unchanged:[...answer.querySelectorAll('h4,h5,h6,th,pre,code'),...document.querySelectorAll('#bookish-reasoning p,#bookish-reasoning strong,#bookish-user p,#bookish-user strong,#bookish-tool p,#bookish-tool strong,#bookish-control')].map(css),
         selection:['color','backgroundColor'].map(k=>getComputedStyle(p,'::selection')[k]),
         error:getComputedStyle(document.body).getPropertyValue('--dsw-alias-state-error-primary'),
         content:answer.textContent,
@@ -300,15 +301,23 @@ for(const engine of engines){
       }))
      }
      const [before,after]=snapshots
-     assert.match(after.prose.fontFamily,/Georgia.*Songti SC/,'bookish answer font is scoped to prose')
+     assert.equal(after.prose.fontFamily,before.prose.fontFamily,'assistant prose uses the ordinary system UI font')
+     assert.doesNotMatch(after.prose.fontFamily,/Georgia|Songti|Noto Serif|Source Han Serif/)
      assert.equal(after.list.fontFamily,after.prose.fontFamily)
      assert.equal(after.cell.fontFamily,after.prose.fontFamily,'table body opts in despite its font shorthand')
      const {fontFamily:oldFamily,...oldBody}=before.prose,{fontFamily:newFamily,...newBody}=after.prose
-     assert.notEqual(oldFamily,newFamily)
+     assert.equal(oldFamily,newFamily,'the assistant wrapper must not switch the font family')
      assert.deepEqual(newBody,oldBody,'16/28/400, colors and focus styling remain unchanged')
      assert.equal(after.prose.fontSize,'16px');assert.equal(after.prose.lineHeight,'28px');assert.equal(after.prose.fontWeight,'400')
      assert.equal(before.emphasis.fontWeight,'700');assert.equal(after.emphasis.fontWeight,'600')
-     assert.deepEqual(after.unchanged,before.unchanged,'headings/code/reasoning/user/tool/control styles stay unchanged')
+     for(const [i,[fontSize,lineHeight]] of [['22px','32px'],['18px','28px'],['17px','26px']].entries()){
+      const {fontSize:oldSize,lineHeight:oldLine,fontWeight:oldWeight,...oldHeading}=before.headings[i]
+      const {fontSize:newSize,lineHeight:newLine,fontWeight:newWeight,...newHeading}=after.headings[i]
+      assert.deepEqual([oldSize,oldLine,oldWeight],[['24px','34px','700'],['20px','30px','700'],['18px','28px','700']][i],'unwrapped heading '+(i+1)+' keeps the baseline')
+      assert.deepEqual(newHeading,oldHeading,'assistant heading '+(i+1)+' preserves font, colors and focus styling')
+      assert.deepEqual([newSize,newLine,newWeight],[fontSize,lineHeight,'600'],'exact reviewed assistant heading '+(i+1))
+     }
+     assert.deepEqual(after.unchanged,before.unchanged,'h4–h6/code/reasoning/user/tool/control styles stay unchanged')
      assert.deepEqual(after.selection,before.selection);assert.equal(after.error,before.error)
      assert.equal(after.content,before.content,'streaming and settled content is never rewritten')
     }

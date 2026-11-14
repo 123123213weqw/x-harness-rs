@@ -1,2 +1,8 @@
 .Aov_lG_root{flex-direction:column;gap:16px;display:flex}.Aov_lG_actions{margin-left:-6px}
 .Aov_lG_summary{display:flex;align-items:center;gap:8px;max-width:100%;background:none;border:0;padding:4px 0;color:var(--dsw-alias-label-tertiary);font:inherit;line-height:24px;text-align:left;cursor:pointer}.Aov_lG_summary:hover{color:var(--dsw-alias-label-secondary)}.Aov_lG_summary:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:3px;border-radius:4px}.Aov_lG_summary[aria-expanded=true] svg{transform:rotate(90deg)}
+/* One stable turn header; logged duration is shown only after completion. */
+.Aov_lG_summary{width:100%;font:400 13px/22px var(--dsw-font-family);align-items:flex-start;min-height:30px}
+.Aov_lG_summary>svg{flex:none;margin-top:4px;width:14px;height:14px}
+.Aov_lG_summary>span:not(.xh-turn-process-time){min-width:0;overflow-wrap:anywhere}
+.Aov_lG_summary .xh-turn-process-time{flex:none;margin-left:auto;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:12px;color:var(--dsw-alias-label-tertiary)}
+@media(max-width:480px){.Aov_lG_summary{min-height:44px}}

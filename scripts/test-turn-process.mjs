@@ -109,7 +109,7 @@ test('footer is independent of正文, always a disclosure with whole-turn durati
     const tree=hooks.render(()=>plugin.TurnProcessSummary({turn,data:{...tail,closing},t,collapsed:!expanded,onToggle:()=>toggled++}))
     const button=descendants(tree,n=>n.type==='button'&&n.props['data-turn-process-summary']===1)[0]
     assert.ok(button);assert.equal(button.props['aria-expanded'],expanded)
-    assert.equal(button.props.children[0].props.children,hasStart?'Ran for 2m 45s':'Turn finished')
+    assert.equal(button.props.children[1].props.children,hasStart?'2m 45s':'Turn finished')
     assert.match(button.props['aria-label'],hasStart?/Ran for 2m 45s/:/Turn finished/)
     button.props.onClick();assert.equal(toggled,1)
   }

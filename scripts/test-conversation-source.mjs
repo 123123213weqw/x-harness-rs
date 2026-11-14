@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import {stripTurnStyle} from './fixtures/reviewed-turn-tool-style.mjs'
 import { test } from 'node:test'
 import { File } from 'node:buffer'
 import { createHash } from 'node:crypto'
@@ -33,6 +34,7 @@ const agentFailureLocales = {
 };
 const agentFailureStyle = '\n.IxU-fW_openError[data-agent-error]{position:sticky;top:0;z-index:9;flex:none;padding:8px 16px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-interactive-bg-hover-solid)}\n';
 function baselineAgentFailureStyle(source) {
+ source=stripTurnStyle(source,'chat',false);
  assert.ok(source.endsWith(agentFailureStyle),'reviewed agent failure notice must remain an exact append-only delta');
  const baseline=source.slice(0,-agentFailureStyle.length);
  assert.equal(createHash('sha256').update(baseline).digest('hex'),'ea56a6c3f52b53edd7d339e8d5c97a9c1a76fe032832c509bef447b84b164647','unrelated ChatView styles must retain their reviewed bytes');
@@ -49,12 +51,17 @@ const recoveryLocales = {
  en: {'session.recover':'Recover task','session.recoverHint':'Recover this idle task without resending input. Stop active work first. Other tasks and drafts are unchanged.','session.recovering':'Recovering…','session.recovered':'Recovered','session.recoverUnavailable':'This Host does not support single-task recovery.'},
  zh: {'session.recover':'恢复任务','session.recoverHint':'恢复当前空闲任务，不重发输入。请先停止正在执行的工作；其他任务和草稿不变。','session.recovering':'恢复中…','session.recovered':'已恢复','session.recoverUnavailable':'当前 Host 不支持单任务恢复。'},
 };
+const turnToolLocales={
+ en:{'message.processCounts':'{tools} tool calls · {thoughts} Thought','message.loadedProcess':'Loaded: {tools} tool calls · {thoughts} Thought','todo.readList':'Read the current to-do list','todo.listItems':'To-do list · {count} items'},
+ zh:{'message.processCounts':'{tools} 次工具调用 · {thoughts} 段 Thought','message.loadedProcess':'已载入 {tools} 次工具调用 · {thoughts} 段 Thought','todo.readList':'读取当前任务清单','todo.listItems':'任务清单 · {count} 项'},
+};
 function baselineProductCopy(language, locale) {
  assert.equal(locale['image.budgetExceeded'], language === 'en' ? 'Image memory budget reached. Close other previews, then retry.' : '已达图片内存预算，请关闭其他预览后重试。');
  assert.equal(locale['xh.turn.working'], 'Working…');
  assert.equal(locale['stats.title'], language === 'en' ? 'Conversation statistics' : '对话统计', 'reviewed statistics label');
  const normalized = {...locale, 'xh.turn.working': apis[0].plugin[language]['xh.turn.working']};
  delete normalized['image.budgetExceeded'];
+ for(const [key,expected] of Object.entries(turnToolLocales[language])){assert.equal(locale[key],expected,'reviewed turn/tool copy '+key);delete normalized[key];}
  for(const [key,expected] of Object.entries(recoveryLocales[language])) {
   assert.equal(locale[key],expected,'reviewed recovery label '+key);delete normalized[key];
  }
@@ -152,6 +159,7 @@ test('reviewed agent failure copy and sticky notice reject missing, changed and 
   assert.notDeepEqual(unrelated,normalized,'unrelated dictionary changes must still fail strict parity');
  }
  const source=readFileSync(new URL('../ui/src/modules/conversation/chat/ChatView.css',import.meta.url),'utf8');
+ stripTurnStyle(source,'chat');
  const baseline=baselineAgentFailureStyle(source);
  assert.throws(()=>baselineAgentFailureStyle(baseline),/agent failure notice/);
  assert.throws(()=>baselineAgentFailureStyle(source.replace('position:sticky;top:0;z-index:9','position:relative;top:0;z-index:9')),/agent failure notice/);

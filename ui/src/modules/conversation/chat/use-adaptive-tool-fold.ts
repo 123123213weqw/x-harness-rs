@@ -1,12 +1,13 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { useProcessMode } from './process-mode'
 import type { ChatConversationViewNode } from '../types/runtime'
-import { NO_FOLDED_TOOLS, planToolFold, toolCanAutoFold, type FoldedTools, type ToolFoldRow } from './adaptive-tool-fold'
+import { NO_FOLDED_TOOLS, TOOL_FOLD_VIEWPORT_SHARE, planToolFold, toolCanAutoFold, type FoldedTools, type ToolFoldRow } from './adaptive-tool-fold'
 import { isChatNode } from '../contract/chat-node-codec'
 
 interface AdaptiveToolFoldState {
   readonly foldedTools: FoldedTools
   readonly invalidateFoldedTool: (key: string) => void
+  readonly collapseTurn: (turn: number) => void
 }
 
 /** One observer per chat, not per Tool. No transport/event parsing in this seat. */
@@ -35,6 +36,29 @@ export function useAdaptiveToolFold(sessionId: string, list: React.RefObject<HTM
   }, [sessionId])
   const latest = useRef({ expanded, beforeFold, revision })
   latest.current = { expanded, beforeFold, revision }
+  const manuallyOpenedRef = useRef(new Set<string>())
+  const collapseTurn = useCallback((turn: number): void => {
+    // An explicit group-close gesture outranks earlier child expansion, but
+    // only for successful rows present now. A future failure/recovery remains
+    // a fresh protected decision, not a permanent force-hidden turn flag.
+    const keys = new Set<string>()
+    for (const element of list.current?.querySelectorAll<HTMLElement>('[data-chat-auto-fold-turn]') ?? []) {
+      if (Number(element.dataset.chatAutoFoldTurn) !== turn) continue
+      const key = element.dataset.chatFlowKey
+      const node = key === undefined ? undefined : latest.current.revision.get(key)
+      if (key !== undefined && isChatNode(node) && toolCanAutoFold(node)) {
+        keys.add(key); manuallyOpenedRef.current.delete(key)
+      }
+    }
+    if (keys.size === 0) return
+    setState(previous => {
+      if (previous.sessionId !== sessionId) return previous
+      const folded = new Map(previous.folded), merged = new Set(folded.get(turn))
+      for (const key of keys) merged.add(key)
+      folded.set(turn, merged)
+      return { sessionId, folded }
+    })
+  }, [sessionId, list])
   const scheduleRef = useRef<() => void>(() => {})
   useLayoutEffect(() => {
     if (mode === 'expanded') {
@@ -46,7 +70,7 @@ export function useAdaptiveToolFold(sessionId: string, list: React.RefObject<HTM
     const elementRoot = root
     const scrollport = root.closest<HTMLElement>('[data-conversation-scroll]') ?? root
     let frame = 0, disposed = false
-    const observed = new Set<HTMLElement>(), manuallyOpened = new Set<string>()
+    const observed = new Set<HTMLElement>(), manuallyOpened = manuallyOpenedRef.current
     const schedule = (): void => {
       if (disposed || frame) return
       frame = requestAnimationFrame(measure)
@@ -86,7 +110,9 @@ export function useAdaptiveToolFold(sessionId: string, list: React.RefObject<HTM
       const composer = scrollport.querySelector<HTMLElement>('[data-composer-seat]')
       const viewport = scrollport.getBoundingClientRect()
       const visibleHeight = Math.min(scrollport.clientHeight, (composer?.getBoundingClientRect().top ?? viewport.bottom) - viewport.top)
-      const hidden = planToolFold(rows, visibleHeight)
+      // Compact one turn's settled history while retaining the newest action,
+      // failures and every reader/manual-expansion protection above.
+      const hidden = planToolFold(rows, visibleHeight, TOOL_FOLD_VIEWPORT_SHARE, true)
       if (hidden.size > 0) latest.current.beforeFold(true)
       setState(previous => {
         if (disposed || previous.sessionId !== sessionId) return previous
@@ -113,16 +139,20 @@ export function useAdaptiveToolFold(sessionId: string, list: React.RefObject<HTM
         return changed ? { sessionId, folded } : previous
       })
     }
-    const onClick = (event: MouseEvent): void => {
+    const onClick = (event: Event): void => {
       const target = event.target instanceof Element ? event.target : null
-      const disclosure = target?.closest('button[aria-expanded],summary')
+      const disclosure = target?.closest('button[aria-expanded],[role="button"][aria-expanded],summary')
+      const nestedControl = target?.closest('a,button,input,textarea,select')
+      if (nestedControl && nestedControl !== disclosure && disclosure?.contains(nestedControl)) return
       const row = disclosure?.closest<HTMLElement>('[data-chat-auto-fold-turn]')
       const key = row?.dataset.chatFlowKey
       if (key && (disclosure?.getAttribute('aria-expanded') === 'false'
         || disclosure?.parentElement instanceof HTMLDetailsElement && !disclosure.parentElement.open)) manuallyOpened.add(key)
       schedule()
     }
+    const onKey = (event: KeyboardEvent): void => { if (event.key === 'Enter' || event.key === ' ') onClick(event) }
     root.addEventListener('click', onClick, true)
+    root.addEventListener('keydown', onKey, true)
     root.addEventListener('focusout', schedule)
     document.addEventListener('selectionchange', schedule)
     scheduleRef.current = schedule
@@ -132,6 +162,7 @@ export function useAdaptiveToolFold(sessionId: string, list: React.RefObject<HTM
       scheduleRef.current = () => {}
       mutations.disconnect(); observer.disconnect(); observed.clear(); manuallyOpened.clear()
       root.removeEventListener('click', onClick, true)
+      root.removeEventListener('keydown', onKey, true)
       root.removeEventListener('focusout', schedule)
       document.removeEventListener('selectionchange', schedule)
     }
@@ -139,5 +170,5 @@ export function useAdaptiveToolFold(sessionId: string, list: React.RefObject<HTM
   // New/settled nodes and explicit choices may change eligibility without
   // changing geometry. Observe them without tearing down the ResizeObserver.
   useLayoutEffect(() => { scheduleRef.current() }, [revision, expanded, state])
-  return { foldedTools: mode === 'auto' && state.sessionId === sessionId ? state.folded : NO_FOLDED_TOOLS, invalidateFoldedTool }
+  return { foldedTools: state.sessionId === sessionId ? state.folded : NO_FOLDED_TOOLS, invalidateFoldedTool, collapseTurn }
 }
