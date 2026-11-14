@@ -988,7 +988,7 @@ impl HostState {
         let workflow = "Inspect before editing and make the smallest coherent change. For large files, use targeted search and bounded read pages; continue only the needed page with next_cursor instead of repeating or requesting the whole file. A tool error is an observation: diagnose it, change the approach, or report the limitation instead of retrying the same unavailable capability forever. Once the evidence is sufficient, answer directly. Preserve user work and verify changes with the strongest available checks.";
         let background_jobs = "For long immediate non-interactive work, prefer bash with run_in_background=true; retain job_id, continue independent work, collect with job_output and stop unneeded work with job_kill. Use defer only when advertised; then end the turn if no independent work remains, not another wait. Failure/killed/interrupted is not success. Future scheduling is not available as a model tool; do not emulate timers with sleep, cron or background jobs, or claim a reminder was scheduled without a native scheduling receipt. If the task genuinely needs an interactive or existing external session, track status, logs and stop method; do not assume a detached process survives Host shutdown or cancellation. Use web_search for the internet, grep for workspace text.";
 
-        let browser = "For website browsing and interaction, prefer the typed browser_control/browser_observe tools when available; their schemas need no plugin_mcp discovery. Choose backend=browser for a new background task and backend=webview only for an explicitly requested visible page or existing login. Otherwise discover available browsers through plugin_mcp; never guess tool names. Respect explicit browser choices and never silently switch backends.";
+        let browser = "For website browsing and interaction, prefer the typed browser_control/browser_observe tools when available; their schemas need no plugin_mcp discovery. Choose backend=browser for a new background task and backend=webview only for an explicitly requested visible page or existing login. Otherwise discover available browsers through plugin_mcp; never guess tool names. Respect explicit browser choices and never silently switch backends. A stale_frame requires a fresh browser observation; do not bypass a browser error with shell-based system input.";
 
         let mut sections = vec![
             PromptSection::content_addressed(
@@ -999,7 +999,7 @@ impl HostState {
             PromptSection::content_addressed("workspace/context", workspace),
             PromptSection::new("coding/workflow", "2", workflow),
             PromptSection::new("tool/jobs", "7", background_jobs),
-            PromptSection::new("tool/browser", "3", browser),
+            PromptSection::new("tool/browser", "4", browser),
         ];
         if session.delegated {
             sections.push(PromptSection::new(

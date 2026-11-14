@@ -1,7 +1,17 @@
 name: Windows Browser Bounds Lab
 on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact full commit SHA to compile for the isolated Windows VM
+        required: true
+        type: string
+      baseline_sha:
+        description: Exact full commit supplying only the previous capture adapter
+        required: true
+        type: string
   push:
-    branches: ['fix/windows-browser-bounds-20261012']
+    branches: ['fix/windows-browser-bounds-20261012', 'codex/browser-screenshot-quality']
     paths:
       - 'apps/desktop/src-tauri/**'
       - '.github/workflows/windows-browser-bounds-lab.yml'
@@ -15,13 +25,23 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 35
     env:
-      # A probe has no Host or sidecars. This only removes bundle metadata for
+      # A probe has no Host, sidecars or packaged PowerShell. Remove bundle metadata for
       # this non-packaging build; no placeholder product executables are used.
-      TAURI_CONFIG: '{"bundle":{"externalBin":[]}}'
+      TAURI_CONFIG: '{"bundle":{"externalBin":[],"resources":[]}}'
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_sha || github.sha }}
           persist-credentials: false
+      - name: Validate exact dispatch source identity
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          BASELINE_SHA: ${{ inputs.baseline_sha }}
+        run: |
+          if ($env:CANDIDATE_SHA -cnotmatch '^[0-9a-f]{40}$' -or $env:BASELINE_SHA -cnotmatch '^[0-9a-f]{40}$') { throw 'Full commit SHAs are required' }
+          if ((git rev-parse HEAD) -cne $env:CANDIDATE_SHA) { throw 'Candidate source identity mismatch' }
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.99.0'
@@ -39,6 +59,7 @@ jobs:
           git rev-parse HEAD | Set-Content -Encoding ascii dist/browser-bounds/source-sha.txt
           (Get-FileHash dist/browser-bounds/browser-inspect-probe.exe -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content -Encoding ascii dist/browser-bounds/executable-sha256.txt
       - name: Compile old production geometry with the identical new oracle
+        if: github.event_name != 'workflow_dispatch' && github.ref_name != 'codex/browser-screenshot-quality'
         shell: pwsh
         run: |
           git fetch --depth=1 origin e0a35e4c4b3af36ed0e1b0ef6f348800c298a872
@@ -50,6 +71,22 @@ jobs:
           Copy-Item apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/debug/examples/browser-inspect-probe.exe dist/browser-bounds/browser-bounds-baseline.exe
           (Get-FileHash dist/browser-bounds/browser-bounds-baseline.exe -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content -Encoding ascii dist/browser-bounds/baseline-sha256.txt
           'e0a35e4c4b3af36ed0e1b0ef6f348800c298a872:apps/desktop/src-tauri/src/browser.rs; all other sources use source-sha.txt' | Set-Content -Encoding ascii dist/browser-bounds/baseline-source.txt
+      - name: Compile previous capture adapter with the identical current oracle
+        if: github.event_name == 'workflow_dispatch' || github.ref_name == 'codex/browser-screenshot-quality'
+        shell: pwsh
+        env:
+          BASELINE_SHA: ${{ inputs.baseline_sha || '90803166285c94479b852543461b8d57ecf4b5cd' }}
+        run: |
+          if ($env:BASELINE_SHA -cnotmatch '^[0-9a-f]{40}$') { throw 'Full baseline commit SHA required' }
+          git fetch --depth=1 origin $env:BASELINE_SHA
+          if ($LASTEXITCODE) { throw 'Baseline source unavailable' }
+          git restore --source=$env:BASELINE_SHA --worktree -- apps/desktop/src-tauri/src/browser_native/windows.rs apps/desktop/src-tauri/src/browser_native/capture.rs
+          if ($LASTEXITCODE) { throw 'Baseline capture adapter unavailable' }
+          cargo build --locked --target x86_64-pc-windows-msvc --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe
+          if ($LASTEXITCODE) { throw 'Baseline capture fixture build failed' }
+          Copy-Item apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/debug/examples/browser-inspect-probe.exe dist/browser-bounds/browser-bounds-baseline.exe
+          (Get-FileHash dist/browser-bounds/browser-bounds-baseline.exe -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content -Encoding ascii dist/browser-bounds/baseline-sha256.txt
+          "$env:BASELINE_SHA`:apps/desktop/src-tauri/src/browser_native/{windows,capture}.rs; identical current oracle" | Set-Content -Encoding ascii dist/browser-bounds/baseline-source.txt
       - uses: actions/upload-artifact@v7
         with:
           name: windows-browser-bounds-candidate

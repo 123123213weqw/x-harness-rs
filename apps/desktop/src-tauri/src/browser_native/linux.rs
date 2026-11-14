@@ -109,7 +109,15 @@ pub fn input(
     })();
     let _ = reply.send(result);
 }
-pub fn snapshot(handle: PlatformWebview, reply: Sender<Result<Vec<u8>, String>>) {
+pub fn snapshot(
+    handle: PlatformWebview,
+    _plan: super::capture::CapturePlan,
+    reply: Sender<Result<Vec<u8>, String>>,
+) {
+    // WebKitGTK's public snapshot API has no independent output-resolution
+    // parameter. Keep the live view's layout/login/scroll untouched; never
+    // manufacture detail with bitmap enlargement. The Host reports actual
+    // final density, including an undersampled visible native fallback.
     handle.inner().snapshot(
         webkit2gtk::SnapshotRegion::Visible,
         webkit2gtk::SnapshotOptions::NONE,
