@@ -76,6 +76,9 @@ and automatic fold protections, keyboard controls, row-owned state restoration,
 ordinary typography, 320px layout and reader anchoring. The new end-to-end fixture
 uses the real Session/Assembler and maintained platform/ChatView/ToolRow/Markdown
 in Chromium and WebKit and is enrolled in both existing CI browser matrices.
+Native wheel input must settle before measuring a disclosure. The real gesture
+places a visible reader anchor with sufficient post-collapse scroll range; the
+less-than-2px assertion is unchanged and no blank production padding is added.
 Existing lifecycle, 42 terminal windows, scroll-follow, virtualization, observer
 cleanup and canonical reproducible-build gates remain required.
 

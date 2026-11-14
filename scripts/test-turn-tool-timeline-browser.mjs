@@ -100,7 +100,30 @@ try{
  const todo=page.locator('[data-tool="todolist"]'),toggle=todo.locator('[aria-expanded]').first()
  assert.match(await todo.innerText(),/To-do list · 1 items/);assert.equal(await todo.locator('[data-tool-glyph="list"]').count(),1)
  await toggle.press('Enter');await todo.getByText(/"pending"/).waitFor();assert.equal(await todo.locator('[data-tool-glyph="list"]').count(),1,'open rows keep tool identity')
- await group.scrollIntoViewIfNeeded();await page.locator('#fixture-scroll').hover();await page.mouse.wheel(0,-160);await frame();const anchorBefore=await group.boundingBox();await group.click();await frame();const anchorAfter=await group.boundingBox();assert.equal(await page.locator('[data-tool="todolist"]').count(),0,'explicit group-close outranks previous child expansion, without erasing its state');assert.ok(Math.abs(anchorAfter.y-anchorBefore.y)<2,'disclosure preserves the reader anchor: '+JSON.stringify({before:anchorBefore,after:anchorAfter}))
+ // Native GTK wheel input can keep scrolling after mouse.wheel resolves.
+ // Separate a completed reader gesture from the disclosure gesture; choose a
+ // visible near-bottom anchor so the shorter transcript can still preserve it.
+ const settleReader=async()=>{
+  await page.evaluate(()=>{delete window.__timelineReader})
+  await page.waitForFunction(()=>{
+   const port=document.querySelector('#fixture-scroll'),header=document.querySelector('[data-live-tool-summary="12"]')
+   const signature=[port.scrollTop,port.scrollHeight,header.getBoundingClientRect().top].join(':')
+   const previous=window.__timelineReader,now=performance.now()
+   if(!previous||previous.signature!==signature){window.__timelineReader={signature,time:now};return false}
+   return now-previous.time>=160
+  },null,{timeout:5000,polling:'raf'})
+  await page.evaluate(()=>{delete window.__timelineReader})
+ }
+ await group.scrollIntoViewIfNeeded();await page.locator('#fixture-scroll').hover();await settleReader()
+ const target=await page.locator('#fixture-scroll').evaluate(el=>el.getBoundingClientRect().bottom-54)
+ await page.mouse.wheel(0,(await group.boundingBox()).y-target);await settleReader()
+ const anchorBefore=await group.boundingBox(),rangeBefore=await page.locator('#fixture-scroll').evaluate(el=>({top:el.scrollTop,max:el.scrollHeight-el.clientHeight,height:el.clientHeight,bottom:el.getBoundingClientRect().bottom}))
+ assert.ok(Math.abs(anchorBefore.y-target)<8,'real wheel must finish with a visible reader anchor before testing collapse')
+ await group.click();await frame();await settleReader()
+ const anchorAfter=await group.boundingBox(),rangeAfter=await page.locator('#fixture-scroll').evaluate(el=>({top:el.scrollTop,max:el.scrollHeight-el.clientHeight,height:el.clientHeight}))
+ console.log('reader-anchor',JSON.stringify({before:anchorBefore,after:anchorAfter,rangeBefore,rangeAfter}))
+ assert.equal(await page.locator('[data-tool="todolist"]').count(),0,'explicit group-close outranks previous child expansion, without erasing its state')
+ assert.ok(Math.abs(anchorAfter.y-anchorBefore.y)<2,'disclosure preserves the reader anchor: '+JSON.stringify({before:anchorBefore,after:anchorAfter,rangeBefore,rangeAfter}))
  await group.click();await todo.waitFor();assert.equal(await toggle.getAttribute('aria-expanded'),'true','tool disclosure state survives round folding')
  console.log('expansion retained');await group.click();await page.evaluate(()=>installFixture('failed'));await frame()
  const shell=page.locator('[data-tool="bash"]');await shell.waitFor();await shell.getByText('regression failed',{exact:true}).waitFor()
