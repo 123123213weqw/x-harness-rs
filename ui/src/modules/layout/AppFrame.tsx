@@ -35,9 +35,12 @@ export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversatio
   navigation: ShellNavigation
 }
 
-/** Center column grid item (session-body building block). */
+/** Center column grid item (session-body building block). The data attribute
+    is a stable contract for bottom-docked panels (terminal): they mirror this
+    column's geometry and reserve inside it, without touching its hashed
+    class names. */
 function CenterColumn(props: { children?: ReactNode; swarm?: boolean }) {
-  return <div className={css.centerCol}><div className={css.regionSurface} data-swarm-container={props.swarm||undefined}>{props.children}</div></div>
+  return <div className={css.centerCol} data-xh-center-column=""><div className={css.regionSurface} data-swarm-container={props.swarm||undefined}>{props.children}</div></div>
 }
 
 /** Details column grid item; width 0 keeps the subtree mounted (never unmount on close). */

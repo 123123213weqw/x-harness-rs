@@ -157,6 +157,17 @@ for (const name of names) {
         assert.doesNotMatch(after.styles.values().next().value.textContent, /data-xh-settings-panel|\[role="dialog"\]:has/)
       }
       if (name === 'schedule') expectedStyles.push(['xharness-automation-navigation-style', readFileSync(join(repo, 'ui/src/modules/schedule/AutomationNavigation.css'), 'utf8')], ['xharness-automation-tool-card-style', readFileSync(join(repo, 'ui/src/modules/schedule/AutomationToolCard.css'), 'utf8')])
+      if (name === 'terminal') {
+        // Reviewed dock redesign: the terminal moved from an in-flow composer
+        // accessory to a window-level bottom dock (fixed band mirroring the
+        // center column, body portal, eased reservation). The whole frozen
+        // sheet is replaced by the reviewed source sheet; the untouched
+        // trigger rule must survive verbatim.
+        const reviewed = readFileSync(join(repo, 'ui/src/modules/terminal/Terminal.css'), 'utf8')
+        assert.match(reviewed, /\.xhterm-trigger\{display:inline-flex/)
+        assert.match(reviewed, /\.xhterm-dock\{position:fixed/)
+        expectedStyles[0][1] = reviewed
+      }
       assert.deepEqual([...after.styles].filter(([id]) => id !== jobStyleId).map(([id, style]) => [id, style.textContent]), expectedStyles)
     }
     for (const cleanup of after.cleanups) cleanup()
