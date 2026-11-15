@@ -7,7 +7,7 @@ interface TerminalDescriptor { name: string; running: boolean }
 interface TerminalRead { content_base64: string; cursor: number; truncated_before_cursor: boolean; running: boolean; exit_code: number | null; exit_signal: number | null }
 interface TerminalReplies { read: { ok: true; read: TerminalRead }; list: { ok: true; terminals: TerminalDescriptor[] }; open: { ok: true; terminal: TerminalDescriptor }; send: { ok: true; written: unknown }; resize: { ok: true }; close: { ok: true } }
 interface XtermOptions { convertEol: boolean; cursorBlink: boolean; fontFamily: string; fontSize: number; lineHeight: number; scrollback: number; theme: Readonly<Record<string, string>> }
-interface Xterm { cols: number; rows: number; open(container: HTMLElement): void; write(content: string | Uint8Array): void; onData(callback: (data: string) => void): unknown; onResize(callback: (size: { cols: number; rows: number }) => void): unknown; dispose(): void }
+interface Xterm { cols: number; rows: number; open(container: HTMLElement): void; write(content: string | Uint8Array): void; onData(callback: (data: string) => void): unknown; onResize(callback: (size: { cols: number; rows: number }) => void): unknown; resize(cols: number, rows: number): void; onRender?(callback: () => void): { dispose(): void }; dispose(): void }
 type XtermConstructor = new (options: XtermOptions) => Xterm
 declare global { interface Window { Terminal?: XtermConstructor } }
 interface DockStore {
@@ -47,6 +47,7 @@ function decodeReply<A extends keyof TerminalReplies>(action: A, payload: Record
 
 
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 const { createElement: h, useEffect, useRef, useState } = React
 
 // The dock layout, tab model and CSS-token theme resolution are adapted
@@ -127,6 +128,23 @@ function terminalBytes(read: { content_base64?: string }) {
 }
 
 // ------------------------------------------------------------- xterm --
+
+const XTERM_FONT_FAMILY = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
+const XTERM_FONT_SIZE = 12.5
+const XTERM_LINE_HEIGHT = 1.2
+/** Guarded adapter for the exact vendored xterm (whose bytes are pinned in
+ * modules.json). Renderer cells include actual font metrics and line height;
+ * viewport.scrollBarWidth includes xterm's overlay-scrollbar reservation.
+ * Zero dimensions before the first render mean "not measured", not a guess. */
+function xtermCell(term: Xterm | null): { width: number; height: number; scrollbar: number } | null {
+  const core = objectValue(objectValue(term)._core)
+  const cell = objectValue(objectValue(objectValue(objectValue(core._renderService).dimensions).css).cell)
+  const scrollbar = objectValue(core.viewport).scrollBarWidth
+  if (typeof cell.width !== 'number' || !Number.isFinite(cell.width) || cell.width <= 0
+    || typeof cell.height !== 'number' || !Number.isFinite(cell.height) || cell.height <= 0
+    || typeof scrollbar !== 'number' || !Number.isFinite(scrollbar) || scrollbar < 0) return null
+  return { width: cell.width, height: cell.height, scrollbar }
+}
 
 let xtermPromise: Promise<XtermConstructor> | null = null
 function loadXterm() {
@@ -268,9 +286,9 @@ class TerminalTab {
       this.term = new Terminal({
         convertEol: false,
         cursorBlink: true,
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-        fontSize: 12.5,
-        lineHeight: 1.2,
+        fontFamily: XTERM_FONT_FAMILY,
+        fontSize: XTERM_FONT_SIZE,
+        lineHeight: XTERM_LINE_HEIGHT,
         scrollback: 5000,
         theme: terminalTheme(),
       })
@@ -279,6 +297,20 @@ class TerminalTab {
       this.term.onResize(({ cols, rows }) => this.scheduleResize(cols, rows))
       return this.term
     })
+  }
+
+  /** Fit only measured cells to the actual content box. Hidden/degenerate
+      boxes retain the last grid until visibility/render/resize supplies data. */
+  fitTo(host: HTMLElement) {
+    const term = this.term, cell = xtermCell(term)
+    if (term === null || cell === null || host.clientWidth <= 0 || host.clientHeight <= 0) return
+    const style = getComputedStyle(host)
+    const pixels = (value: string): number => Number.parseFloat(value) || 0
+    const width = host.clientWidth - pixels(style.paddingLeft) - pixels(style.paddingRight) - cell.scrollbar
+    const height = host.clientHeight - pixels(style.paddingTop) - pixels(style.paddingBottom)
+    const cols = Math.floor(width / cell.width), rows = Math.floor(height / cell.height)
+    if (cols < 2 || rows < 1) return
+    if (cols !== term.cols || rows !== term.rows) term.resize(cols, rows)
   }
 
   async attach() {
@@ -632,23 +664,42 @@ function TerminalViewport({ tab }: { tab: TerminalTab | null }) {
   useEffect(() => {
     const host = containerRef.current
     if (tab === null || host === null) return undefined
-    let cancelled = false
+    let cancelled = false, frame: number | null = null, measured = ''
+    let renderListener: { dispose(): void } | undefined
+    const fit = (): void => {
+      if (cancelled || frame !== null) return
+      frame = requestAnimationFrame(() => { frame = null; if (!cancelled) tab.fitTo(host) })
+    }
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit)
+    observer?.observe(host)
+    window.addEventListener('resize', fit)
     tab.ensureTerm()
-      .then(() => {
-        if (cancelled || host === null || tab.container === null) return
+      .then(term => {
+        if (cancelled || term == null || tab.container === null) return
         host.append(tab.container)
+        renderListener = term.onRender?.(() => {
+          const cell = xtermCell(term), key = cell === null ? '' : `${cell.width}:${cell.height}:${cell.scrollbar}`
+          // Render events only schedule work when metrics change, not on every
+          // output frame. This also handles the first connected measurement.
+          if (key !== measured) { measured = key; fit() }
+        })
+        fit()
         tab.attach()
       })
       .catch((error: unknown) => {
-        if (!cancelled && host !== null) {
+        if (!cancelled) {
           const notice = document.createElement('div')
           notice.className = 'xhterm-empty'
           notice.textContent = `终端组件加载失败: ${errorText(error)}`
           host.append(notice)
         }
       })
+    // Fonts may settle after the first frame; this is one completion, not polling.
+    void document.fonts?.ready.then(() => { if (!cancelled) fit() })
     return () => {
       cancelled = true
+      if (frame !== null) cancelAnimationFrame(frame)
+      observer?.disconnect(); renderListener?.dispose(); window.removeEventListener('resize', fit)
       tab.stopPolling()
       tab.container?.remove()
     }
@@ -680,9 +731,59 @@ function TerminalDock({ t, sessionId }: DockProps) {
     }
   }, [store])
 
+  // The reservation (body class) is held only while truly open: releasing it
+  // as closing STARTS lets the chat column ease back in parallel with the
+  // dock's slide-down instead of waiting for the panel to vanish. Runs before
+  // the early return so the hook count never varies between renders.
+  useEffect(() => {
+    if (store === null || !store.open || store.closing) return undefined
+    document.body.classList.add('xhterm-dock-open')
+    return () => { document.body.classList.remove('xhterm-dock-open') }
+  }, [store, store?.open, store?.closing])
+
+  // The column's geometry is mirrored onto CSS variables because the slot's
+  // own ancestors (position:relative card) would otherwise capture an
+  // absolutely positioned dock. The variables outlive the closing animation:
+  // dropping them at closing START would snap the panel to its 100vw fallback
+  // mid-exit (a visible widen); they go away when the panel unmounts.
+  useEffect(() => {
+    if (store === null || (!store.open && !store.closing)) return undefined
+    const column = document.querySelector('[data-xh-center-column]')
+    const apply = () => {
+      const rect = column?.getBoundingClientRect()
+      // Degenerate boxes (a layout mode that collapses or hides the column)
+      // produce no ResizeObserver tick and would strand stale geometry; a
+      // too-narrow band falls back to the full viewport instead.
+      const usable = rect !== undefined && rect.width >= 120
+      // One CSS clamp drives both the panel and reservation, including viewport changes.
+      document.body.style.setProperty('--xhterm-dock-h', `min(${store.height}px,max(0px,calc(100vh - 220px)))`)
+      document.body.style.setProperty('--xhterm-dock-left', usable ? `${Math.round(rect.left)}px` : '0px')
+      document.body.style.setProperty('--xhterm-dock-width', usable ? `${Math.round(rect.width)}px` : '100vw')
+    }
+    apply()
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(apply) : null
+    if (observer !== null && column !== null) observer.observe(column)
+    if (observer !== null) observer.observe(document.body)
+    // Layout-mode swaps (column collapsing to a degenerate box) fire no
+    // ResizeObserver tick on the column; they ride a window resize, which
+    // some embedded viewports deliver only as a body-size change.
+    window.addEventListener('resize', apply)
+    return () => {
+      window.removeEventListener('resize', apply)
+      observer?.disconnect()
+      document.body.style.removeProperty('--xhterm-dock-h')
+      document.body.style.removeProperty('--xhterm-dock-left')
+      document.body.style.removeProperty('--xhterm-dock-width')
+    }
+  }, [store, store?.open, store?.closing, store?.height])
+
   if (store === null || (!store.open && !store.closing)) return null
 
-  return h('div', {
+  // Portaled to <body>: the composer stack that hosts this slot can be
+  // display:none'd wholesale by conversation states (streaming, view swaps);
+  // a window-level panel must not share that visibility, and an ancestor's
+  // display:none kills even fixed positioning.
+  return createPortal(h('div', {
     className: store.closing ? 'xhterm-dock xhterm-dock-closing' : 'xhterm-dock',
     style: { height: store.height },
     onAnimationEnd: (event: React.AnimationEvent<HTMLDivElement>) => {
@@ -752,7 +853,7 @@ function TerminalDock({ t, sessionId }: DockProps) {
     activeTab === null
       ? h('div', { className: 'xhterm-empty' }, t('empty'))
       : h(TerminalViewport, { key: activeTab.name, tab: activeTab }),
-  )
+  ), document.body)
 }
 
 function translate(key: string) {

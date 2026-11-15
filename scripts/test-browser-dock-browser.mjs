@@ -71,7 +71,11 @@ try {
   const centerBefore = await page.locator('._84hhiq_centerCol').evaluate(element => element.getBoundingClientRect().width)
   await page.getByRole('button', { name: '展开右侧工作区' }).click()
   await page.getByRole('region', { name: '工作区' }).waitFor()
-  if (process.env.UI_TEST_IMPL !== 'legacy') assert.equal(await page.getByRole('tab', { name: '新标签页', exact: true }).locator('.xhworkspace-kind').count(), 0, 'new browser tabs have no leading icon or icon spacer')
+  if (process.env.UI_TEST_IMPL !== 'legacy') {
+    const mark = page.getByRole('tab', { name: '新标签页', exact: true }).locator('.xhworkspace-kind')
+    assert.equal(await mark.count(), 1, 'every browser tab carries exactly one leading type mark')
+    assert.equal(await mark.locator('svg').count(), 1, 'the leading type mark is the inline globe SVG')
+  }
   await page.waitForTimeout(400)
   const wide = await page.evaluate(() => {
     const frame = document.querySelector('[data-xhworkspace-open]')
@@ -201,7 +205,9 @@ try {
     assert.equal(await page.getByRole('tab').count(), 2)
   }
   if (process.env.UI_TEST_IMPL !== 'legacy') {
-    assert.equal(await page.getByRole('tab', { name: 'example.com', exact: true }).locator('.xhworkspace-kind').count(), 0, 'navigating does not restore the browser icon')
+    const navigatedMark = page.getByRole('tab', { name: 'example.com', exact: true }).locator('.xhworkspace-kind')
+    assert.equal(await navigatedMark.count(), 1, 'navigation keeps exactly one leading type mark')
+    assert.equal(await navigatedMark.locator('svg').count(), 1, 'a web page keeps the inline globe mark')
     assert.equal(await page.getByRole('tab', { name: '工具详情', exact: true }).locator('.xhworkspace-kind').count(), 1, 'tool tab identification is unchanged')
   }
   await page.getByRole('tab', { name: 'example.com' }).click()

@@ -78,6 +78,15 @@ export function xhWorkspaceClose(space:WorkspaceSpace,id:string|null):WorkspaceS
   const items=space.items.filter(item=>item.id!==id)
   return{...space,items,activeId:space.activeId===id?(items[Math.min(index,items.length-1)]?.id??null):space.activeId}
 }
+const WORKSPACE_IMAGE_URL=/\.(?:avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#]|$)/i
+/** Static type marks, not fetched favicons, keep the tab strip cheap in memory. */
+function xhWorkspaceBrowserMark(item:BrowserItem):React.ReactNode {
+  const entry=item.position>=0?item.entries[item.position]:item.entries[item.entries.length-1]
+  const image=entry!==undefined&&(entry.startsWith('data:image/')||WORKSPACE_IMAGE_URL.test(entry))
+  return <svg className="xhworkspace-tabicon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    {image?<><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></>:<><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></>}
+  </svg>
+}
 export interface WorkspaceItemOwner extends Record<string,unknown> {
   item:WorkspaceItem;sessionId:string|null;open:boolean;onUpdate(patch:BrowserPatch):void;onClose():void;onNewBrowser():void
 }
@@ -106,7 +115,7 @@ export function XhWorkspacePane({space,spaces,open,sessionId,renderSlot,onSelect
     <div className="xhworkspace-tabs" role="tablist" aria-label="工作区标签">
       {space.items.map(item=><div className="xhworkspace-tab" key={item.id} data-active={item.id===space.activeId||undefined}>
         <button type="button" role="tab" aria-selected={item.id===space.activeId} onClick={()=>onSelect(item.id)} title={item.title}>
-          {item.kind!=='browser'&&<span className="xhworkspace-kind" aria-hidden>{item.kind==='tool'?'⌘':'▤'}</span>}<span className="xhworkspace-title">{item.title}</span>
+          {item.kind==='tool'?<span className="xhworkspace-kind" aria-hidden>⌘</span>:item.kind==='browser'?(<span className="xhworkspace-kind" aria-hidden>{xhWorkspaceBrowserMark(item)}</span>):<span className="xhworkspace-kind" aria-hidden>▤</span>}<span className="xhworkspace-title">{item.title}</span>
         </button>
         <button type="button" className="xhworkspace-tab-close" aria-label={`关闭 ${item.title}`} onClick={()=>onClose(item.id)} title="关闭标签">×</button>
       </div>)}

@@ -1,10 +1,11 @@
 // Real strict-compiled observer; only the native event transport is mocked.
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
+import {fileURLToPath} from 'node:url'
 import {compileSourceModules} from './build-source-modules.mjs'
 
 const id='browser-activity-test'
-const bytes=compileSourceModules(new URL('../ui/',import.meta.url).pathname,[{id,source:'src/modules/browser/model-activity.ts'}]).get(id).bytes.toString()
+const bytes=compileSourceModules(fileURLToPath(new URL('../ui/',import.meta.url)),[{id,source:'src/modules/browser/model-activity.ts'}]).get(id).bytes.toString()
 let module
 vm.runInNewContext(bytes,{window:{__ModuleLoader__:{load:row=>{module=row.factory(()=>({}))}}}})
 const tick=()=>new Promise(resolve=>setImmediate(resolve))

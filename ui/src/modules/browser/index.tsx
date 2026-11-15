@@ -94,6 +94,7 @@ const glyph = (name: string, size = 16) => {
     close: [h('path', {d:'m6 6 12 12M18 6 6 18',key:1})],
     model: [h('path', {d:'m12 3 2.6 6.4L21 12l-6.4 2.6L12 21l-2.6-6.4L3 12l6.4-2.6L12 3Z',key:1})],
     external: [h('path', { d: 'M13 5h6v6M19 5l-9 9M19 14v5H5V5h5', key: 1 })],
+    viewport: [h('rect', { x: 3, y: 6, width: 18, height: 12, rx: 2, key: 1 }), h('path', { d: 'M7 12h10M9 10l-2 2 2 2M15 10l2 2-2 2', key: 2 })],
   }
   return h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8,
     strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, paths[name])
@@ -210,8 +211,8 @@ export function BrowserPane(props:BrowserPaneProps) {
   return h(NativeBrowserPane,{...props,preferHeadless:Boolean(native)&&!explicitNative&&props.item.entries.length===0,onNative:()=>setExplicitNative(true)})
 }
 function NativeBrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, onNewBrowser,preferHeadless,onNative }: BrowserPaneProps & {preferHeadless?:boolean;onNative?:()=>void}) {
-  const [viewportMode,setViewportMode]=useState<'fit'|'responsive'>('fit')
-  const [viewport,setViewport]=useState({width:1280,height:720})
+  const [viewportMode,setViewportMode]=useState<'fit'|'responsive'>('responsive')
+  const [viewport]=useState<{width:number;height:number}>({width:1280,height:720})
   const viewportRef=useRef<{width:number;height:number}|null>(viewport)
   viewportRef.current=viewportMode==='fit'?viewport:null
   const [filePath,setFilePath]=useState('')
@@ -467,7 +468,9 @@ function NativeBrowserPane({ item, sessionId = null, open = false, onUpdate, onC
   const focusChat = () => {
     if (!composerTarget()) { setError('当前页面没有可用的聊天输入框'); return }
     setError('')
-    if (document.querySelector('[data-xhworkspace-drawer]')) onClose()
+    // The dock owner toggles collapse; tabs and history survive the round trip.
+    // Closing the item here used to destroy the drawer's tab instead.
+    window.dispatchEvent(new Event(workspaceDockEvents.toggle))
     requestAnimationFrame(() => composerTarget()?.focus())
   }
   const openTerminal = () => {
@@ -569,14 +572,10 @@ function NativeBrowserPane({ item, sessionId = null, open = false, onUpdate, onC
         onClick: () => { setMenuOpen(value => !value); setDownloadsOpen(false) } }, glyph('more')),
       button('关闭当前网页','close',onClose)),
     native&&address&&h('div',{className:'xhbrowser-viewport-toolbar','aria-label':accessText('网页视口','Page viewport')},
-      h('select',{'aria-label':accessText('网页视口尺寸','Page viewport size'),value:`${viewport.width}x${viewport.height}`,disabled:viewportMode==='responsive',
-        onChange:(event:React.ChangeEvent<HTMLSelectElement>)=>{
-          const sizes:Readonly<Record<string,{width:number;height:number}>>={'1280x720':{width:1280,height:720},'1440x900':{width:1440,height:900},'1920x1080':{width:1920,height:1080}}
-          const size=sizes[event.currentTarget.value];if(size)setViewport(size)
-        }},h('option',{value:'1280x720'},'1280 × 720'),h('option',{value:'1440x900'},'1440 × 900'),h('option',{value:'1920x1080'},'1920 × 1080')),
-      h('select',{'aria-label':accessText('网页显示方式','Page display mode'),value:viewportMode,
-        onChange:(event:React.ChangeEvent<HTMLSelectElement>)=>{const value=event.currentTarget.value;if(value==='fit'||value==='responsive')setViewportMode(value)}},
-        h('option',{value:'fit'},accessText('适应窗口','Fit to window')),h('option',{value:'responsive'},accessText('随侧栏布局','Responsive')))),
+      h('button',{type:'button',className:'xhbrowser-viewport-toggle','aria-pressed':viewportMode==='responsive',
+        title:accessText(viewportMode==='responsive'?'视口跟随面板实际尺寸，拖动面板即可改变网页大小；点击切换为固定视口缩放':'网页按固定视口缩放显示；点击恢复跟随面板尺寸',viewportMode==='responsive'?'Viewport follows the pane size; click for a fixed scaled viewport':'Fixed scaled viewport; click to follow the pane size'),
+        onClick:()=>setViewportMode(mode=>mode==='fit'?'responsive':'fit')},
+        glyph('viewport',14),h('span',null,accessText(viewportMode==='responsive'?'跟随面板':'缩放适配',viewportMode==='responsive'?'Follow pane':'Scaled fit')))),
     pickNotice && h('div',{className:'xhbrowser-pick-notice',role:'status'},pickNotice),
     downloadsOpen && h('div', { className: 'xhbrowser-downloads', role: 'region', 'aria-label': '下载记录' },
       h('strong', null, '下载记录'),
