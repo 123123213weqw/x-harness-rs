@@ -44,6 +44,27 @@ async fn action(manager: &ScheduleManager, action: &str, id: &str) -> Value {
 }
 
 #[tokio::test]
+async fn create_after_delete_never_resurrects_a_seen_id() {
+    let (_, manager, _) = fixture().await;
+    let first = create(&manager, json!({})).await;
+    let first_id = first["id"].as_str().unwrap().to_owned();
+    assert_eq!(action(&manager, "delete", &first_id).await["deleted"], true);
+    let second = create(&manager, json!({"idempotency_key": "second-attempt"})).await;
+    let second_id = second["id"].as_str().unwrap().to_owned();
+    assert_ne!(first_id, second_id);
+    let listed = manager
+        .execute("root", "invocation", command(json!({"action": "list"})))
+        .await;
+    let ids = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|view| view["id"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, vec![second_id.as_str()]);
+}
+
+#[tokio::test]
 async fn single_tool_schema_is_closed_and_owner_is_not_model_controlled() {
     let (_, manager, _) = fixture().await;
     let specs = manager.specs("root");
@@ -121,9 +142,30 @@ async fn concurrent_creates_replay_once_and_key_conflicts_fail_closed() {
 #[tokio::test]
 async fn update_pause_resume_recover_without_changing_time_phase_or_legacy_semantics() {
     let (store, manager, clock) = fixture().await;
-    let legacy = manager
-        .create_value("root", "legacy reminder".into(), Selector::Every(300))
-        .await;
+    // Seed the session exactly the way a pre-automation v1 event log looks:
+    // a ScheduleChange::Create with no AutomationSettings attached.
+    let record = create_record(
+        "schedule-1".to_owned(),
+        "legacy reminder".to_owned(),
+        Selector::Every(300),
+        0,
+    )
+    .unwrap();
+    let event = SessionEvent::new(EventData::ScheduleChange {
+        change: ScheduleChange::Create {
+            version: 1,
+            schedule: record.clone(),
+        },
+    });
+    store
+        .append(
+            "root",
+            store.load("root").await.unwrap().unwrap().revision(),
+            vec![event],
+        )
+        .await
+        .unwrap();
+    let legacy = schedule_view(&record, 0);
     let id = legacy["id"].as_str().unwrap();
     let updated = manager
         .execute(
