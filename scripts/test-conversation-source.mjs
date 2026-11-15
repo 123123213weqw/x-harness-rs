@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import {stripTurnStyle} from './fixtures/reviewed-turn-tool-style.mjs'
+import {checkedToolActivityStyle} from './fixtures/reviewed-tool-activity-style.mjs'
 import { test } from 'node:test'
 import { File } from 'node:buffer'
 import { createHash } from 'node:crypto'
@@ -52,8 +53,8 @@ const recoveryLocales = {
  zh: {'session.recover':'恢复任务','session.recoverHint':'恢复当前空闲任务，不重发输入。请先停止正在执行的工作；其他任务和草稿不变。','session.recovering':'恢复中…','session.recovered':'已恢复','session.recoverUnavailable':'当前 Host 不支持单任务恢复。'},
 };
 const turnToolLocales={
- en:{'message.processCounts':'{tools} tool calls · {thoughts} Thought','message.loadedProcess':'Loaded: {tools} tool calls · {thoughts} Thought','todo.readList':'Read the current to-do list','todo.listItems':'To-do list · {count} items'},
- zh:{'message.processCounts':'{tools} 次工具调用 · {thoughts} 段 Thought','message.loadedProcess':'已载入 {tools} 次工具调用 · {thoughts} 段 Thought','todo.readList':'读取当前任务清单','todo.listItems':'任务清单 · {count} 项'},
+ en:{'message.recentTool':'Recent','message.parallelTools':'{count} active','message.processCounts':'{tools} tool calls · {thoughts} Thought','message.loadedProcess':'Loaded: {tools} tool calls · {thoughts} Thought','todo.readList':'Read the current to-do list','todo.listItems':'To-do list · {count} items'},
+ zh:{'message.recentTool':'最近','message.parallelTools':'{count} 个并行','message.processCounts':'{tools} 次工具调用 · {thoughts} 段 Thought','message.loadedProcess':'已载入 {tools} 次工具调用 · {thoughts} 段 Thought','todo.readList':'读取当前任务清单','todo.listItems':'任务清单 · {count} 项'},
 };
 function baselineProductCopy(language, locale) {
  assert.equal(locale['image.budgetExceeded'], language === 'en' ? 'Image memory budget reached. Close other previews, then retry.' : '已达图片内存预算，请关闭其他预览后重试。');
@@ -181,6 +182,19 @@ test('removed Context selection falls back to Chat without hiding retained Harne
  assert.equal(read([], 'context'),undefined);
 });
 
+test('recent tool paging pins the exact append without exempting existing footer styles or locales',()=>{
+ const source=readFileSync(new URL('../ui/src/modules/conversation/chat/TurnTailNodeView.css',import.meta.url),'utf8')
+ assert.equal(checkedToolActivityStyle(source),source)
+ assert.throws(()=>checkedToolActivityStyle('.unrelated{color:red}'+source),/existing footer/)
+ assert.throws(()=>checkedToolActivityStyle(source+'.unrelated{color:red}'),/exact reviewed/)
+ assert.throws(()=>checkedToolActivityStyle(source+source),/one tool activity/)
+ for(const language of ['en','zh']) for(const key of ['message.recentTool','message.parallelTools']){
+  const current=json(apis[1].plugin[language]),missing={...current};delete missing[key]
+  assert.throws(()=>baselineProductCopy(language,missing),/reviewed turn\/tool copy/)
+  assert.throws(()=>baselineProductCopy(language,{...current,[key]:'incorrect'}),/reviewed turn\/tool copy/)
+ }
+});
+
 test('real source entry preserves published ABI, injection, exact stylesheet tags and dictionaries',()=>{
  const old=harness(legacySource),next=harness(compiled.entry);assert.deepEqual(Object.keys(next.plugin).sort(),Object.keys(old.plugin).sort());assert.deepEqual(json(next.plugin.inject),json(old.plugin.inject));
  // Intentional post-migration deltas: completed-turn disclosure and fast reasoning pages.
@@ -233,6 +247,7 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
  }
  assert.deepEqual({...nextCss,[reasoningId]:oldCss[reasoningId]},expectedCss,'every stylesheet and tag preserves its frozen bytes except the explicit reviewed product deltas');
  const tailStyle=h=>h.styles.find(s=>s.dataset.pluginCss.endsWith('/TurnTailNodeView.module.css')).textContent;
+ assert.equal(checkedToolActivityStyle(tailStyle(next)),readFileSync(new URL('../ui/src/modules/conversation/chat/TurnTailNodeView.css',import.meta.url),'utf8'),'paging stylesheet is source-fresh');
  assert.ok(tailStyle(next).startsWith(tailStyle(old)),'existing footer styles are preserved before the new summary rules');
  const argumentLocales={"en": {"tool.arguments.generating": "Generating tool input", "tool.arguments.received": "{size} received", "tool.arguments.elapsed": "{seconds}s", "tool.arguments.notExecuted": "The model is still generating input. The tool has not executed yet.", "tool.arguments.preview": "Input preview", "tool.arguments.raw": "Raw JSON", "tool.arguments.showPreview": "Show preview", "tool.arguments.showRaw": "Show raw JSON", "tool.arguments.waiting": "Waiting for input…", "tool.arguments.truncated": "Preview limited to {count} characters. The actual tool input is not truncated."}, "zh": {"tool.arguments.generating": "正在生成工具参数", "tool.arguments.received": "已接收 {size}", "tool.arguments.elapsed": "{seconds} 秒", "tool.arguments.notExecuted": "模型仍在生成参数，工具尚未执行。", "tool.arguments.preview": "内容预览", "tool.arguments.raw": "原始 JSON", "tool.arguments.showPreview": "查看内容预览", "tool.arguments.showRaw": "查看原始 JSON", "tool.arguments.waiting": "等待参数内容…", "tool.arguments.truncated": "仅预览前 {count} 个字符，实际工具参数未被截断。"}};
  const newKeys=[...Object.keys(argumentLocales.en),'approval.reviewing','message.turnFinished','message.expandProcess','message.collapseProcess','message.foldedTools','message.expandedTools','chat.messageRail','chat.messageRail.message'];

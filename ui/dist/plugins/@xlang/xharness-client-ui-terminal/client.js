@@ -162,19 +162,19 @@ function terminalBytes(read) {
 const XTERM_FONT_FAMILY = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
 const XTERM_FONT_SIZE = 12.5;
 const XTERM_LINE_HEIGHT = 1.2;
-let xtermCellCache = null;
-/** One character cell, measured once with the terminal's own font settings; fitTo divides the viewport by it. */
-function xtermCell() {
-    if (xtermCellCache !== null)
-        return xtermCellCache;
-    const probe = document.createElement('span');
-    probe.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font:${XTERM_FONT_SIZE}px ${XTERM_FONT_FAMILY}`;
-    probe.textContent = 'W';
-    document.body.append(probe);
-    const rect = probe.getBoundingClientRect();
-    probe.remove();
-    xtermCellCache = { width: Math.max(4, rect.width), height: Math.ceil(XTERM_FONT_SIZE * XTERM_LINE_HEIGHT) };
-    return xtermCellCache;
+/** Guarded adapter for the exact vendored xterm (whose bytes are pinned in
+ * modules.json). Renderer cells include actual font metrics and line height;
+ * viewport.scrollBarWidth includes xterm's overlay-scrollbar reservation.
+ * Zero dimensions before the first render mean "not measured", not a guess. */
+function xtermCell(term) {
+    const core = (0, runtime_types_1.objectValue)((0, runtime_types_1.objectValue)(term)._core);
+    const cell = (0, runtime_types_1.objectValue)((0, runtime_types_1.objectValue)((0, runtime_types_1.objectValue)((0, runtime_types_1.objectValue)(core._renderService).dimensions).css).cell);
+    const scrollbar = (0, runtime_types_1.objectValue)(core.viewport).scrollBarWidth;
+    if (typeof cell.width !== 'number' || !Number.isFinite(cell.width) || cell.width <= 0
+        || typeof cell.height !== 'number' || !Number.isFinite(cell.height) || cell.height <= 0
+        || typeof scrollbar !== 'number' || !Number.isFinite(scrollbar) || scrollbar < 0)
+        return null;
+    return { width: cell.width, height: cell.height, scrollbar };
 }
 let xtermPromise = null;
 function loadXterm() {
@@ -310,22 +310,21 @@ class TerminalTab {
             return this.term;
         });
     }
-    /** Fit the xterm grid to a host box in CSS pixels (padding included). The
-        16/12 constants mirror .xhterm-viewport's own padding (8px twice, 4px+8px);
-        term.resize flows through onResize to resize the server PTY. */
-    fitTo(width, height) {
-        const term = this.term;
-        if (term === null || width <= 0 || height <= 0)
+    /** Fit only measured cells to the actual content box. Hidden/degenerate
+        boxes retain the last grid until visibility/render/resize supplies data. */
+    fitTo(host) {
+        const term = this.term, cell = xtermCell(term);
+        if (term === null || cell === null || host.clientWidth <= 0 || host.clientHeight <= 0)
             return;
-        const cell = xtermCell();
-        const cols = Math.max(20, Math.floor((width - 16) / cell.width));
-        const rows = Math.max(2, Math.floor((height - 12) / cell.height));
-        if (cols !== term.cols || rows !== term.rows) {
-            try {
-                term.resize(cols, rows);
-            }
-            catch { /* xterm rejects degenerate boxes; the next ResizeObserver pass retries. */ }
-        }
+        const style = getComputedStyle(host);
+        const pixels = (value) => Number.parseFloat(value) || 0;
+        const width = host.clientWidth - pixels(style.paddingLeft) - pixels(style.paddingRight) - cell.scrollbar;
+        const height = host.clientHeight - pixels(style.paddingTop) - pixels(style.paddingBottom);
+        const cols = Math.floor(width / cell.width), rows = Math.floor(height / cell.height);
+        if (cols < 2 || rows < 1)
+            return;
+        if (cols !== term.cols || rows !== term.rows)
+            term.resize(cols, rows);
     }
     async attach() {
         const term = await this.ensureTerm();
@@ -679,38 +678,55 @@ function TerminalViewport({ tab }) {
         const host = containerRef.current;
         if (tab === null || host === null)
             return undefined;
-        let cancelled = false;
+        let cancelled = false, frame = null, measured = '';
+        let renderListener;
+        const fit = () => {
+            if (cancelled || frame !== null)
+                return;
+            frame = requestAnimationFrame(() => { frame = null; if (!cancelled)
+                tab.fitTo(host); });
+        };
+        const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
+        observer?.observe(host);
+        window.addEventListener('resize', fit);
         tab.ensureTerm()
-            .then(() => {
-            if (cancelled || host === null || tab.container === null)
+            .then(term => {
+            if (cancelled || term == null || tab.container === null)
                 return;
             host.append(tab.container);
-            tab.fitTo(host.clientWidth, host.clientHeight);
+            renderListener = term.onRender?.(() => {
+                const cell = xtermCell(term), key = cell === null ? '' : `${cell.width}:${cell.height}:${cell.scrollbar}`;
+                // Render events only schedule work when metrics change, not on every
+                // output frame. This also handles the first connected measurement.
+                if (key !== measured) {
+                    measured = key;
+                    fit();
+                }
+            });
+            fit();
             tab.attach();
         })
             .catch((error) => {
-            if (!cancelled && host !== null) {
+            if (!cancelled) {
                 const notice = document.createElement('div');
                 notice.className = 'xhterm-empty';
                 notice.textContent = `终端组件加载失败: ${(0, runtime_types_1.errorText)(error)}`;
                 host.append(notice);
             }
         });
+        // Fonts may settle after the first frame; this is one completion, not polling.
+        void document.fonts?.ready.then(() => { if (!cancelled)
+            fit(); });
         return () => {
             cancelled = true;
+            if (frame !== null)
+                cancelAnimationFrame(frame);
+            observer?.disconnect();
+            renderListener?.dispose();
+            window.removeEventListener('resize', fit);
             tab.stopPolling();
             tab.container?.remove();
         };
-    }, [tab]);
-    // The dock's height is user-draggable and the layout reflows around it; the
-    // grid must follow the host box instead of keeping the rows it opened with.
-    useEffect(() => {
-        const host = containerRef.current;
-        if (tab === null || host === null || typeof ResizeObserver === 'undefined')
-            return undefined;
-        const observer = new ResizeObserver(() => { tab.fitTo(host.clientWidth, host.clientHeight); });
-        observer.observe(host);
-        return () => { observer.disconnect(); };
     }, [tab]);
     return h('div', { className: 'xhterm-viewport', ref: containerRef });
 }
@@ -762,7 +778,8 @@ function TerminalDock({ t, sessionId }) {
             // produce no ResizeObserver tick and would strand stale geometry; a
             // too-narrow band falls back to the full viewport instead.
             const usable = rect !== undefined && rect.width >= 120;
-            document.body.style.setProperty('--xhterm-dock-h', `${store.height}px`);
+            // One CSS clamp drives both the panel and reservation, including viewport changes.
+            document.body.style.setProperty('--xhterm-dock-h', `min(${store.height}px,max(0px,calc(100vh - 220px)))`);
             document.body.style.setProperty('--xhterm-dock-left', usable ? `${Math.round(rect.left)}px` : '0px');
             document.body.style.setProperty('--xhterm-dock-width', usable ? `${Math.round(rect.width)}px` : '100vw');
         };
@@ -905,7 +922,7 @@ function apply(ctx) {
 // source: src/modules/terminal/Terminal.css
 
 Object.defineProperty(exports, '__esModule', { value: true });
-exports.default = "\n.xhterm-trigger{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:3px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;cursor:pointer}.xhterm-trigger:hover,.xhterm-trigger:focus-visible{color:var(--dsw-alias-label-secondary)}\n/* The panel slides up from the window bottom on open and retracts back down\n   on close — the same panel Bézier both ways, pure translation, no fade. */\n.xhterm-dock{position:fixed;left:var(--xhterm-dock-left,0px);bottom:0;width:var(--xhterm-dock-width,100vw);max-height:calc(100vh - 220px);display:flex;flex-direction:column;box-sizing:border-box;min-width:0;background:var(--dsw-alias-bg-base);border-top:1px solid var(--dsw-alias-border-l2);animation:xhterm-dock-in var(--xh-duration-panel-in,260ms) var(--xh-ease-panel,cubic-bezier(.23,1,.32,1))}\n/* Same layer as the composer, not an overlay: the panel spans exactly the\n   center column's band (left edge joining the sidebar) and the column\n   reserves the band below its composer. The data attribute is the layout\n   module's published contract; the variables come from the dock effect.\n   The reservation eases with the panel's own Bézier so the chat column\n   yields and returns smoothly instead of stepping; dragging tracks raw. */\n[data-xh-center-column]{transition:padding-bottom var(--xh-duration-panel-out,180ms) var(--xh-ease-panel,cubic-bezier(.23,1,.32,1))}\nbody.xhterm-dragging [data-xh-center-column]{transition:none}\nbody.xhterm-dock-open [data-xh-center-column]{padding-bottom:var(--xhterm-dock-h,280px)}\n.xhterm-dock-closing{animation:xhterm-dock-out var(--xh-duration-panel-out,180ms) var(--xh-ease-panel,cubic-bezier(.23,1,.32,1)) forwards}\n@keyframes xhterm-dock-in{from{transform:translate3d(0,100%,0)}to{transform:translate3d(0,0,0)}}\n@keyframes xhterm-dock-out{to{transform:translate3d(0,100%,0)}}\n@media (prefers-reduced-motion:reduce){.xhterm-dock,.xhterm-dock-closing{animation:none}}\n.xhterm-resize-handle{height:4px;flex:none;cursor:row-resize}\n.xhterm-dragging,.xhterm-dragging *{cursor:row-resize!important;user-select:none!important}\n.xhterm-tabbar{display:flex;align-items:center;gap:2px;flex:none;padding:2px 6px;border-bottom:1px solid var(--dsw-alias-border-l1)}\n.xhterm-tab{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border:0;border-radius:6px 6px 0 0;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:12px;cursor:pointer}.xhterm-tab:hover{color:var(--dsw-alias-label-secondary)}.xhterm-tab-active{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}\n.xhterm-tab-dot{width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-state-business-primary,#2f7cf6)}.xhterm-tab-dot-exited{background:var(--dsw-alias-label-tertiary)}.xhterm-tab-dot-offline{background:var(--dsw-alias-state-warn-primary,#dc8500)}\n.xhterm-tab-close{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:4px;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:1}.xhterm-tab-close:hover{color:var(--dsw-alias-state-error-primary);background:var(--dsw-alias-interactive-bg-hover)}\n.xhterm-newtab{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:15px;cursor:pointer}.xhterm-newtab:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}\n.xhterm-status{margin-left:auto;padding-right:6px;color:var(--dsw-alias-label-tertiary);font-size:11px}\n.xhterm-viewport{flex:1;min-height:0;padding:4px 8px 8px;overflow:hidden}.xhterm-session{height:100%}\n.xhterm-viewport .xterm{height:100%}\n.xhterm-viewport .xterm-viewport{overscroll-behavior-y:contain}\n.xhterm-empty{flex:1;display:grid;place-items:center;color:var(--dsw-alias-label-tertiary);font-size:12px}\n";
+exports.default = "\n.xhterm-trigger{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:3px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;cursor:pointer}.xhterm-trigger:hover,.xhterm-trigger:focus-visible{color:var(--dsw-alias-label-secondary)}\n/* The panel slides up from the window bottom on open and retracts back down\n   on close — the same panel Bézier both ways, pure translation, no fade. */\n.xhterm-dock{position:fixed;left:var(--xhterm-dock-left,0px);bottom:0;width:var(--xhterm-dock-width,100vw);max-height:var(--xhterm-dock-h,calc(100vh - 220px));overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;min-width:0;background:var(--dsw-alias-bg-base);border-top:1px solid var(--dsw-alias-border-l2);animation:xhterm-dock-in var(--xh-duration-panel-in,260ms) var(--xh-ease-panel,cubic-bezier(.23,1,.32,1))}\n/* Same layer as the composer, not an overlay: the panel spans exactly the\n   center column's band (left edge joining the sidebar) and the column\n   reserves the band below its composer. The data attribute is the layout\n   module's published contract; the variables come from the dock effect.\n   The reservation eases with the panel's own Bézier so the chat column\n   yields and returns smoothly instead of stepping; dragging tracks raw. */\n[data-xh-center-column]{transition:padding-bottom var(--xh-duration-panel-out,180ms) var(--xh-ease-panel,cubic-bezier(.23,1,.32,1))}\nbody.xhterm-dragging [data-xh-center-column]{transition:none}\nbody.xhterm-dock-open [data-xh-center-column]{padding-bottom:var(--xhterm-dock-h,280px)}\n.xhterm-dock-closing{animation:xhterm-dock-out var(--xh-duration-panel-out,180ms) var(--xh-ease-panel,cubic-bezier(.23,1,.32,1)) forwards}\n@keyframes xhterm-dock-in{from{transform:translate3d(0,100%,0)}to{transform:translate3d(0,0,0)}}\n@keyframes xhterm-dock-out{to{transform:translate3d(0,100%,0)}}\n@media (prefers-reduced-motion:reduce){.xhterm-dock,.xhterm-dock-closing{animation:none}[data-xh-center-column]{transition:none}}\n.xhterm-resize-handle{height:4px;flex:none;cursor:row-resize}\n.xhterm-dragging,.xhterm-dragging *{cursor:row-resize!important;user-select:none!important}\n.xhterm-tabbar{display:flex;align-items:center;gap:2px;flex:none;padding:2px 6px;border-bottom:1px solid var(--dsw-alias-border-l1)}\n.xhterm-tab{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border:0;border-radius:6px 6px 0 0;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:12px;cursor:pointer}.xhterm-tab:hover{color:var(--dsw-alias-label-secondary)}.xhterm-tab-active{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}\n.xhterm-tab-dot{width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-state-business-primary,#2f7cf6)}.xhterm-tab-dot-exited{background:var(--dsw-alias-label-tertiary)}.xhterm-tab-dot-offline{background:var(--dsw-alias-state-warn-primary,#dc8500)}\n.xhterm-tab-close{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:4px;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:1}.xhterm-tab-close:hover{color:var(--dsw-alias-state-error-primary);background:var(--dsw-alias-interactive-bg-hover)}\n.xhterm-newtab{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:15px;cursor:pointer}.xhterm-newtab:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}\n.xhterm-status{margin-left:auto;padding-right:6px;color:var(--dsw-alias-label-tertiary);font-size:11px}\n.xhterm-viewport{flex:1;min-height:0;padding:4px 8px 8px;overflow:hidden}.xhterm-session{height:100%}\n.xhterm-viewport .xterm{height:100%}\n.xhterm-viewport .xterm-viewport{overscroll-behavior-y:contain}\n.xhterm-empty{flex:1;display:grid;place-items:center;color:var(--dsw-alias-label-tertiary);font-size:12px}\n";
 
 },
 "src/modules/shared/runtime-types.js": function(module, exports, require) {

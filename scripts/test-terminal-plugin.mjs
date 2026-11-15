@@ -135,7 +135,7 @@ assert.equal(plugin.getDockStore('chat-a'), storeA)
 assert.equal(plugin.getDockStore(undefined), null)
 assert.match(source, /\.xhterm-dock\{position:fixed/)
 assert.doesNotMatch(source, /\.xhterm-dock\{order:1/)
-assert.match(source, /\.xhterm-dock\{[^}]*max-height:calc\(100vh - 220px\)/)
+assert.match(source, /\.xhterm-dock\{[^}]*max-height:var\(--xhterm-dock-h,calc\(100vh - 220px\)\)/)
 assert.match(source, /\.xhterm-viewport \.xterm-viewport\{overscroll-behavior-y:contain\}/)
 
 // Browser shortcuts consume stable markers, never localized titles.
@@ -326,3 +326,22 @@ leaveChatB()
 assert.equal(keydownListeners.size, 0)
 
 console.log('terminal plugin: assertions passed')
+
+// The actual shipped fitTo method: no guessed line-height, no hidden-box resize.
+{
+ const sizes=[],tab=new plugin.TerminalTab('fit',{name:'fit',running:true},storeA)
+ const term={cols:80,rows:24,_core:{_renderService:{dimensions:{css:{cell:{width:8,height:18}}}},viewport:{scrollBarWidth:15}},resize(cols,rows){sizes.push([cols,rows]);this.cols=cols;this.rows=rows}}
+ tab.term=term
+ const original=sandbox.getComputedStyle
+ sandbox.getComputedStyle=()=>({paddingLeft:'8px',paddingRight:'8px',paddingTop:'4px',paddingBottom:'8px'})
+ const host={clientWidth:700,clientHeight:466}
+ tab.fitTo(host);assert.deepEqual(sizes,[[83,25]],'subtract measured renderer scrollbar and actual padding')
+ tab.fitTo(host);assert.equal(sizes.length,1,'stable output never resizes the PTY again')
+ for(const cell of [{width:0,height:0},{width:NaN,height:18},{width:8,height:Infinity}]){
+  term._core._renderService.dimensions.css.cell=cell;tab.fitTo(host);assert.equal(sizes.length,1,'unmeasured cells are not guessed')
+ }
+ term._core._renderService.dimensions.css.cell={width:8,height:18}
+ tab.fitTo({clientWidth:0,clientHeight:466});tab.fitTo({clientWidth:700,clientHeight:0});assert.equal(sizes.length,1)
+ tab.fitTo({clientWidth:96,clientHeight:90});assert.deepEqual(sizes.at(-1),[8,4],'narrow panes fit rather than forcing twenty clipped columns')
+ sandbox.getComputedStyle=original
+}

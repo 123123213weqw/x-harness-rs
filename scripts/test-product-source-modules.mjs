@@ -1,6 +1,7 @@
 // Product source migration acceptance. Compare the retained pre-migration
 // implementation to compiler-checked source; never edit either implementation.
 import assert from 'node:assert/strict'
+import {checkedTerminalStyle} from './fixtures/reviewed-terminal-style.mjs'
 import { test } from 'node:test'
 import vm from 'node:vm'
 import {stripReviewedJobStyle, jobStyleId} from './fixtures/reviewed-job-ui-contract.mjs'
@@ -158,15 +159,9 @@ for (const name of names) {
       }
       if (name === 'schedule') expectedStyles.push(['xharness-automation-navigation-style', readFileSync(join(repo, 'ui/src/modules/schedule/AutomationNavigation.css'), 'utf8')], ['xharness-automation-tool-card-style', readFileSync(join(repo, 'ui/src/modules/schedule/AutomationToolCard.css'), 'utf8')])
       if (name === 'terminal') {
-        // Reviewed dock redesign: the terminal moved from an in-flow composer
-        // accessory to a window-level bottom dock (fixed band mirroring the
-        // center column, body portal, eased reservation). The whole frozen
-        // sheet is replaced by the reviewed source sheet; the untouched
-        // trigger rule must survive verbatim.
-        const reviewed = readFileSync(join(repo, 'ui/src/modules/terminal/Terminal.css'), 'utf8')
-        assert.match(reviewed, /\.xhterm-trigger\{display:inline-flex/)
-        assert.match(reviewed, /\.xhterm-dock\{position:fixed/)
-        expectedStyles[0][1] = reviewed
+        // Exact approved redesign; the immutable reference is not rewritten,
+        // and current source cannot become its own unreviewed expectation.
+        expectedStyles[0][1] = checkedTerminalStyle(readFileSync(join(repo, 'ui/src/modules/terminal/Terminal.css'), 'utf8'))
       }
       assert.deepEqual([...after.styles].filter(([id]) => id !== jobStyleId).map(([id, style]) => [id, style.textContent]), expectedStyles)
     }
@@ -389,3 +384,12 @@ for (const source of [false, true]) {
     state.dispose()
   })
 }
+
+// Negative controls protect the independent pin, including unchanged trigger rules.
+test('terminal: reviewed stylesheet rejects unrelated source edits',()=>{
+ const source=readFileSync(join(repo,'ui/src/modules/terminal/Terminal.css'),'utf8')
+ assert.equal(checkedTerminalStyle(source),source)
+ for(const changed of [source+'.unreviewed{color:red}',source.replace('min-height:28px','min-height:99px'),source.replace('overflow:hidden','overflow:visible')]){
+  assert.notEqual(changed,source);assert.throws(()=>checkedTerminalStyle(changed),/exact reviewed terminal stylesheet/)
+ }
+})

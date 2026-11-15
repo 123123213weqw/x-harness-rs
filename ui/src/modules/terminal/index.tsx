@@ -7,7 +7,7 @@ interface TerminalDescriptor { name: string; running: boolean }
 interface TerminalRead { content_base64: string; cursor: number; truncated_before_cursor: boolean; running: boolean; exit_code: number | null; exit_signal: number | null }
 interface TerminalReplies { read: { ok: true; read: TerminalRead }; list: { ok: true; terminals: TerminalDescriptor[] }; open: { ok: true; terminal: TerminalDescriptor }; send: { ok: true; written: unknown }; resize: { ok: true }; close: { ok: true } }
 interface XtermOptions { convertEol: boolean; cursorBlink: boolean; fontFamily: string; fontSize: number; lineHeight: number; scrollback: number; theme: Readonly<Record<string, string>> }
-interface Xterm { cols: number; rows: number; open(container: HTMLElement): void; write(content: string | Uint8Array): void; onData(callback: (data: string) => void): unknown; onResize(callback: (size: { cols: number; rows: number }) => void): unknown; resize(cols: number, rows: number): void; dispose(): void }
+interface Xterm { cols: number; rows: number; open(container: HTMLElement): void; write(content: string | Uint8Array): void; onData(callback: (data: string) => void): unknown; onResize(callback: (size: { cols: number; rows: number }) => void): unknown; resize(cols: number, rows: number): void; onRender?(callback: () => void): { dispose(): void }; dispose(): void }
 type XtermConstructor = new (options: XtermOptions) => Xterm
 declare global { interface Window { Terminal?: XtermConstructor } }
 interface DockStore {
@@ -132,18 +132,18 @@ function terminalBytes(read: { content_base64?: string }) {
 const XTERM_FONT_FAMILY = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
 const XTERM_FONT_SIZE = 12.5
 const XTERM_LINE_HEIGHT = 1.2
-let xtermCellCache: { width: number; height: number } | null = null
-/** One character cell, measured once with the terminal's own font settings; fitTo divides the viewport by it. */
-function xtermCell(): { width: number; height: number } {
-  if (xtermCellCache !== null) return xtermCellCache
-  const probe = document.createElement('span')
-  probe.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font:${XTERM_FONT_SIZE}px ${XTERM_FONT_FAMILY}`
-  probe.textContent = 'W'
-  document.body.append(probe)
-  const rect = probe.getBoundingClientRect()
-  probe.remove()
-  xtermCellCache = { width: Math.max(4, rect.width), height: Math.ceil(XTERM_FONT_SIZE * XTERM_LINE_HEIGHT) }
-  return xtermCellCache
+/** Guarded adapter for the exact vendored xterm (whose bytes are pinned in
+ * modules.json). Renderer cells include actual font metrics and line height;
+ * viewport.scrollBarWidth includes xterm's overlay-scrollbar reservation.
+ * Zero dimensions before the first render mean "not measured", not a guess. */
+function xtermCell(term: Xterm | null): { width: number; height: number; scrollbar: number } | null {
+  const core = objectValue(objectValue(term)._core)
+  const cell = objectValue(objectValue(objectValue(objectValue(core._renderService).dimensions).css).cell)
+  const scrollbar = objectValue(core.viewport).scrollBarWidth
+  if (typeof cell.width !== 'number' || !Number.isFinite(cell.width) || cell.width <= 0
+    || typeof cell.height !== 'number' || !Number.isFinite(cell.height) || cell.height <= 0
+    || typeof scrollbar !== 'number' || !Number.isFinite(scrollbar) || scrollbar < 0) return null
+  return { width: cell.width, height: cell.height, scrollbar }
 }
 
 let xtermPromise: Promise<XtermConstructor> | null = null
@@ -299,18 +299,18 @@ class TerminalTab {
     })
   }
 
-  /** Fit the xterm grid to a host box in CSS pixels (padding included). The
-      16/12 constants mirror .xhterm-viewport's own padding (8px twice, 4px+8px);
-      term.resize flows through onResize to resize the server PTY. */
-  fitTo(width: number, height: number) {
-    const term = this.term
-    if (term === null || width <= 0 || height <= 0) return
-    const cell = xtermCell()
-    const cols = Math.max(20, Math.floor((width - 16) / cell.width))
-    const rows = Math.max(2, Math.floor((height - 12) / cell.height))
-    if (cols !== term.cols || rows !== term.rows) {
-      try { term.resize(cols, rows) } catch { /* xterm rejects degenerate boxes; the next ResizeObserver pass retries. */ }
-    }
+  /** Fit only measured cells to the actual content box. Hidden/degenerate
+      boxes retain the last grid until visibility/render/resize supplies data. */
+  fitTo(host: HTMLElement) {
+    const term = this.term, cell = xtermCell(term)
+    if (term === null || cell === null || host.clientWidth <= 0 || host.clientHeight <= 0) return
+    const style = getComputedStyle(host)
+    const pixels = (value: string): number => Number.parseFloat(value) || 0
+    const width = host.clientWidth - pixels(style.paddingLeft) - pixels(style.paddingRight) - cell.scrollbar
+    const height = host.clientHeight - pixels(style.paddingTop) - pixels(style.paddingBottom)
+    const cols = Math.floor(width / cell.width), rows = Math.floor(height / cell.height)
+    if (cols < 2 || rows < 1) return
+    if (cols !== term.cols || rows !== term.rows) term.resize(cols, rows)
   }
 
   async attach() {
@@ -664,36 +664,45 @@ function TerminalViewport({ tab }: { tab: TerminalTab | null }) {
   useEffect(() => {
     const host = containerRef.current
     if (tab === null || host === null) return undefined
-    let cancelled = false
+    let cancelled = false, frame: number | null = null, measured = ''
+    let renderListener: { dispose(): void } | undefined
+    const fit = (): void => {
+      if (cancelled || frame !== null) return
+      frame = requestAnimationFrame(() => { frame = null; if (!cancelled) tab.fitTo(host) })
+    }
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit)
+    observer?.observe(host)
+    window.addEventListener('resize', fit)
     tab.ensureTerm()
-      .then(() => {
-        if (cancelled || host === null || tab.container === null) return
+      .then(term => {
+        if (cancelled || term == null || tab.container === null) return
         host.append(tab.container)
-        tab.fitTo(host.clientWidth, host.clientHeight)
+        renderListener = term.onRender?.(() => {
+          const cell = xtermCell(term), key = cell === null ? '' : `${cell.width}:${cell.height}:${cell.scrollbar}`
+          // Render events only schedule work when metrics change, not on every
+          // output frame. This also handles the first connected measurement.
+          if (key !== measured) { measured = key; fit() }
+        })
+        fit()
         tab.attach()
       })
       .catch((error: unknown) => {
-        if (!cancelled && host !== null) {
+        if (!cancelled) {
           const notice = document.createElement('div')
           notice.className = 'xhterm-empty'
           notice.textContent = `终端组件加载失败: ${errorText(error)}`
           host.append(notice)
         }
       })
+    // Fonts may settle after the first frame; this is one completion, not polling.
+    void document.fonts?.ready.then(() => { if (!cancelled) fit() })
     return () => {
       cancelled = true
+      if (frame !== null) cancelAnimationFrame(frame)
+      observer?.disconnect(); renderListener?.dispose(); window.removeEventListener('resize', fit)
       tab.stopPolling()
       tab.container?.remove()
     }
-  }, [tab])
-  // The dock's height is user-draggable and the layout reflows around it; the
-  // grid must follow the host box instead of keeping the rows it opened with.
-  useEffect(() => {
-    const host = containerRef.current
-    if (tab === null || host === null || typeof ResizeObserver === 'undefined') return undefined
-    const observer = new ResizeObserver(() => { tab.fitTo(host.clientWidth, host.clientHeight) })
-    observer.observe(host)
-    return () => { observer.disconnect() }
   }, [tab])
   return h('div', { className: 'xhterm-viewport', ref: containerRef })
 }
@@ -746,7 +755,8 @@ function TerminalDock({ t, sessionId }: DockProps) {
       // produce no ResizeObserver tick and would strand stale geometry; a
       // too-narrow band falls back to the full viewport instead.
       const usable = rect !== undefined && rect.width >= 120
-      document.body.style.setProperty('--xhterm-dock-h', `${store.height}px`)
+      // One CSS clamp drives both the panel and reservation, including viewport changes.
+      document.body.style.setProperty('--xhterm-dock-h', `min(${store.height}px,max(0px,calc(100vh - 220px)))`)
       document.body.style.setProperty('--xhterm-dock-left', usable ? `${Math.round(rect.left)}px` : '0px')
       document.body.style.setProperty('--xhterm-dock-width', usable ? `${Math.round(rect.width)}px` : '100vw')
     }

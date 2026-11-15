@@ -117,3 +117,71 @@ test('tool counts namespace call IDs by owning step, not a globally unique model
  const nodes=new Map([['one',first],['two',second]])
  assert.deepEqual(json(plugin.turnProcessCounts(['one','two'],key=>nodes.get(key))),{tools:2,thoughts:0})
 })
+
+const activityItem=(key,summary=key,name='read')=>({key,name,title:name,summary})
+const activity=(items,parallel=items.length)=>({items,parallel,blocked:false})
+const projectActivity=nodes=>json(plugin.decodeToolActivity(plugin.selectToolActivity(nodes.map(n=>n.key),key=>nodes.find(n=>n.key===key))))
+const activeNode=(id,seq,extra={})=>({key:id,kind:'tool-call',anchorSeq:seq,location:{kind:'step',turn:{turn:1},step:{step:1}},data:{root:{callId:id,name:'read',argsRaw:'{"path":"'+id+'"}',turn:1,step:1,time:seq,callView:null,subCalls:[],...extra}}})
+const returnedNode=(id,seq,extra={})=>{const n=activeNode(id,seq);return{...n,data:{root:block({callId:id,seq:seq+1,call:{name:'read',argsRaw:'{"path":"'+id+'"}'},...extra})}}}
+test('Tool activity pacing: one latest input, fixed deadline, 180ms expiry and no replay queue',()=>{
+ const model=new plugin.ToolActivityPresentation(),a=activityItem('a'),b=activityItem('b'),c=activityItem('c')
+ model.reset(activity([a],0),0)
+ model.update(activity([b],0),100,true);assert.equal(model.nextAt,1000)
+ model.update(activity([c],0),900,true);assert.equal(model.nextAt,1000,'stream updates never postpone the original deadline')
+ model.advance(999,true);assert.equal(model.frame.current.key,'a')
+ model.advance(1000,true);assert.equal(model.frame.current.key,'c');assert.equal(model.frame.previous.key,'a');assert.equal(model.nextAt,1180)
+ model.advance(1180,true);assert.equal(model.frame.previous,undefined);assert.equal(model.nextAt,undefined)
+ assert.equal(plugin.TOOL_ACTIVITY_PAGE_MS,1000);assert.equal(plugin.TOOL_ACTIVITY_FLIP_MS,180)
+})
+test('Tool activity pacing: parallel cycles current roots, late callbacks skip backlog and duplicate faces do not flip',()=>{
+ const model=new plugin.ToolActivityPresentation(),items=['a','b','c'].map(key=>activityItem(key))
+ model.reset(activity(items),0);assert.equal(model.frame.current.key,'c')
+ model.advance(1000,true);assert.equal(model.frame.current.key,'a')
+ model.update(activity([items[1],items[2]]),1100,true)
+ model.advance(10000,true);assert.equal(model.frame.current.key,'c');assert.equal(model.nextAt,10180)
+ model.advance(10180,true);assert.equal(model.nextAt,11000)
+ const first=activityItem('x','same'),second=activityItem('y','same')
+ model.reset(activity([first],0),0);model.update(activity([second],0),10,true);model.advance(1000,true)
+ assert.equal(model.frame.current.key,'y');assert.equal(model.frame.previous,undefined,'identity alone never animates identical text')
+})
+test('Tool activity pacing: blocks clear both faces immediately, freeze and reset have no stale backlog',()=>{
+ const model=new plugin.ToolActivityPresentation()
+ model.reset(activity([activityItem('a')],0),0);model.update(activity([activityItem('b')],0),50,true);model.advance(1000,true)
+ assert.ok(model.frame.previous)
+ model.update({items:[],parallel:0,blocked:true},1010,true)
+ assert.equal(model.frame.current,undefined);assert.equal(model.frame.previous,undefined);assert.equal(model.nextAt,undefined)
+ model.reset(activity([activityItem('fresh')]),2000);model.freeze();assert.equal(model.nextAt,undefined)
+ model.reset(activity([activityItem('new')]),9000);assert.equal(model.frame.current.key,'new');assert.equal(model.frame.previous,undefined)
+})
+test('Tool activity projection: only active root invocations count as parallel, reused IDs keep scope and raw data stays exact',()=>{
+ const a=activeNode('a',1),b=activeNode('b',2),c=activeNode('c',3),raw=JSON.stringify([a,b,c])
+ let p=projectActivity([a,b,c]);assert.equal(p.parallel,3);assert.equal(p.items.length,3)
+ const nested=activeNode('parent',1,{subCalls:[activeNode('child',2).data.root]})
+ p=projectActivity([nested]);assert.equal(p.parallel,1,'parent and child are not independent parallel roots')
+ const again={...b,location:{kind:'step',turn:{turn:1},step:{step:2}}}
+ p=projectActivity([a,again]);assert.notEqual(p.items[0].key,p.items[1].key)
+ assert.equal(JSON.stringify([a,b,c]),raw)
+})
+test('Tool activity projection: source failure, nonzero/signal, interruption, missing heads and waiting fail quiet without changing cards',()=>{
+ for(const extra of [{isError:true},{error:{code:'OUTCOME_UNKNOWN',name:'Unknown'}},{error:{code:'interrupted',name:'Cancelled'}},{resultView:{card:'terminal',exitCode:1}},{resultView:{card:'terminal',signal:'SIGTERM'}}]){
+  const failed=returnedNode('bad',5,extra),raw=JSON.stringify(failed)
+  assert.equal(projectActivity([activeNode('old',1),failed]).blocked,true)
+  assert.equal(projectActivity([failed,activeNode('recovery',9)]).blocked,false,'a genuinely later dispatch may resume the preview')
+  assert.equal(JSON.stringify(failed),raw)
+ }
+ assert.equal(projectActivity([activeNode('q',1,{name:'ask_question'})]).blocked,true)
+ assert.equal(projectActivity([returnedNode('missing',1,{call:null})]).items.length,0)
+ assert.equal(projectActivity([{...activeNode('x',1),data:{root:{broken:true}}}]).blocked,true)
+})
+test('Tool activity projection: bounded recent-root window, unknown names, partial input and display-only MCP identity',()=>{
+ const nodes=Array.from({length:100},(_,i)=>activeNode('id'+i,i))
+ let p=projectActivity(nodes);assert.equal(p.parallel,100);assert.equal(p.items.length,8)
+ for(const name of ['constructor','__proto__',' read ','read'+' '.repeat(1000)]){
+  p=projectActivity([activeNode('x',1,{name})]);assert.ok(p.items[0].title.length<=64);assert.notEqual(p.items[0].name,'read')
+ }
+ p=projectActivity([activeNode('x',1,{argsRaw:'{'} )]);assert.equal(p.items[0].summary,'')
+ p=projectActivity([activeNode('x',1,{argsRaw:'x'.repeat(20000)})]);assert.equal(p.items[0].summary,'')
+ p=projectActivity([activeNode('x',1,{name:'plugin_mcp',argsRaw:JSON.stringify({action:'call',plugin:'@xharness/native-browser',server:'webview',arguments:{action:'snapshot',private:'not retained'}})})]);assert.equal(p.items[0].title,'Browser');assert.ok(!p.items[0].glyphArgs.includes('private'));assert.equal(p.items[0].summary,'snapshot')
+ p=projectActivity([activeNode('x',1,{argsRaw:JSON.stringify({path:'🧠'.repeat(1000)})})]);assert.equal([...p.items[0].summary].length,160);assert.ok(JSON.stringify(p).length<16384)
+ for(const value of ['','{','null','[]','x'.repeat(20000),JSON.stringify({items:[],parallel:-1,blocked:false})])assert.deepEqual(json(plugin.decodeToolActivity(value)),{items:[],parallel:0,blocked:false})
+})

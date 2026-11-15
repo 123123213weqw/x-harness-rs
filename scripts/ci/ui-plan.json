@@ -4440,6 +4440,30 @@
         "UI_TEST_BROWSER": "webkit"
       },
       "weight": 35
+    },
+    {
+      "id": "browser-258",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-terminal-fit-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 35
+    },
+    {
+      "id": "browser-259",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-terminal-fit-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 35
     }
   ]
 }
