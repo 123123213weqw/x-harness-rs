@@ -56,6 +56,13 @@ for (const bad of [url + '?token=x', url.replace('github.com', 'evil.test'), url
   assert.throws(() => installerLocation(repo, 'friends-v0.2.5', '0.2.5', bad))
 }
 assert.throws(() => installerLocation(repo, 'desktop-test-v0.2.5', '0.2.5', url))
+const current = '123123213weqw/XHarness'
+const legacy = `https://github.com/123123213weqw/x-harness-rs/releases/download/friends-v0.2.5/${name}`
+assert.equal(installerLocation(current, 'friends-v0.2.5', '0.2.5', legacy), name)
+for (const bad of [legacy + '?token=x', legacy.replace('github.com', 'evil.test'), legacy.replace(name, '../' + name),
+  legacy.replace('friends-v0.2.5', 'friends-v0.2.4'), legacy.replace('x-harness-rs', 'x-harness-rs-old')]) {
+  assert.throws(() => installerLocation(current, 'friends-v0.2.5', '0.2.5', bad))
+}
 const retained = ['providers.json', 'secrets/fake', 'workspace/sentinel'].map(name => ({ name, sha256: 'c'.repeat(64) }))
 const cp = v => ({ version: v, journalSha256: 'd'.repeat(64), compiledKeySha256: 'e'.repeat(64), compiledEndpoint: plan.endpoint,
   status: { hostRunning: true, updaterConfigured: true }, retained })

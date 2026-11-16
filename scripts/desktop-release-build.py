@@ -577,11 +577,15 @@ def download_release(repo, tag, destination, names=None):
 def live_names(manifest, repo, tag):
     names = {'latest.json', 'updater.pub'}
     require(isinstance(manifest.get('platforms'), dict) and manifest['platforms'], 'Live manifest has no platforms')
+    # Pre-rename baselines keep the legacy owner/path in their signed manifests
+    # (see desktop-release.py repository_aliases); only the repository segment
+    # may differ. Tag and asset name stay strict.
+    prefixes = tuple(f'/{name}/releases/download/{tag}/' for name in _contract.repository_aliases(repo))
     for item in manifest['platforms'].values():
         parsed = urlsplit(item['url'])
-        prefix = f'/{repo}/releases/download/{tag}/'
+        prefix = next((candidate for candidate in prefixes if parsed.path.startswith(candidate)), None)
         require(parsed.scheme == 'https' and parsed.netloc == 'github.com' and not parsed.query
-                and not parsed.fragment and parsed.path.startswith(prefix), 'Live asset is not immutable in this repository/tag')
+                and not parsed.fragment and prefix is not None, 'Live asset is not immutable in this repository/tag')
         name = unquote(parsed.path[len(prefix):])
         require(re.fullmatch(r'[A-Za-z0-9_.+-]+', name) and name not in {'.', '..'}, 'Unsafe live asset path')
         names.update([name, name + '.sig'])

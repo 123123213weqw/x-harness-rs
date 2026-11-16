@@ -55,11 +55,17 @@ export function validateRun(run, plan, env) {
   assert.equal(String(run.id), String(plan.release_run_id))
   assert.equal(String(run.run_attempt), String(plan.release_run_attempt))
 }
+// Stable feeds published before the repository rename (x-harness-rs -> XHarness)
+// keep the legacy owner/path in their signed download URLs; GitHub serves both
+// names identically. Only the repository segment may differ; tag and file stay strict.
+const LEGACY_REPOSITORY_ALIASES = { '123123213weqw/XHarness': ['123123213weqw/x-harness-rs'] }
+
 export function installerLocation(repository, tag, version, url) {
   for (const value of [version]) assert.match(value, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/)
   assert.ok(tag === `friends-v${version}` || tag === `desktop-v${version}`, 'Unknown stable base tag')
   const file = `XHarness_${version}_x64-setup.exe`
-  assert.equal(url, `https://github.com/${repository}/releases/download/${tag}/${file}`, 'Unexpected installer URL')
+  const names = [repository, ...LEGACY_REPOSITORY_ALIASES[repository] ?? []]
+  assert.ok(names.some(name => url === `https://github.com/${name}/releases/download/${tag}/${file}`), 'Unexpected installer URL')
   return file
 }
 export function acceptanceFromPass(plan, manifestHash, packageHash, pass, provenance) {
