@@ -23,7 +23,7 @@ class RemoteSyncContract(unittest.TestCase):
                 files = {
                     "ui/dist/index.html": "current product UI",
                     "ui/dist/plugins/client.js": "current plugin",
-                    "ui/overrides/model-controls.js": "product source",
+                    "ui/src/modules/model-selection/index.ts": "product source",
                     "dist/private-build.log": "not for upload",
                     "target/debug/app": "not for upload",
                     "node_modules/dependency": "not for upload",

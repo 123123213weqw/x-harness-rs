@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { frozenRuntime, runFrozenSourceDifferential } from './runtime-source-test-harness.mjs'
-import { patchStartupCatalogRefresh } from './patch-startup-catalog-refresh.mjs'
 
 const runtime = readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-runtime/client.js', import.meta.url))
 const connection = readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-connection/client.js', import.meta.url), 'utf8')
@@ -15,7 +14,6 @@ assert.ok(source.includes('if (this.listInflight !== null) await this.listInflig
 assert.equal(source.includes('case "host/session-catalog-batch"'), false, 'do not emit an unregistered wire type')
 const frozenConnection = readFileSync(new URL('../ui/reference/master-a613970/plugins/@xharness/dsh-client-connection/client.js', import.meta.url),'utf8')
 assert.ok(frozenConnection.includes('type: literal("host/remote-event")'), 'existing validated Host frame carries refresh')
-assert.deepEqual(patchStartupCatalogRefresh(Buffer.from(frozenRuntime)), Buffer.from(frozenRuntime), 'rebuild patch must be idempotent')
 const entry = graph.entries.find(row => row.id === '@xharness/dsh-client-runtime')
 assert.ok(entry)
 assert.equal(entry.rev, createHash('sha256').update(runtime).digest('hex').slice(0, 16))

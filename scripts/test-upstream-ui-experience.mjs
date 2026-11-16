@@ -5,22 +5,20 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 import {assertRebuildInput} from './fixtures/repository-ui-input.mjs'
-import {verifyConversationArtifact,exposeConversation,legacyConversation} from './conversation-artifact-test.mjs'
 import {sourceDeclaration} from './fixtures/source-declaration.mjs'
-import { patchToolExperience, patchConversationExperience, patchModelSwitchProgress } from './patch-upstream-ui-experience.mjs'
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const graph = JSON.parse(readFileSync(resolve(root, 'ui/dist/client-graph.json'), 'utf8'))
 const html = readFileSync(resolve(root, 'ui/dist/index.html'), 'utf8')
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 16)
 const readCanonical = path => Buffer.from(readFileSync(path, 'utf8').replace(/\r\n/g, '\n'))
-for (const [id, patch] of [
-  ['@xharness/dsh-client-ui-tool', patchToolExperience],
-  ['@xharness/dsh-client-ui-conversation', patchConversationExperience],
-  ['@xharness/dsh-client-ui-model-selection', patchModelSwitchProgress],
+for (const id of [
+  '@xharness/dsh-client-ui-tool',
+  '@xharness/dsh-client-ui-conversation',
+  '@xharness/dsh-client-ui-model-selection',
 ]) {
   const code = readCanonical(resolve(root, `ui/dist/plugins/${id}/client.js`))
-  const frozen=readCanonical(resolve(root,`ui/reference/master-a613970/plugins/${id}/client.js`));assert.deepEqual(patch(frozen), frozen, `${id} old patch remains repeatable`);assertRebuildInput(id)
+  assertRebuildInput(id)
   const entry = graph.entries.find(value => value.id === id)
   assert.equal(entry.rev, hash(code), `${id} graph revision`)
 }
@@ -48,4 +46,4 @@ assert.equal(preparing({ kind: 'tool-call', name: 'bash', argsRaw: '{"command":"
 assert.equal(preparing({ kind: 'tool-call', name: '', argsRaw: '' }), false)
 assert.match(conversation,/streaming && (?:\(0, [\w.]+\.preparingCall\)|preparingCall)\(block\)/)
 assert.match(css, /\.xh-tool-preparing/)
-console.log('upstream UI experience graph and patch tests passed')
+console.log('upstream UI experience graph and native behavior tests passed')

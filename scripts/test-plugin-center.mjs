@@ -4,7 +4,6 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
-import { patchPluginCenter } from './patch-plugin-center.mjs'
 import { assertRebuildInput, uiManifest } from './fixtures/repository-ui-input.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
@@ -25,8 +24,6 @@ for (const id of ids) {
   assert.ok(entry, `${id} must ship`)
   assert.equal(entry.rev, hash(bytes))
   assert.equal(entry.url, `/plugins/${id}/client.js?rev=${entry.rev}`)
-  const legacy = readFileSync(resolve(root, 'ui/reference/master-a613970/plugins', id, 'client.js'))
-  assert.equal(patchPluginCenter(id, legacy).toString(), legacy.toString(), `${id} legacy patch must remain repeatable`)
   assertRebuildInput(id)
   new vm.Script(bytes.toString())
 }
