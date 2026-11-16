@@ -4464,6 +4464,16 @@
         "UI_TEST_BROWSER": "webkit"
       },
       "weight": 35
+    },
+    {
+      "id": "contract-178",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "scripts/test-agent-preset-ui.mjs"
+      ],
+      "env": {},
+      "weight": 16
     }
   ]
 }

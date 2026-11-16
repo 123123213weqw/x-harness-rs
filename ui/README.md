@@ -253,8 +253,8 @@ UI_TEST_BROWSER=webkit node scripts/test-upstream-ui-experience-browser.mjs
 
 `ui/overrides/monochrome.css` 统一覆盖上游语义 Token：浅色黑色强调、深色白色强调，
 背景与气泡使用中性灰。保留错误、警告、成功色，以及图片与代码高亮，不使用整页灰度滤镜。
-执行 `node scripts/patch-monochrome-theme.mjs` 更新静态包；完整重建也会自动应用。
-执行 `node scripts/test-monochrome-theme.mjs` 检查幂等注入、资源一致性和主色对比度。
+执行 `npm run build --prefix ui` 从声明的源码和资产完整重建静态包。
+执行 `node scripts/test-monochrome-theme.mjs` 检查资源、页面引用、双主题语义色和主色对比度。
 Web 与 Tauri 使用同一资源；已安装的软件须重新打包更新后才能使用新配色。
 
 侧栏和欢迎页使用透明的折叠 X，与桌面图标同一造型但不带图标的黑色方框，
@@ -269,7 +269,7 @@ Logo 透明度高光由 `ui/overrides/logo-motion.css` 和 `ui/src/desktop/logo-
 侧栏收起时显示 X；展开时 X 缩入、名称接位，不在展开状态并排显示两者。
 该过渡复用设计令牌，减少动态效果时直接显示最终状态。
 
-首页光场使用 `overrides/hero-glow.js` 的静态装饰节点和黑白主题中的 radial-gradient，
+首页光场使用 `ui/src/modules/conversation/skeleton/EmptyHero.tsx` 的静态装饰节点和黑白主题中的 radial-gradient，
 不再渲染上游蓝色 SVG 模糊光晕。输入框仅增加渐变边缘，保留工作区选择器的虚线状态，
-不使用遮挡点击的叠层。支持浅/深色和强制高对比模式。重建通过产品补丁自动应用；
+不使用遮挡点击的叠层。支持浅/深色和强制高对比模式，统一从自有源码构建；
 验证 `node scripts/test-silver-surface.mjs`。
