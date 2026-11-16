@@ -1,0 +1,9 @@
+.xhproject-github{position:relative;display:inline-flex;flex:none;align-items:center}
+.xhproject-github-trigger{display:inline-flex;align-items:center;gap:3px;height:26px;min-width:28px;padding:0 4px;border:0;border-radius:5px;background:none;color:var(--dsw-alias-label-tertiary);cursor:pointer;font:inherit;font-size:11px}
+.xhproject-github-trigger:hover,.xhproject-github-trigger:focus-visible{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.xhproject-github-trigger[data-pr=MERGED]{color:#8957cf}.xhproject-github-trigger[data-pr=OPEN]{color:#238636}.xhproject-github-trigger[data-pr=CLOSED]{color:#cf4545}
+.xhproject-github-trigger[data-draft=true]{color:var(--dsw-alias-label-secondary)}
+.xhproject-ci{display:inline-flex;color:var(--dsw-alias-label-tertiary)}
+.xhproject-ci[data-ci=passing]{color:#238636}.xhproject-ci[data-ci=failing]{color:#cf4545}.xhproject-ci[data-ci=pending]{color:#b78018}
+.xhproject-github-panel{position:fixed;z-index:1100;box-sizing:border-box;width:min(310px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:auto;padding:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-specific-sidebar-fill);color:var(--dsw-alias-label-primary);box-shadow:0 4px 18px #0002;font-size:12px;line-height:20px;cursor:default;user-select:text}
+.xhproject-github-panel p{margin:4px 0;overflow-wrap:anywhere}.xhproject-github-panel a{color:inherit}.xhproject-github-panel button{border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:none;color:inherit;padding:3px 8px;cursor:pointer;font:inherit}.xhproject-github-panel button:disabled{opacity:.5;cursor:default}

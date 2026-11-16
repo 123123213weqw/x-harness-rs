@@ -20,6 +20,8 @@ import type { WorkspaceBrowserProps } from '../contract/slots'
 import type { GroupNode, SearchResultNode, SessionNode } from '../tree'
 import { relativeTime } from '../tree'
 import css from './Rows.styles'
+import {ProjectGitHubStatus} from '../ProjectGitHubStatus'
+import type {ReadProjectStatus} from '../project-github'
 
 /** The standard locale seat, prop-passed from the browser root. */
 type RowTranslate = WorkspaceBrowserProps['t']
@@ -112,8 +114,10 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
  * @param props.t - the browser root's locale seat.
  * @returns the row element.
  */
-export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home, t }: {
+export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home, t, readProjectStatus, projectGeneration }: {
   group: GroupNode
+  readProjectStatus?: ReadProjectStatus | undefined
+  projectGeneration?: object | undefined
   onToggle: () => void
   onCreate: () => void
   /** Real-Workspace actions; absent for the ungrouped bucket (no menu shown). */
@@ -129,13 +133,14 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
   const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
   const active = group.expanded && group.containsCurrent
   const [menuOpen, setMenuOpen] = useState(false)
+  const [githubOpen, setGitHubOpen] = useState(false)
   const workspaceMenuItems = [
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
     { id: 'delete', label: t('delete.workspace'), icon: <IconTrashOutline16 />, danger: true },
   ]
   const ownRow = (
     <div
-      className={clsx(css.projectRow, menuOpen && css.menuOpen)}
+      className={clsx(css.projectRow, (menuOpen || githubOpen) && css.menuOpen)}
       role="treeitem"
       aria-expanded={row.expanded}
       onClick={onToggle}
@@ -158,6 +163,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
       <span className={css.projectText}>
         <span className={css.title}>{label}</span>
       </span>
+      {row.workspaceId && readProjectStatus && <ProjectGitHubStatus workspaceId={row.workspaceId} path={row.cwd} generation={projectGeneration} active={row.containsCurrent} expanded={row.expanded} read={readProjectStatus} t={t} onOpenChange={setGitHubOpen}/>}
       <span className={css.rowActions}>
         {actions !== undefined && (
           <Menu
@@ -209,7 +215,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
         createdAt={row.createdAt}
         t={t}
       />}
-      disabled={menuOpen}
+      disabled={menuOpen || githubOpen}
       copyText={row.cwd}
       copyLabel={t('copy')}
       copiedLabel={t('hover.copied')}

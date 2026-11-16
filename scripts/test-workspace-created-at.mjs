@@ -42,6 +42,7 @@ for(const id of [WORKSPACE,RUNTIME]){
   const jsx=(type,props,key)=>({type,props,key});
   const external=name=>{
     if(name==='react')return {useState:value=>[value,()=>{}],useMemo:fn=>fn(),useCallback:fn=>fn,useRef:value=>({current:value}),useEffect:()=>{}};
+    if(name==='react-dom')return {createPortal:()=>null};
     if(name==='react/jsx-runtime')return {jsx,jsxs:jsx,Fragment:'fragment'};
     if(name==='@xharness/cordis')return {Context:class{},Service:class{}};
     if(name==='@xharness/dsh-client-ui-slots')return {SlotOwnershipError:class extends Error{},StaleAuthorizationError:class extends Error{}};

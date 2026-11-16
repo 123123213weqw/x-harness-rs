@@ -15,6 +15,7 @@ import type { ClientContext } from './contracts'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from './contract/slots'
 import { createWorkspaceViewStore } from './stores'
+import { projectStatusReader } from './project-github'
 import { WorkspaceBrowser } from './WorkspaceBrowser'
 import { WorkspacePicker } from './WorkspacePicker'
 import { en, zh, type WorkspaceKey } from './locales'
@@ -48,6 +49,7 @@ export const inject = ['slots', 'sessions', 'workspaces', 'locale', 'connection'
 export function apply(ctx: ClientContext): void {
   const connection = ctx.get('connection')
   const hostDescription = connection.hostDescription
+  const readProjectStatus = connection.rpc ? projectStatusReader(connection.rpc) : undefined
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-workspace: dictionaries')
 
   const searchSessions: WorkspaceBrowserInjected['searchSessions'] = async (query, signal) => {
@@ -65,6 +67,7 @@ export function apply(ctx: ClientContext): void {
   const browserFlowSource = flowSource('sidebar.workspaces.directoryFlow')
   const pickerFlowSource = flowSource('conversation.hero.workspace.directoryFlow')
   const browserInjected = (): WorkspaceBrowserInjected => ({
+    ...(readProjectStatus ? {readProjectStatus} : {}),
     // Explicit group actions keep their target; unscoped New Session inherits
     // the current Session Workspace before the recent-Workspace fallback.
     startSession: (workspaceId) => { ctx.workspaces.startSession(workspaceId) },
