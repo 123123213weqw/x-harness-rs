@@ -21,7 +21,7 @@ The user approved staged replacement. Catching and ignoring invalid events would
 
 ## Task 2: Atomic history implementation
 
-- Create `ui/overrides/atomic-history.js` and `scripts/patch-atomic-history.mjs`.
+- Maintain the owned `ui/src/modules/client-runtime/sessions/` implementation; the historical helper and injector were retired after direct-source coverage was retained.
 - Stage `replaceWindow` and `prepend`, materialize fresh views before adopting state, and keep assembler object identity.
 - Stage Session window plus buffered tail before committing arrays/cursors; leave failed buffers available for read-only recovery.
 - Preserve history during `resync`, expose loading/error state, retain generation checks in all asynchronous paths.

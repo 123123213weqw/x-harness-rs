@@ -11,8 +11,6 @@ const implementation=process.env.UI_TEST_IMPL??'source';assert.ok(['source','nat
 const frozen=implementation==='legacy'||implementation==='frozen',dist=resolve(root,frozen?'ui/reference/master-a613970':'ui/dist');
 const read=p=>readFileSync(resolve(root,p),'utf8');
 const golden=legacyConversation().toString();
-const helper=read('ui/overrides/compaction-progress.js');
-assert.ok(golden.includes(helper),'maintained patch helper belongs to immutable baseline, not native factory');
 const source=frozen?golden:verifyConversationArtifact();
 const require=createRequire(resolve(process.env.UI_TEST_DEPS??'/tmp/ui-tests','package.json'));
 const engine=process.env.UI_TEST_BROWSER??'chromium';

@@ -49,7 +49,7 @@ Rust 测试按仓库规则只在远程运行。源码完成不代表当前已安
 
 Host 已输出 `view.for = "compaction"`，但 Connection 内的展示联合类型原先只允许 `call | result`。历史入口会拒绝整页，实时入口则会丢弃压缩帧。直接测试 Assembler/reducer 会绕过这一层，所以此前投影测试通过仍不能证明软件能加载真实历史。
 
-`scripts/patch-compaction-wire.mjs` 在静态 UI 组装阶段扩展**共享**传输 schema，加入 `compaction` 分支。此分支只验证内层是对象，并透传未知字段；版本、阶段、序号和摘要等语义仍由现有 compaction projector 校验。未知版本或坏业务字段走原始生命周期事件的兼容路径，不使整页合法历史失效。未知 `for`、非对象投影、坏工具卡片和非法持久事件仍报错；没有通用 catch、吞错或删除历史。
+`ui/src/modules/client-connection/` 直接维护并由统一构建编译**共享**传输 schema，其中包含 `compaction` 分支。此分支只验证内层是对象，并透传未知字段；版本、阶段、序号和摘要等语义仍由现有 compaction projector 校验。未知版本或坏业务字段走原始生命周期事件的兼容路径，不使整页合法历史失效。未知 `for`、非对象投影、坏工具卡片和非法持久事件仍报错；没有通用 catch、吞错或删除历史。
 
 维护补丁同时更新 Connection 文件哈希、插件图 revision、HTML 中的 boot graph／预加载 URL，避免客户端继续命中旧 bundle。重复运行幂等；上游 schema 锚点变化时失败而非盲目替换。修复不更改 JSONL、Host 预算、压缩算法或工具执行，也不要求重新编译 Rust。
 
