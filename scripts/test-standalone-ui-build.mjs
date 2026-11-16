@@ -6,6 +6,53 @@ import { resolve, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { localPath, orderModules, readInput, renderBoot, treeHashes } from './ui-build-contract.mjs'
 
+function completedProcess(result, args, elapsedMs, timeoutMs) {
+  const diagnostic = [
+    `Command: ${args.map(arg => JSON.stringify(arg)).join(' ')}`,
+    `Elapsed: ${Math.round(elapsedMs)}ms; timeout: ${timeoutMs}ms; status: ${result.status}; signal: ${result.signal}`,
+    result.error ? `Process error: ${result.error.code ?? 'unknown'}: ${result.error.message}` : '',
+    result.stdout ?? '',
+    result.stderr ?? '',
+  ].filter(Boolean).join('\n')
+  // A timeout, failed spawn or killed process is not an expected validation
+  // rejection. Both positive and negative build cases must actually finish.
+  assert.ok(result.error == null, diagnostic)
+  assert.equal(result.signal, null, diagnostic)
+  assert.ok(Number.isInteger(result.status) && result.status >= 0, diagnostic)
+  return { ...result, diagnostic }
+}
+
+test('isolated commands retain normal zero and nonzero exit statuses', () => {
+  for (const status of [0, 1, 2]) {
+    const result = completedProcess({ status, signal: null, stdout: 'output', stderr: 'details' }, ['node', 'build with spaces.mjs'], 12, 120000)
+    assert.equal(result.status, status)
+    assert.equal(result.stdout, 'output')
+    assert.equal(result.stderr, 'details')
+    assert.match(result.diagnostic, /"build with spaces\.mjs"/)
+  }
+})
+for (const [label, result] of [
+  ['timeout', { status: null, signal: 'SIGTERM', error: { code: 'ETIMEDOUT', message: 'deadline exceeded' } }],
+  ['spawn failure', { status: null, signal: null, error: { code: 'ENOENT', message: 'missing command' } }],
+  ['signal termination', { status: null, signal: 'SIGKILL' }],
+  ['signal with a misleading exit status', { status: 0, signal: 'SIGTERM' }],
+  ['error with a misleading nonzero exit status', { status: 1, signal: null, error: { code: 'EIO', message: 'spawn failed' } }],
+  ['null exit status', { status: null, signal: null }],
+  ['missing exit status', { signal: null }],
+  ['negative exit status', { status: -1, signal: null }],
+]) {
+  test(`isolated commands reject ${label} instead of accepting an expected failure`, () => {
+    assert.throws(() => completedProcess({ ...result, stdout: 'last output', stderr: 'last diagnostic' }, ['npm', 'run', 'build'], 120001, 120000), error => {
+      assert.match(error.message, /Command: "npm" "run" "build"/)
+      assert.match(error.message, /Elapsed: 120001ms; timeout: 120000ms/)
+      assert.match(error.message, /last output/)
+      assert.match(error.message, /last diagnostic/)
+      if (result.error) assert.ok(error.message.includes(result.error.code))
+      return true
+    })
+  })
+}
+
 test('Windows checkouts and TS emission use canonical LF for pinned UI inputs', () => {
   assert.match(readFileSync(resolve('.gitattributes'), 'utf8'), /^\/ui\/\*\* text=auto eol=lf$/m)
   assert.equal(JSON.parse(readFileSync(resolve('ui/tsconfig.json'), 'utf8')).compilerOptions.newLine, 'lf')
@@ -50,9 +97,14 @@ test('generated dist cannot be an input and symlinks cannot escape the source tr
 test('clean isolated checkout builds without dist, old builders, patch scripts or another repository', { timeout: 600000 }, () => {
   const root = resolve('.'), temp = mkdtempSync(join(tmpdir(), 'xh-ui-clean-'))
   const repo = join(temp, 'checkout'), ui = join(repo, 'ui'), output = join(ui, 'dist')
-  const run = (...args) => spawnSync(args[0], args.slice(1), { cwd: repo, encoding: 'utf8', timeout: 120000,
-    env: { ...process.env, UPSTREAM_HARNESS_DIR: join(temp, 'does-not-exist') } })
-  const good = result => assert.equal(result.status, 0, result.stdout + result.stderr)
+  const run = (...args) => {
+    const start = performance.now()
+    const result = completedProcess(spawnSync(args[0], args.slice(1), { cwd: repo, encoding: 'utf8', timeout: 120000,
+      env: { ...process.env, UPSTREAM_HARNESS_DIR: join(temp, 'does-not-exist') } }), args, performance.now() - start, 120000)
+    console.log(`isolated command completed in ${Math.round(performance.now() - start)}ms (exit ${result.status}): ${args.join(' ')}`)
+    return result
+  }
+  const good = result => assert.equal(result.status, 0, result.diagnostic)
   try {
     mkdirSync(join(repo, 'scripts'), { recursive: true })
     for (const path of ['assemble-static-ui.mjs', 'ui-build-contract.mjs', 'ui-build-variant.mjs', 'build-plugin-api.mjs', 'build-source-modules.mjs', 'owned-ui-type-policy.mjs', 'build-script-assets.mjs', 'build-platform-ui.mjs', 'prepare-platform-regex-cache.mjs', 'rebuild-ui.sh', 'generate-session-terminal-contract.mjs', 'generate-file-display-contract.mjs']) cpSync(join(root, 'scripts', path), join(repo, 'scripts', path))

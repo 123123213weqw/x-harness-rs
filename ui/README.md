@@ -258,11 +258,12 @@ UI_TEST_BROWSER=webkit node scripts/test-upstream-ui-experience-browser.mjs
 Web 与 Tauri 使用同一资源；已安装的软件须重新打包更新后才能使用新配色。
 
 侧栏和欢迎页使用透明的折叠 X，与桌面图标同一造型但不带图标的黑色方框，
-通过 `currentColor` 在浅/深主题下自动反色。源码为 `overrides/FishLogo.tsx` 和 `BrandWordmark.tsx`；现有打包产物
-用 `node scripts/patch-brand-mark.mjs` 更新，完整重建直接编译 TSX 源码。
+通过 `currentColor` 在浅/深主题下自动反色。源码为
+`ui/src/modules/platform/primitives/FishLogo.tsx` 和 `BrandWordmark.tsx`；
+执行 `npm run build --prefix ui` 完整构建，直接编译 TSX 源码，不再单独修补打包产物。
 验证：`node scripts/test-logo-gradient.mjs`（沿用 CI 中的历史测试名）。
 
-Logo 透明度高光由 `overrides/logo-motion.css/js` 控制，每 5 秒短暂变化一次，
+Logo 透明度高光由 `ui/overrides/logo-motion.css` 和 `ui/src/desktop/logo-motion.ts` 控制，每 5 秒短暂变化一次，
 其余时间静止；不驱动 React 更新，也不使用 JS 帧循环或定时器。页面隐藏时暂停，
 减少动态效果时停止动画但保持标志可见。测试 `node scripts/test-logo-motion.mjs`。
 侧栏收起时显示 X；展开时 X 缩入、名称接位，不在展开状态并排显示两者。

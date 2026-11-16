@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {Script} from 'node:vm';
-import {patchSettingsSaveFeedback} from './patch-settings-save-feedback.mjs';
 
 const read = path => readFileSync(new URL('../'+path, import.meta.url),'utf8');
 const text = read('ui/dist/plugins/@xharness/dsh-client-ui-settings/client.js');
@@ -60,22 +59,10 @@ assert.deepEqual(notifications,[]);
 console.log('Settings save settlement: refusal, offline/recovery failure, supersession, disposal and memory mode passed');
 
 const id='@xharness/dsh-client-ui-settings';
-const legacy=read('ui/reference/master-a613970/plugins/'+id+'/client.js');
-const helper=read('ui/overrides/settings-save-feedback.js').replaceAll('\r\n','\n');
-assert.ok(legacy.includes(helper));
-const original=legacy.replace('// XHARNESS SETTINGS SAVE FEEDBACK\n'+helper+'\n','')
-  .replace('\t\t\t\t\t\txhSettingsSaveFeedback(this.spec.namespace, false);\n','')
-  .replace('\t\t\t\ttry { await this.mirror.load(); } catch { /* A failed reread is still a failed save. */ }\n\t\t\t\tif (!this.disposed && generation === this.writeGeneration) xhSettingsSaveFeedback(this.spec.namespace, true);', '\t\t\t\tawait this.mirror.load();');
-assert.equal(patchSettingsSaveFeedback(id,Buffer.from(original)).toString(),legacy);
-assert.equal(patchSettingsSaveFeedback(id,Buffer.from(original.replaceAll('\n','\r\n'))).toString(),legacy);
-assert.equal(patchSettingsSaveFeedback(id,Buffer.from(legacy)).toString(),legacy);
-assert.equal(patchSettingsSaveFeedback('unrelated',Buffer.from(original)).toString(),original);
-assert.throws(()=>patchSettingsSaveFeedback(id,Buffer.from(original.replace('await this.mirror.load();','await changed();'))),/anchor changed/);
 new Script(text);
 const graph=JSON.parse(read('ui/dist/client-graph.json'));
 const entry=graph.entries.find(entry=>entry.id===id);
 assert.equal(entry.rev,createHash('sha256').update(text).digest('hex').slice(0,16));
 assert.ok(read('ui/dist/index.html').includes(entry.url));
-console.log('Settings patch: fail-closed anchors, CRLF, idempotence, shipped graph/hash passed');
-
 const {assertRebuildInput}=await import('./fixtures/repository-ui-input.mjs');assertRebuildInput(id);
+console.log('Settings save artifact: actual syntax, shipped graph/hash and source rebuild passed');
