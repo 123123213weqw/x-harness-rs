@@ -24,11 +24,11 @@ Failures are shown as a bounded, dismissible, localized notice with no raw serve
 
 ## Task 2: Visible save failures
 
-- Add ui/overrides/settings-save-feedback.js and scripts/patch-settings-save-feedback.mjs.
-- Patch settings scope failure/success settlement; use fixed messages, one DOM notice, accessible dismiss action, no HTML interpolation.
-- Add scripts/test-settings-save-feedback.mjs covering transport and RPC failure, recovery failure, generation races, disposal, success clearing, memory mode and patch idempotence/anchor rejection.
-- Run Node tests before patch refresh (expect failure), then regenerate checked-in dist and graph through the patch script; rerun to green.
-- Wire assembly and CI. Verify browser rendering with isolated synthetic settings, never live user data.
+- Maintain ui/src/modules/settings/save-feedback.ts and settings-scope.ts; the historical bundle patch/helper were retired after source migration.
+- Use fixed messages, one DOM notice, accessible dismiss action and no HTML interpolation.
+- Keep scripts/test-settings-save-feedback.mjs covering transport and RPC failure, recovery failure, generation races, disposal, success clearing, memory mode and source/artifact consistency.
+- Build through npm run build --prefix ui and verify through npm run check:build --prefix ui, not partial bundle refreshes.
+- Keep Chromium/WebKit notice regressions against the current artifact and independent frozen legacy bundle, using isolated synthetic settings rather than live user data.
 
 ## Task 3: Review and submit
 

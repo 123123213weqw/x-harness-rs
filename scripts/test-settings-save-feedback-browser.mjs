@@ -4,6 +4,8 @@ import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import {resolve} from 'node:path';
 import {sourceDeclaration} from './fixtures/source-declaration.mjs';
+const implementation=process.env.UI_TEST_IMPL??'source';
+assert.ok(['source','legacy'].includes(implementation),'unknown settings save test implementation');
 const require=createRequire(resolve(process.env.UI_TEST_DEPS??'/tmp/xharness-model-ui-tests','package.json'));
 const {chromium,webkit}=require('playwright');
 const browser=await ({chromium,webkit}[process.env.UI_TEST_BROWSER??'chromium']).launch({headless:true,
@@ -14,10 +16,9 @@ try {
   page.on('pageerror',error=>errors.push(error.message));
   await page.setContent('<html lang="zh"><body style="font:16px system-ui;background:#f5f5f5"><dialog style="width:440px;border:1px solid #ddd;border-radius:12px;padding:24px"><h2>设置 / Settings</h2><label>外观 <select><option>深色 / Dark</option></select></label><p>隔离的保存失败测试，不连接客户端。</p></dialog></body></html>');
   await page.evaluate(()=>document.querySelector('dialog').showModal());
-  const shipped=readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-ui-settings/client.js',import.meta.url),'utf8');
-  const noticeCode=process.env.UI_TEST_IMPL==='legacy'
-    ? readFileSync(new URL('../ui/overrides/settings-save-feedback.js',import.meta.url),'utf8')
-    : sourceDeclaration(shipped,'settingsSaveFeedback')+'\nwindow.xhSettingsSaveFeedback=settingsSaveFeedback;';
+  const shipped=readFileSync(new URL(`../ui/${implementation==='legacy'?'reference/master-a613970':'dist'}/plugins/@xharness/dsh-client-ui-settings/client.js`,import.meta.url),'utf8');
+  const name=implementation==='legacy'?'xhSettingsSaveFeedback':'settingsSaveFeedback';
+  const noticeCode=sourceDeclaration(shipped,name)+`\nwindow.xhSettingsSaveFeedback=${name};`;
   await page.addScriptTag({content:noticeCode});
   await page.locator('select').focus();
   await page.evaluate(()=>{for(let i=0;i<20;i++) xhSettingsSaveFeedback('ui-theme',true)});
@@ -41,5 +42,5 @@ try {
   const box=await notice.boundingBox();
   assert.ok(box.x>=0 && box.x+box.width<=321,'notice fits narrow viewport');
   assert.deepEqual(errors,[]);
-  console.log('Settings save notice browser: modal layer, localization, bounded DOM, focus, dismiss, success, narrow viewport passed');
+  console.log(`Settings save notice browser (${implementation}): modal layer, localization, bounded DOM, focus, dismiss, success, narrow viewport passed`);
 } finally { await browser.close(); }
