@@ -5,8 +5,6 @@ import vm from 'node:vm';
 import {runtimeTestApi} from './runtime-source-test-harness.mjs';
 import {verifyConversationArtifact,legacyConversation} from './conversation-artifact-test.mjs';
 import {conversationFixture} from './fixtures/conversation-source-fixture.mjs';
-import {patchCompactionProgressModel,patchCompactionProgress} from './patch-compaction-progress.mjs';
-import { patchCompactionViewModel } from './patch-compaction-view-model.mjs';
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 const runtimeSource = read('../ui/dist/plugins/@xharness/dsh-client-runtime/client.js');
 const ui=verifyConversationArtifact(),golden=legacyConversation().toString();
@@ -131,21 +129,11 @@ const failure = wire(fixtures.find(f => f.error), 'legacy');
 for (const row of failure.slice(0, -1)) { broken.append(row); broken.flush(); }
 broken.append(failure.at(-1));
 assert.throws(() => broken.flush(), /withdrew materialized target/); checks++;
-// A fresh assembly must produce the same reducer/Definition as the shipped bundle.
-const fresh = patchCompactionProgressModel(patchCompactionViewModel(Buffer.from(read('../tests/fixtures/compaction-definition-legacy.js')))).toString();
-for (const name of ['updateCompactionState', 'fallbackState$2', 'projectedCompactionView']) {
-  const extract = source => {
-    const start = source.indexOf(`function ${name}(`), end = source.indexOf('\n\t\t}', start);
-    assert.ok(start >= 0 && end > start);
-    return source.slice(start, end + 4);
-  };
-  assert.equal(extract(fresh), extract(golden), name + ' fresh assembly matches shipped'); checks++;
-}
-const generatedContext = vm.createContext({ compactSource: context.compactSource, chatNode: context.chatNode });
-vm.runInContext(fresh + '\nglobalThis.definition=compactionDefinition;', generatedContext);
-for (const row of wire(fixtures[1], 'projected'))
-  assert.deepEqual(plain(generatedContext.definition.match(row.event, row.view)), plain(definition.match(row.event, row.view)));
-assert.deepEqual(patchCompactionViewModel(Buffer.from(fresh)), Buffer.from(fresh), 'fresh patch idempotence');
-assert.deepEqual(patchCompactionViewModel(Buffer.from(golden)), Buffer.from(golden), 'patch idempotence');
-assert.deepEqual(patchCompactionProgress(Buffer.from(golden)),Buffer.from(golden));
+// The immutable product factory is an independent oracle, not regenerated
+// from the same patch implementation the regression is meant to retire.
+const frozenDefinition=conversationFixture(golden,['compactionDefinition']).api.compactionDefinition;
+for(const fixture of fixtures)for(const mode of ['legacy','projected','mixed','end-view-only','unsupported','malformed'])
+ for(const row of wire(fixture,mode)) {
+  assert.deepEqual(plain(frozenDefinition.match(row.event,row.view)),plain(definition.match(row.event,row.view))); checks++;
+ }
 console.log(`compaction projection: ${checks} checks; shipped assembler live/reload/batched/all page splits/duplicate/mixed/terminal-only passed`);

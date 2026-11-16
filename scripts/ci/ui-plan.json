@@ -4474,6 +4474,16 @@
       ],
       "env": {},
       "weight": 16
+    },
+    {
+      "id": "contract-179",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "scripts/test-ui-refresh-entrypoints.mjs"
+      ],
+      "env": {},
+      "weight": 80
     }
   ]
 }

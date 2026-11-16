@@ -3,23 +3,32 @@ import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
 // Replacing transport is intentional; replacing callUnary/readSse would hide
 // exactly the production bug this regression must detect.
 import assert from 'node:assert/strict';
-import {readFileSync, mkdtempSync, writeFileSync, mkdirSync, rmSync} from 'node:fs';
-import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import {verifyConnectionArtifact,legacyConnection} from './connection-artifact-test.mjs';
-import {LEGACY_VIEW_SCHEMA, COMPACTION_VIEW_SCHEMA, patchCompactionWire, syncCompactionWire} from './patch-compaction-wire.mjs';
+import {createRequire} from 'node:module';
+import {createHash} from 'node:crypto';
+import {assertRebuildInput} from './fixtures/repository-ui-input.mjs';
 
 const source=verifyConnectionArtifact(),golden=legacyConnection().toString();
 const plain = value => JSON.parse(JSON.stringify(value));
-const marker = '// xh-compaction-wire/v1\n';
-assert.ok(golden.includes(marker + COMPACTION_VIEW_SCHEMA), 'shipped schema includes compaction extension');
-const legacy = golden.replace(marker + COMPACTION_VIEW_SCHEMA, LEGACY_VIEW_SCHEMA);
-assert.deepEqual(patchCompactionWire(Buffer.from(legacy)), Buffer.from(golden));
-assert.deepEqual(patchCompactionWire(Buffer.from(golden)), Buffer.from(golden), 'idempotent');
-assert.throws(() => patchCompactionWire(Buffer.from('changed carrier')), /anchor changed/);
-assert.throws(() => patchCompactionWire(Buffer.from(legacy + LEGACY_VIEW_SCHEMA)), /anchor changed/);
-assert.throws(() => patchCompactionWire(Buffer.from(marker + golden)), /malformed or duplicate/);
+// Reproduce the old decoder by removing only the compaction arm from the
+// real frozen schema. No copied schema or retired production injector is used.
+const ts=createRequire(new URL('../ui/package.json',import.meta.url))('typescript');
+const ast=ts.createSourceFile('frozen.js',golden,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
+assert.equal(ast.parseDiagnostics.length,0);
+const matches=[];
+function visit(node){
+ if(ts.isVariableDeclaration(node)&&node.name.getText(ast)==='toolEventViewSchema')matches.push(node.initializer);
+ ts.forEachChild(node,visit);
+}
+visit(ast);assert.equal(matches.length,1,'one real frozen carrier schema');
+const schema=matches[0];assert.ok(ts.isCallExpression(schema));
+const arms=schema.arguments[1];assert.ok(ts.isArrayLiteralExpression(arms));
+const removed=arms.elements.filter(node=>/for:\s*literal\("compaction"\)/.test(node.getText(ast)));
+assert.equal(removed.length,1,'negative control removes exactly the compaction extension');
+const kept=arms.elements.filter(node=>node!==removed[0]);assert.equal(kept.length,2,'call/result codecs remain intact');
+const legacy=golden.slice(0,arms.getStart(ast))+'['+kept.map(node=>node.getText(ast)).join(',')+']'+golden.slice(arms.end);
 
 function load(bytes, overrides = {}) {
   let registration;
@@ -157,19 +166,13 @@ const liveBrowser = await websocket(source);
 assert.deepEqual(liveBrowser.received, expectedLive);
 assert.equal(liveBrowser.errors.length, 0);
 
-// Build synchronization must update the loader revision and the boot graph,
-// otherwise old bytes may stay cached even though a file changed on disk.
-const temp = mkdtempSync(join(tmpdir(), 'xh-compaction-wire-'));
-try {
-  const path = join(temp, 'plugins/@xharness/dsh-client-connection'); mkdirSync(path, {recursive: true});
-  writeFileSync(join(path, 'client.js'), legacy);
-  const graph = {rev: 'old', entries: [{id: '@xharness/dsh-client-connection', rev: 'old', url: '/plugins/@xharness/dsh-client-connection/client.js?rev=old'}]};
-  writeFileSync(join(temp, 'client-graph.json'), JSON.stringify(graph));
-  writeFileSync(join(temp, 'index.html'), `<link href="${graph.entries[0].url}"><script>window.__DSH_BOOT__ = ${JSON.stringify(graph)}</script>`);
-  const revision = syncCompactionWire(temp), once = readFileSync(join(temp, 'index.html'), 'utf8');
-  assert.equal(syncCompactionWire(temp), revision, 'sync idempotent');
-  assert.equal(readFileSync(join(temp, 'index.html'), 'utf8'), once);
-  assert.doesNotMatch(once, /rev=old/);
-  assert.ok(once.includes(JSON.parse(readFileSync(join(temp, 'client-graph.json'), 'utf8')).entries[0].url));
-} finally {rmSync(temp, {recursive: true, force: true});}
+// Actual committed output, not a synthetic partial-bundle refresh, must
+// carry source-bound bytes and the exact revision in graph, HTML and preload.
+assertRebuildInput('@xharness/dsh-client-connection');
+const graph=JSON.parse(readFileSync(new URL('../ui/dist/client-graph.json',import.meta.url)));
+const html=readFileSync(new URL('../ui/dist/index.html',import.meta.url),'utf8');
+const entry=graph.entries.find(row=>row.id==='@xharness/dsh-client-connection');
+const hash=value=>createHash('sha256').update(value).digest('hex').slice(0,16);
+assert.equal(entry.rev,hash(source));assert.equal(graph.rev,hash(JSON.stringify(graph.entries)));
+assert.ok(html.includes(entry.url));assert.deepEqual(JSON.parse(html.match(/window\.__DSH_BOOT__ = (.*?)<\/script>/)[1]),graph);
 console.log(`compaction wire: baseline reproduced at indexes 67/70; actual unary, SSE, WebSocket decode, ${checks} compatibility cases, loader revisions passed`);

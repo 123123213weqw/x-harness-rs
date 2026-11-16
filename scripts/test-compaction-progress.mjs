@@ -2,11 +2,9 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {verifyConversationArtifact,legacyConversation} from './conversation-artifact-test.mjs';
 import {conversationFixture} from './fixtures/conversation-source-fixture.mjs';
-import {patchCompactionProgress} from './patch-compaction-progress.mjs';
-import {patchCompactionViewModel} from './patch-compaction-view-model.mjs';
+import {sourceDeclaration} from './fixtures/source-declaration.mjs';
 const source=verifyConversationArtifact(),golden=legacyConversation().toString();
-const helper=readFileSync(new URL('../ui/overrides/compaction-progress.js',import.meta.url),'utf8');
-assert.ok(golden.includes(helper),'maintained helper equals shipped code');
+const helper=sourceDeclaration(golden,'XhCompactionProgressCard')+'\n'+sourceDeclaration(source,'CompactionProgressCard');
 assert.doesNotMatch(helper,/setInterval|useEffect|xhCompactSweep|role:'progressbar'|XhCompactionMetrics/,'minimal status has no timer, percentage, bar or counts');
 assert.ok(source.includes('May take a few minutes') && source.includes('可能需要几分钟'),'both status locales ship');
 for(const [implementation,bytes] of [['native',source],['golden',golden]]) {
@@ -41,9 +39,7 @@ let mstate=manual.start({},run);mstate=manual.update({state:mstate},ms);mstate=m
 const liveManual=manual.buildViewNode({state:mstate});
 assert.equal(liveManual.data.compaction.status,'running');assert.equal(liveManual.data.command.name,'compact');
 assert.deepEqual(manual.buildViewNode({matches:[run,ms,mp]}),liveManual,'manual cold/live progress match');
-assert.deepEqual(patchCompactionProgress(Buffer.from(golden)),Buffer.from(golden));
-assert.throws(()=>patchCompactionProgress(Buffer.from('upstream changed')),/anchor changed/);
-console.log('compaction progress: stage/count validation, manual/auto live/reload, progress-only page, explicit failure, maintained source and idempotence passed');
+console.log('compaction progress: stage/count validation, manual/auto live/reload, progress-only page, explicit failure, actual source and independent frozen behavior passed');
 
 const pageManual={...snapshot,view:{for:'compaction',view:{...snapshot.view.view,sourceCommandId:'cmd'}}};
 assert.equal(def.match(pageManual.event,pageManual.view),null,'manual view must not duplicate automatic card');
@@ -57,27 +53,3 @@ state=def.update({state},snapshot);
 assert.deepEqual(JSON.parse(JSON.stringify(def.buildViewNode({state}))),beforeTerminal,'late progress cannot resurrect failed compaction');
 
 }
-
-// Fresh assembly sees the upstream import namespace; direct maintenance sees
-// the product namespace. Exercise both without relying on Git HEAD (CI HEAD
-// already contains this patch) or installed upstream build dependencies.
-const legacy=readFileSync(new URL('../tests/fixtures/compaction-definition-legacy.js',import.meta.url));
-const rendererFixture=`
-/**
-		* Register the automatic-compaction contribution.
-*/
-const CompactionNodeView = null;
-/** Correlated retry-chain keyed Chat renderer. */
-if (compaction !== void 0) return (0, react_jsx_runtime.jsx)(CompactionItem, {
-children: (0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.MarkdownText, { text: node.summary })
-"view.chat": "对话",
-"view.chat": "Chat",
-`;
-const normalized=patchCompactionViewModel(legacy).toString()+rendererFixture;
-const upstream=normalized.replaceAll('_xharness_', '_deepseek_ai_');
-assert.deepEqual(
-  patchCompactionProgress(Buffer.from(upstream)).toString().replaceAll('_deepseek_ai_', '_xharness_'),
-  patchCompactionProgress(Buffer.from(normalized)).toString(),
-  'assembly-before-namespace-rewrite equals checked-bundle maintenance',
-);
-console.log('compaction progress: manual cold-page fallback and upstream/product namespace assembly passed');

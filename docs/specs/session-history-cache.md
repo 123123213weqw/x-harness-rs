@@ -44,7 +44,7 @@
 
 ## 历史映射失败保护（2026-09-19）
 
-`ui/overrides/atomic-history.js` 在完整历史替换和分页时创建临时组装器，完成事件关联、
+`ui/src/modules/client-runtime/sessions/` 在完整历史替换和分页时创建临时组装器，完成事件关联、
 reducer 和 view builder 后才发布。失败保留原始窗口、游标和已渲染消息；不跳过坏事件。
 重连期间旧历史保持可见，失败显示既有错误提示及本地化“重试”按钮。
 重试只读取历史，不重新提交 prompt、工具命令或审批回答。
@@ -72,7 +72,7 @@ Node 测试覆盖处理/视图构建异常；浏览器测试用实际压缩 clas
 用户不操作时表现为「模型还在答，前端不显示」。产品上报对应的真实事故是
 `session-1789711617394-1009`（回合 6/7 失败 → App 重启 → 新消息起轮 8 并持续产出）。
 
-`ui/overrides/live-answer-recovery.js` 补上自动恢复：**当前选中**会话在
+`ui/src/modules/client-runtime/sessions/` 补上自动恢复：**当前选中**会话在
 `openState === 'error'` 时，只要用户 Prompt 已被 Host 接纳，或状态上报 `running === true`，就重开
 窗口一次。Prompt 接纳是前台操作的权威信号：会话原本已运行时，排队消息不会产生第二个
 `running=true` 状态沿；状态上报则继续覆盖后台/远程启动。恢复后随后到达的实时帧已有窗口可落。

@@ -1,18 +1,13 @@
 import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
-import {verifyConversationArtifact,legacyConversation} from './conversation-artifact-test.mjs';
+import {verifyConversationArtifact} from './conversation-artifact-test.mjs';
 import {verifyConnectionArtifact,verifyFixtureConnectionArtifact,exposeConnection} from './connection-artifact-test.mjs';
 import {conversationFixture} from './fixtures/conversation-source-fixture.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import vm from 'node:vm';
-import {patchContextAccounting, patchContextMeterStability} from './patch-context-accounting.mjs';
-import {patchContextComposition, patchContextCompositionConnection} from './patch-context-composition.mjs';
 const bytes=readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js',import.meta.url));
-const native=bytes.toString().startsWith('// Generated');if(native)verifyConversationArtifact();const golden=legacyConversation();
-assert.equal(patchContextAccounting(golden).toString(),golden.toString());
-assert.equal(patchContextMeterStability(golden).toString(),golden.toString());
-assert.equal(patchContextComposition(golden).toString(),golden.toString());
+const native=bytes.toString().startsWith('// Generated');if(native)verifyConversationArtifact();
 const source=bytes.toString().match(/function contextOccupancy\(pressure\) \{[\s\S]*?\n\t\t\}/)?.[0];if(!native)assert.ok(source);
 const fn=native?conversationFixture(bytes.toString(),['contextOccupancy']).api.contextOccupancy:vm.runInNewContext('('+source+')');
 let x=fn({pressureTokens:117446,projectedTokens:415395,contextWindow:1000000});assert.equal(x.usedTokens,117446);assert.equal(x.percent,12);assert.equal(x.exact,true);
@@ -20,12 +15,11 @@ assert.equal(fn({projectedTokens:415395,contextWindow:1000000,accuracy:'estimate
 assert.equal(fn({projectedTokens:117446,contextWindow:1000000,accuracy:'exact_request'}),null);
 for(const p of [{}, {projectedTokens:1,contextWindow:0},{projectedTokens:NaN,contextWindow:1},{pressureTokens:-1,contextWindow:100}])assert.equal(fn(p),null);
 assert.equal(fn({pressureTokens:0,contextWindow:100}).usedTokens,0);
-console.log('context accounting: actual/estimate/unknown/zero/capacity/idempotence passed');
+console.log('context accounting: actual/estimate/unknown/zero/capacity passed');
 const productionConnection=verifyConnectionArtifact();
 assert.doesNotMatch(productionConnection,/FixtureApiClient|function contextPressureOf\(/,'release connection excludes fixture reducers');
 assert.throws(()=>exposeConnection(productionConnection,['contextPressureOf']),/explicit fixture build/);
 const connection=verifyFixtureConnectionArtifact();
-const connectionGolden=readFileSync(new URL('../ui/reference/master-a613970/plugins/@xharness/dsh-client-connection/client.js',import.meta.url));assert.equal(patchContextCompositionConnection(connectionGolden).toString(),connectionGolden.toString());
 const replaySource=connection.slice(connection.indexOf('function contextPressureOf(log) {'),connection.indexOf('\n\t\tfunction projectionValuesOf'));
 let connectionRegistration;let replay;if(connection.startsWith('// Generated')){vm.runInNewContext(exposeConnection(connection,['contextPressureOf'],{variant:'fixture'}),{window:{__ModuleLoader__:{load:r=>connectionRegistration=r}},console,URL,AbortController,setTimeout,clearTimeout});replay=connectionRegistration.factory(id=>id==='zod'?sharedVendors.zod:id==='@xharness/cordis'?{Service:class{}}:{}).contextPressureOf;}else replay=vm.runInNewContext('('+replaySource+')',{usageSampleOf:e=>e.type==='assistant/chunk'?{...e.data,usage:e.data.chunk.usage}:undefined});
 const event=(type,data)=>({type,data});

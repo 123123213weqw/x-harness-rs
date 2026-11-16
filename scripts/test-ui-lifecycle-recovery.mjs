@@ -8,12 +8,9 @@ import {verifyConversationArtifact,legacyConversation} from './conversation-arti
 import {verifyConnectionArtifact} from './connection-artifact-test.mjs';
 import {exposeModuleUnit} from './fixtures/module-unit-scope.mjs';
 import {conversationFixture} from './fixtures/conversation-source-fixture.mjs';
-import {patchConversationLifecycle} from './patch-conversation-lifecycle.mjs';
 const read=p=>readFileSync(new URL(p,import.meta.url),'utf8');
 const source=read('../ui/dist/plugins/@xharness/dsh-client-runtime/client.js');
 const ui=verifyConversationArtifact(),golden=legacyConversation().toString();
-assert.equal(patchConversationLifecycle(Buffer.from(golden)).toString(),golden);
-assert.throws(()=>patchConversationLifecycle(Buffer.from('changed upstream')),/anchor changed/);
 const runtime=runtimeTestApi();
 const plain=x=>JSON.parse(JSON.stringify(x));
 const empty={events:{entries:()=>[],fallbackEntry:()=>undefined},views:{entries:()=>[]}};
@@ -54,9 +51,6 @@ const manager=new runtime.SessionManager({sessions:{history:()=>new Promise(r=>r
 const loading=manager.get('audit');const oldOpen=loading.open();await Promise.resolve();
 manager.handleDisconnected();release(ok([]));await oldOpen;assert.notEqual(loading.openState,'open');
 // Actual stream controller: baseline arrives while host.describe is pending.
-const fresh=patchConversationLifecycle(Buffer.from(read('../tests/fixtures/retry-definition-legacy.js'))).toString();
-assert.equal(patchConversationLifecycle(Buffer.from(fresh)).toString(),fresh,'fresh patch is idempotent');
-assert.ok(fresh.includes('fallbackRetryState(context)'));
 const connection=verifyConnectionArtifact();let connRegistration;
 vm.runInNewContext(exposeModuleUnit(connection,'client-connection','controller','ConnectionController'),{window:{__ModuleLoader__:{load:value=>connRegistration=value}},console,URL,AbortController,setTimeout,clearTimeout});
 const conn={Controller:connRegistration.factory(name=>{if(name==='zod')return sharedVendors.zod;throw Error(name)}).ConnectionController};
@@ -163,15 +157,12 @@ for(let i=2;i<12;i++) {
 }
 console.log('Repeated pagination releases transaction closures and rebinds retained Matches');
 
-// Fresh assembly and checked-in production code execute the same retry reducer.
-const freshCtx=vm.createContext({_xharness_dsh_client_runtime_client:runtime});
-Object.assign(freshCtx,{contextLocation:api.contextLocation,chatNode:api.chatNode});
-const fs=fresh.indexOf('function scheduledNode('),fe=fresh.indexOf('function registerRetryConversationNode',fs);
-vm.runInContext(fresh.slice(fs,fe)+'\nglobalThis.definition=retryDefinition;',freshCtx);
-const freshAssembler=assembler(freshCtx.definition);freshAssembler.replaceWindow(rows.slice(4),true);freshAssembler.flush();
+// Compare the independent frozen retry reducer with the actual source reducer.
+const frozenRetry=conversationFixture(golden,['retryDefinition']).api.retryDefinition;
+const frozenAssembler=assembler(frozenRetry);frozenAssembler.replaceWindow(rows.slice(4),true);frozenAssembler.flush();
 const shippedAssembler=assembler(ctx.definition);shippedAssembler.replaceWindow(rows.slice(4),true);shippedAssembler.flush();
-assert.deepEqual(plain(freshAssembler.snapshot('chat')),plain(shippedAssembler.snapshot('chat')));
-console.log('Fresh retry patch matches the shipped reducer');
+assert.deepEqual(plain(frozenAssembler.snapshot('chat')),plain(shippedAssembler.snapshot('chat')));
+console.log('Frozen retry reducer matches the shipped reducer');
 
 // Explicit reload owns one session history boundary, not the draft or prompt.
 for (const failHistory of [false, true]) {
