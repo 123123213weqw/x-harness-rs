@@ -9,6 +9,7 @@ mod direct;
 #[cfg(test)]
 mod extension_e2e;
 mod media;
+mod native_output;
 #[cfg(test)]
 mod panel_tests;
 
@@ -244,6 +245,9 @@ fn scoped_spec(
             let workspace=workspace.clone();
             let media = media.clone();
             async move {
+                let native_projection = context.arguments.get("plugin").and_then(Value::as_str)
+                    == Some(crate::native_browser::PLUGIN);
+                let result = async {
                 let args = &context.arguments;
                 contract::validate_envelope(args)?;
                 let action = args.get("action").and_then(Value::as_str).ok_or_else(|| error("action required"))?;
@@ -431,6 +435,8 @@ fn scoped_spec(
                         Err(error("MCP call cancelled"))
                     }
                 }
+                }.await;
+                if native_projection { native_output::finish(result) } else { result }
             }
         },
     )
