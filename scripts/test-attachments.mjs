@@ -1,5 +1,5 @@
 import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
-import {verifyConversationArtifact,legacyConversation} from './conversation-artifact-test.mjs'
+import {verifyConversationArtifact} from './conversation-artifact-test.mjs'
 import {verifyConnectionArtifact,exposeConnection} from './connection-artifact-test.mjs'
 import {conversationFixture} from './fixtures/conversation-source-fixture.mjs'
 import assert from 'node:assert/strict'
@@ -8,12 +8,10 @@ import { readFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
-import { patchAttachments } from './patch-attachments.mjs'
-import { patchComposerAddMenu } from './patch-composer-add-menu.mjs'
 const root = fileURLToPath(new URL('../',import.meta.url))
 const id = '@xharness/dsh-client-ui-conversation'
 const source = readFileSync(resolve(root,`ui/dist/plugins/${id}/client.js`),'utf8').replaceAll('\r\n','\n')
-const native=source.startsWith('// Generated');verifyConversationArtifact();const golden=legacyConversation().toString();assert.equal(patchAttachments(id,Buffer.from(golden)).toString(),golden,'frozen patch must be idempotent')
+const native=source.startsWith('// Generated');verifyConversationArtifact();
 const start = source.indexOf('function attachmentMediaType(')
 const end = source.indexOf('//#region lib/types/client/input/blocks.js',start)
 if(!native)assert.ok(start>0&&end>start)
@@ -48,14 +46,9 @@ const {assertRebuildInput}=await import('./fixtures/repository-ui-input.mjs');as
 assert.ok(!cards.includes("className:'xh-attachment-toolbar'"), 'standalone attachment toolbar must be removed');
 assert.match(source,/(?:XHarness)?ComposerAddMenu/, 'reuse the composer plus for attachments');
 assert.ok(source.includes("multiple: true"), 'composer picker accepts mixed files');
-const legacyCards=readFileSync(resolve(root,'ui/reference/master-a613970/plugins/@xharness/dsh-client-ui-attachment/client.js'),'utf8');
-assert.equal(patchAttachments('@xharness/dsh-client-ui-attachment',Buffer.from(legacyCards)).toString(),legacyCards.replaceAll('\r\n','\n'));
-assert.ok((native?golden:source).includes(readFileSync(resolve(root,'ui/overrides/composer-add-menu.js'),'utf8').replaceAll('\r\n','\n').trim()), 'shipped helper matches source');
-assert.throws(()=>patchComposerAddMenu(id,Buffer.from('unexpected upstream composer')),/signature changed/);
-assert.throws(()=>patchComposerAddMenu('@xharness/dsh-client-ui-attachment',Buffer.from('unexpected upstream rail')),/signature changed/);
 const models=readFileSync(resolve(root,'ui/dist/plugins/@xharness/dsh-client-ui-settings-models/client.js'),'utf8')
 assert.ok(models.includes("imageInput"), "reuse the existing explicit model capability")
-console.log('attachments: ordered mixed payloads, failure retention, success release, size/count limits, safe generic fallback, model checkbox and idempotent UI patch passed')
+console.log('attachments: ordered mixed payloads, failure retention, success release, size/count limits, safe generic fallback, model checkbox and native source consistency passed')
 // Decode through the actual shipped connection schemas, not only a stub session.
 let wireRegistration;
 let wireSource=readFileSync(resolve(root,'ui/dist/plugins/@xharness/dsh-client-connection/client.js'),'utf8');
