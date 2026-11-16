@@ -41,6 +41,12 @@ test('every plan script exists; environment variants and command arguments stay 
   const noAnchor = plan.entries.filter(entry => entry.env.UI_TEST_NO_NATIVE_ANCHOR === '1')
   assert.deepEqual(noAnchor.map(entry => entry.env.UI_TEST_BROWSER).sort(), ['chromium', 'webkit'])
 })
+test('native hidden-agent preset behavior is explicitly enrolled without replacing baseline coverage', () => {
+  const entries=plan.entries.filter(entry=>entry.suite==='contract'
+    && JSON.stringify(entry.argv)===JSON.stringify(['node','scripts/test-agent-preset-ui.mjs'])
+    && Object.keys(entry.env).length===0)
+  assert.equal(entries.length,1)
+})
 test('deterministic LPT partitions are balanced, ordered and do not mutate input', () => {
   const items = [9, 8, 7, 6, 5, 4, 3, 2].map((weight, index) => ({ id: `contract-${index}`, weight }))
   const before = structuredClone(items), buckets = partition(items, 4)
