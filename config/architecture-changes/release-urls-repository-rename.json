@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Repository was renamed from x-harness-rs to XHarness after stable update feeds were published. Windows acceptance and promotion strictly compared the live baseline manifest URL repository segment against the current repository name and failed deterministically on every release.",
+  "compatibility": "Only the repository segment of pre-rename baseline download URLs may now match either the legacy or the current name (GitHub serves both identically). Scheme, host, tag, file name, signature and receipt checks stay strictly unchanged; candidate manifests are unaffected.",
+  "paths": {
+    "scripts/desktop-release-build.py": {
+      "before": "3bee719d542e54aeab94a91494e70fc60f8ae7221862af6aa66b161666f8ebc2",
+      "after": "b69a1d2797a744fae83214cf91e57abead9c6f7257609db6287c4a0255365e7c"
+    },
+    "scripts/desktop-release.py": {
+      "before": "ce31e48c4e8154af98b9439c24a6464bdc7b955f596fc3399e14925876cd5fa1",
+      "after": "7f4f07ef4ff0d1aafa0ea13b39bd44f64e4a9f59b77eb0098da4e3e5ef5be638"
+    }
+  },
+  "regressions": [
+    "updater",
+    "windows"
+  ]
+}
