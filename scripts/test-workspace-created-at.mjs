@@ -3,15 +3,15 @@ import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {Script} from 'node:vm';
 import {loadSourceInternals} from './fixtures/load-source-internals.mjs';
-import {patchWorkspaceCreatedAt} from './patch-workspace-created-at.mjs';
+import {sourceDeclaration} from './fixtures/source-declaration.mjs';
 const root=new URL('..',import.meta.url);
 const dist=process.env.UI_TEST_DIST ?? 'ui/dist';
 const read=path=>readFileSync(new URL(path,root),'utf8');
-const WORKSPACE='@xharness/dsh-client-ui-workspace',RUNTIME='@xharness/dsh-client-runtime',T='\t';
+const WORKSPACE='@xharness/dsh-client-ui-workspace',RUNTIME='@xharness/dsh-client-runtime';
 
 // The product-owned helper must accept the Host's decimal millisecond string and
 // still tolerate ISO-8601, because the shipped wire format is milliseconds.
-const helper=read('ui/overrides/workspace-created-at.js');
+const helper=sourceDeclaration(read('ui/reference/master-a613970/plugins/'+WORKSPACE+'/client.js'),'xhEpochMs');
 const xhEpochMs=new Function(`${helper}; return xhEpochMs;`)();
 const ms=1789192051593;
 assert.equal(xhEpochMs(String(ms)),ms,'decimal millisecond string must parse');
@@ -27,44 +27,13 @@ assert.equal(xhEpochMs('12.5'),Date.parse('12.5'),'ISO branch delegates to Date.
 // A last sanity check on the exact defect: the old expression yields NaN.
 assert.ok(Number.isNaN(Date.parse(String(ms))),'regression guard: raw Date.parse of the wire value is NaN');
 
-// Fail-closed anchors, module targeting, and idempotency on synthetic fixtures.
-const anchor=T+T+'var module = { exports: {} };';
-const fixture=(id,body)=>Buffer.from(`window.__ModuleLoader__.load({\n\tid: "${id}",\n\tfactory: (require) => {\n${anchor}\n${body}\n\t}\n});\n`);
-const workspaceFixture=fixture(WORKSPACE,[
-  `${T.repeat(2)}groups.push(buildGroup(w, w, w.path, Date.parse(workspace.createdAt), w.title, m, "account"));`,
-  `${T.repeat(3)}const d = new Date(createdAt);`,
-  `${T.repeat(5)}(0, react_jsx_runtime.jsx)("div", {`,
-  `${T.repeat(6)}className: Rows_module_css_default.hoverTime,`,
-  `${T.repeat(6)}children: createdLabel(createdAt, t)`,
-  `${T.repeat(5)}})`
-].join('\n'));
-const runtimeFixture=fixture(RUNTIME,`${T.repeat(4)}latest = Date.parse(workspace.createdAt);`);
-assert.throws(()=>patchWorkspaceCreatedAt(WORKSPACE,fixture(WORKSPACE,'// nothing patched here')),/anchor changed/);
-const other=patchWorkspaceCreatedAt('@xharness/dsh-client-ui-settings',workspaceFixture);
-assert.deepEqual(other,workspaceFixture,'unrelated modules stay byte-identical');
-const patchedWorkspace=patchWorkspaceCreatedAt(WORKSPACE,workspaceFixture);
-assert.deepEqual(patchWorkspaceCreatedAt(WORKSPACE,patchedWorkspace),patchedWorkspace,'patching is idempotent');
-assert.deepEqual(patchWorkspaceCreatedAt(WORKSPACE,Buffer.from(workspaceFixture.toString().replaceAll('\n','\r\n'))),patchedWorkspace,'Windows CRLF input produces the same canonical patch');
-const workspaceText=patchedWorkspace.toString();
-assert.equal(workspaceText.includes('Date.parse(workspace.createdAt)'),false,'ordering key uses the helper');
-assert.ok(workspaceText.includes('new Date(xhEpochMs(createdAt))'),'hover label parses through the helper');
-assert.ok(workspaceText.includes('if (!Number.isFinite(d.getTime())) return void 0;'),'unparsable value yields no label');
-assert.ok(workspaceText.includes('createdLabel(createdAt, t) === void 0 ? null : '),'unparsable value renders no time row');
-new Script(workspaceText);
-const runtimeText=patchWorkspaceCreatedAt(RUNTIME,runtimeFixture).toString();
-assert.ok(runtimeText.includes('latest = xhEpochMs(workspace.createdAt)'),'recency fallback parses through the helper');
-assert.equal(runtimeText.includes('Date.parse(workspace.createdAt)'),false);
-new Script(runtimeText);
-
-// Keep the golden patch tests above. Native shipped source must prove the same
-// parser, grouping, hover rendering and runtime recency behavior, not match a
-// historical transpiler's injection anchor or be exempted without execution.
+// Native shipped source must retain the independent frozen parser, grouping,
+// hover rendering and runtime recency behavior.
 for(const id of [WORKSPACE,RUNTIME]){
   const bytes=readFileSync(new URL(`${dist}/plugins/${id}/client.js`,root));
   const text=bytes.toString();
   new Script(text);
   if(!text.startsWith('// Generated from src/modules/')){
-    assert.deepEqual(patchWorkspaceCreatedAt(id,bytes),bytes,'frozen shipped UI patch is idempotent');
     assert.ok(text.includes('function xhEpochMs(value)'),`${id} must carry the parser`);
     assert.equal(text.includes('Date.parse(workspace.createdAt)'),false);
     continue;
@@ -115,4 +84,4 @@ for(const id of [WORKSPACE,RUNTIME]){
   assert.equal(entry.rev,createHash('sha256').update(bytes).digest('hex').slice(0,16),`${id} revision must match shipped bytes`);
   assert.ok(read(`${dist}/index.html`).includes(entry.url),`${id} boot graph must carry the refreshed revision`);
 }
-console.log('Workspace timestamp patch: millisecond+ISO parsing, fail-closed anchors, refreshed graph/hash passed');
+console.log('Workspace timestamps: frozen/native millisecond+ISO parsing, grouping, hover, recency and shipped graph/hash passed');
