@@ -9,7 +9,7 @@ import {join,resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {treeHashes} from './ui-build-contract.mjs'
 const root=fileURLToPath(new URL('../',import.meta.url))
-const commands=['update-context-composition-dist.mjs']
+const commands=['update-context-composition-dist.mjs','sync-browser-ui.mjs']
 const hashes=treeHashes
 for(const command of commands)test(`${command}: full owned rebuild, coherent revisions and fail-closed arguments`,{timeout:240000},()=>{
  const temp=mkdtempSync(join(tmpdir(),'xh-refresh-entry-'))
@@ -27,4 +27,10 @@ for(const command of commands)test(`${command}: full owned rebuild, coherent rev
   const rejected=run(unowned);assert.notEqual(rejected.status,0);assert.match(rejected.diagnostic,/unowned output/)
   assert.equal(readFileSync(join(unowned,'keep.txt'),'utf8'),'private input','builder rejection never erases existing inputs')
  }finally{rmSync(temp,{recursive:true,force:true})}
+})
+
+test('macOS brand generation refreshes owned UI instead of invoking a retired favicon patch',()=>{
+ const script=readFileSync(resolve(root,'scripts/generate-brand-assets-macos.sh'),'utf8')
+ assert.ok(script.includes('node "$repo_root/scripts/assemble-static-ui.mjs"'))
+ assert.doesNotMatch(script,/patch-favicon/)
 })

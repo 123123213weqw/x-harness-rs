@@ -4,7 +4,6 @@ import { readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { extname, resolve, sep } from 'node:path'
-import { patchChatReadingWidth } from './patch-chat-reading-width.mjs'
 
 const dist = resolve('ui/dist')
 const graph = JSON.parse(readFileSync(resolve(dist, 'client-graph.json'), 'utf8'))
@@ -14,7 +13,6 @@ const source = bytes.toString()
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 16)
 assert.equal(graph.entries.find(entry => entry.id === id)?.rev, hash(bytes))
 assert.equal(graph.rev, hash(Buffer.from(JSON.stringify(graph.entries))))
-assert.equal(patchChatReadingWidth(id, bytes).toString(), source)
 assert.match(source, /--dsh-chat-content-width:680px/)
 assert.match(source, /\.IxU-fW_column\{max-width:var\(--dsh-chat-content-width\)/)
 assert.match(source, /--dsh-composer-card-max-width:calc\(var\(--dsh-chat-content-width\) \+ 32px\)/)

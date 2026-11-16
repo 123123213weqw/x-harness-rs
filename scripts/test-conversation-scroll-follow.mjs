@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import {patchConversationScrollFollow} from './patch-conversation-scroll-follow.mjs';
+import {sourceDeclaration} from './fixtures/source-declaration.mjs';
 import {verifyConversationArtifact,exposeConversation,legacyConversation} from './conversation-artifact-test.mjs';
 import {harness} from './conversation-test-harness.mjs';
-const helper=readFileSync(new URL('../ui/overrides/conversation-scroll-follow.js',import.meta.url),'utf8');
+const helper=sourceDeclaration(legacyConversation().toString(),'xhScrollFollowAtBottom');
 const context={};vm.runInNewContext(helper+'\nglobalThis.decide=xhScrollFollowAtBottom;',context);
 const source=verifyConversationArtifact(),api=harness(exposeConversation(source,['xhScrollFollowAtBottom'])).plugin;
 for(const decide of [context.decide,api.xhScrollFollowAtBottom]) {
@@ -21,7 +20,6 @@ for(const current of [false,true]) {
  assert.equal(api.xhScrollFollowAtBottom(current,78,80,100,false),current,'No reader input means no ownership transfer');
  assert.equal(api.xhScrollFollowAtBottom(current,80,80,80,true),current,'Delayed own scroll event cannot change ownership');
 }
-const golden=legacyConversation();assert.deepEqual(patchConversationScrollFollow(golden),golden);
 // Native listener lifetime remains bound to reader gesture attribution. The real
 // geometry/compaction/append/prepend behavior is exercised in transcript-windowing.
 assert.match(source,/readerInputRecent && Math\.abs/);

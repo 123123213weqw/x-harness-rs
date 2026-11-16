@@ -119,12 +119,11 @@ textarea contracts. Terminal shortcuts use `data-xh-terminal-trigger` and
 `data-xh-terminal-open`, not localized labels, and never close an already-open
 dock. An unavailable target reports an error without closing the browser.
 
-`scripts/sync-browser-ui.mjs` refreshes the checked-in layout, browser and terminal plugins for a
-preview; `scripts/assemble-static-ui.mjs` applies the same patch on a fresh UI
-build. Both require the source, generated plugin, graph, and HTML to be committed
-together. Run `node scripts/test-browser-ui.mjs` plus both Chromium and WebKit
-`test-browser-*-browser.mjs` / `test-browser-native-bridge.mjs`. Rust checks and
-tests run on the configured remote build server per `AGENTS.md`.
+`scripts/sync-browser-ui.mjs [OUTPUT_DIRECTORY]` is a compatibility entry for the complete
+owned-source UI build. It no longer refreshes individual cached bundles; graph, boot and
+all product modules are regenerated together. Run `node scripts/test-browser-ui.mjs`, the existing
+Chromium/WebKit browser ownership/native-bridge regressions, and `npm run check:build --prefix ui`.
+Rust checks remain remote-only per `AGENTS.md`.
 
 ## Harness inspector
 
