@@ -197,13 +197,12 @@ UI_TEST_BROWSER=webkit node scripts/test-computer-ui-browser.mjs
 
 ## 会话模型控制（Web / Tauri 共用）
 
-`ui/overrides/model-controls.js` 将上下文表单接入上游模型菜单的二级页面；思考档位
-复用已有菜单，输入区只保留一个模型按钮。复用上游 ModelSelect 与 ModelDirectory。
-`scripts/patch-model-controls.mjs` 同时适配客户端的容量字段校验，
-重建脚本会自动应用。只修改产品组件时可执行：
+`ui/src/modules/model-selection/` 维护上下文表单、思考档位、ModelSelect 与
+ModelDirectory；输入区只保留一个模型按钮。`ui/src/modules/client-connection/` 维护容量
+字段校验。统一构建直接编译自有源码，不再注入旧 bundle。修改后执行：
 
 ```bash
-node scripts/patch-model-controls.mjs
+npm run build --prefix ui
 node scripts/test-model-controls.mjs
 ```
 
@@ -228,9 +227,9 @@ node scripts/test-model-controls.mjs
 
 ### 上游交互的选择性迁移
 
-`scripts/patch-upstream-ui-experience.mjs` 将 DeepSeek Harness
-`dsh-v0.1.7-rc.2` 的纯展示交互移植到现有 XHarness 客户端，不替换 Rust Host
-协议：工作步骤的四种展示密度、文件差异的行内/并排视图与同步滚动、
+源自 DeepSeek Harness `dsh-v0.1.7-rc.2` 的选择性展示交互现由
+`ui/src/modules/{tool,conversation,model-selection,experience}/` 直接维护，
+统一构建编译源码，不替换 Rust Host 协议：工作步骤的四种展示密度、文件差异的行内/并排视图与同步滚动、
 WebFetch URL 入口、模型切换状态，以及“设置 → 显示与快捷键”中的本机快捷键。
 迁移后的控件采用下述黑白灰语义色；错误和警告仍使用状态色。
 
