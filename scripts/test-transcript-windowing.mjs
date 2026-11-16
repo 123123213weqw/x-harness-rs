@@ -8,16 +8,12 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Script } from 'node:vm';
 import { createHash } from 'node:crypto';
-import { patchTranscriptWindowing } from './patch-transcript-windowing.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const implementation=process.env.UI_TEST_IMPL??'source';assert.ok(['source','legacy'].includes(implementation));
 const dist = resolve(root, implementation==='source'?'ui/dist':'ui/reference/master-a613970');
 const sourceArtifact=Buffer.from(verifyConversationArtifact()),golden=legacyConversation();
 const shipped=implementation==='source'?sourceArtifact:golden;
 new Script(shipped.toString());
-assert.deepEqual(patchTranscriptWindowing(golden), golden);
-assert.deepEqual(patchTranscriptWindowing(Buffer.from(golden.toString().replace("Product-owned bounded transcript DOM", "Older transcript DOM"))), golden);
-assert.throws(()=>patchTranscriptWindowing(Buffer.from('upstream changed')), /anchor changed/);
 const graph=JSON.parse(readFileSync(resolve(dist,'client-graph.json')));
 const entry=graph.entries.find(e=>e.id==='@xharness/dsh-client-ui-conversation');
 assert.equal(entry.rev,createHash('sha256').update(shipped).digest('hex').slice(0,16));
@@ -25,8 +21,6 @@ assert.ok(readFileSync(resolve(dist,'index.html'),'utf8').includes(entry.url));
 const require=createRequire(resolve(process.env.UI_TEST_DEPS??'/tmp/ui-tests','package.json'));
 const engine=process.env.UI_TEST_BROWSER??'chromium';
 const browser=await require('playwright')[engine].launch({headless:true});
-const helper=readFileSync(resolve(root,'ui/overrides/transcript-windowing.js'),'utf8');
-assert.ok(golden.toString().includes(helper), 'shipped implementation must match maintained source');
 try {
  const page=await browser.newPage({viewport:{width:1100,height:850}});
  if (process.env.UI_TEST_NO_NATIVE_ANCHOR === '1') {

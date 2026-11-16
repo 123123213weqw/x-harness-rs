@@ -51,6 +51,10 @@ test('owned UI compatibility entrypoint regression is enrolled exactly once', ()
   const entries=plan.entries.filter(entry=>entry.argv.includes('scripts/test-ui-refresh-entrypoints.mjs'))
   assert.equal(entries.length,1);assert.equal(entries[0].suite,'contract');assert.deepEqual(entries[0].env,{})
 })
+test('real chat reading-width geometry regression is enrolled for its Chromium engine', () => {
+  const entries=plan.entries.filter(entry=>entry.argv.includes('scripts/test-chat-reading-width.mjs'))
+  assert.equal(entries.length,1);assert.equal(entries[0].suite,'browser');assert.deepEqual(entries[0].env,{UI_TEST_BROWSER:'chromium'})
+})
 test('deterministic LPT partitions are balanced, ordered and do not mutate input', () => {
   const items = [9, 8, 7, 6, 5, 4, 3, 2].map((weight, index) => ({ id: `contract-${index}`, weight }))
   const before = structuredClone(items), buckets = partition(items, 4)

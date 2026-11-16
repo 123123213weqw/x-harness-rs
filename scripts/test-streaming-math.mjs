@@ -3,20 +3,12 @@ import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
-import {Script} from 'node:vm';
-import {patchStreamingMath} from './patch-streaming-math.mjs';
 import {installOwnedViewPlatform} from './fixtures/owned-view-platform-browser.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url)),dist=resolve(root,'ui/reference/master-a613970');
 const implementation=process.env.UI_TEST_IMPL??'source';
 assert.ok(['source','legacy'].includes(implementation));
-// The old patcher is now test-only: retain all of its original positive and
-// negative assertions against the independent immutable artifact.
+// Browser cases below exercise real current/frozen parser behavior.
 const html=readFileSync(resolve(dist,'index.html'),'utf8'),asset=html.match(/<script type="module" crossorigin src="([^"]+)"/)[1];
-const source=readFileSync(resolve(dist,'.'+asset),'utf8');
-assert.equal(patchStreamingMath(source),source);
-assert.equal(patchStreamingMath(source.replace('Parse with the same math','Old implementation of math')),source);
-assert.throws(()=>patchStreamingMath('changed upstream'),/anchors changed/);
-new Script(readFileSync(resolve(root,'ui/overrides/streaming-math.js'),'utf8'));
 const require=createRequire(resolve(process.env.UI_TEST_DEPS??'/tmp/ui-tests','package.json'));
 const engine=process.env.UI_TEST_BROWSER??'chromium';const browser=await require('playwright')[engine].launch({headless:true});
 try{

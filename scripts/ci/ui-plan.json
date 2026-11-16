@@ -4484,6 +4484,18 @@
       ],
       "env": {},
       "weight": 80
+    },
+    {
+      "id": "browser-260",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-chat-reading-width.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 15
     }
   ]
 }
