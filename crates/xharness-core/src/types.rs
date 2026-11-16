@@ -21,6 +21,9 @@ pub struct ToolResult {
     #[serde(default)]
     pub truncated: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Host-owned projection/attachment metadata, never copied from page JSON.
+    /// `model_output_format: "json_object/v1"` opts into a root JSON receipt;
+    /// absent markers preserve the legacy content/error envelope.
     pub metadata: Option<Value>,
 }
 

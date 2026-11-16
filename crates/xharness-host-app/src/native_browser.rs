@@ -20,6 +20,9 @@ mod contract_eval;
 #[cfg(test)]
 #[path = "native_browser_hardening_tests.rs"]
 mod hardening_tests;
+#[cfg(test)]
+#[path = "native_browser_model_tests.rs"]
+mod model_tests;
 
 pub struct NativeBrowser {
     address: SocketAddr,
@@ -211,15 +214,18 @@ impl NativeBrowser {
         } else if matches!(op, "control" | "observe" | "perform" | "evaluate") {
             self.images.lock().await.forget(self.headless, owner);
         }
-        let result = match self.request(owner, op, Value::Object(arguments), cancelled).await {
+        let mut result = match self.request(owner, op, Value::Object(arguments), cancelled).await {
             Ok(result) => result,
             Err(error) if may_have_effect => return Err(format!("native browser effect: unknown; {error}; do not replay automatically; observe actual state before deciding")),
             Err(error) => return Err(error),
         };
-        // MCP result conventions remain authoritative for UI success/failure.
-        Ok(
-            json!({"isError":(matches!(op,"perform"|"input") && result.get("ok") != Some(&Value::Bool(true))) || result.get("ok") == Some(&Value::Bool(false)),"content":[{"type":"text","text":result.to_string()}]}),
-        )
+        if !result.is_object() {
+            return Err("invalid native browser receipt; effect: unknown".into());
+        }
+        if matches!(op, "perform" | "input") && result.get("ok") != Some(&Value::Bool(true)) {
+            result["ok"] = json!(false);
+        }
+        Ok(result)
     }
 
     pub(crate) async fn screenshot(
@@ -634,7 +640,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(reply["isError"], false);
+            assert!(reply.get("isError").is_none());
             assert!(!reply.to_string().contains(&"a".repeat(64)));
         }
         let error = browser
@@ -731,9 +737,8 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(result["isError"], false);
-        let receipt: Value =
-            serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(result["ok"], true);
+        let receipt = result;
         assert_eq!(receipt["state"], "ready");
         server.await.unwrap();
         assert!(tools().iter().any(|tool| tool["name"] == "control"));
@@ -761,9 +766,8 @@ mod tests {
             .call("owner", "perform", Map::new(), &CancellationToken::new())
             .await
             .unwrap();
-        assert_eq!(result["isError"], true);
-        let receipt: Value =
-            serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(result["ok"], false);
+        let receipt = result;
         assert_eq!(receipt["effect"], "not_started");
         server.await.unwrap();
     }

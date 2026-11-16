@@ -59,6 +59,50 @@ cover execution, console/async results, output limits, partial effects, timeouts
 stale refs, malformed code and session/Host boundaries. These do not claim a
 specific LLM task-success rate or that an installed app has been upgraded.
 
+## Flat native model results
+
+The eight direct `browser_*` tools and `plugin_mcp` requests explicitly targeting
+`@xharness/native-browser` use one model-facing JSON object. For example:
+
+```json
+{"ok":true,"effect":"applied","status":"completed","value":{"title":"Example"},"console":[],"truncated":false}
+```
+
+```json
+{"ok":false,"effect":"unknown","status":"timeout","error":{"name":"Error","message":"Timed out"},"console":[],"truncated":false}
+```
+
+The provider protocol still requires a string in tool `content` (Chat Completions)
+or function-call `output` (Responses); parsing that string once yields the receipt.
+There is no synthetic MCP `isError/content[].text` wrapper or Core `content`
+string containing a second serialized JSON object. Business objects, arrays and
+strings under `value` are not recursively decoded or flattened.
+
+Host-owned metadata opts these results into Core's `json_object/v1` projection.
+Structured native validation errors retain root-level repair/schema fields.
+Runtime rejection before the handler (such as approval or schema rejection) keeps
+the ordinary flat `ok:false/error` diagnostic. Handler failures use the existing
+output-plus-failure channel, not successful execution with an ignored inner error.
+Unknown effects still prohibit automatic replay; no approval or ownership rule changes.
+
+Screenshot metadata uses the same flat text projection while retaining its image
+attachment blocks. PNG/base64 never enters tool text or durable history. Foreign
+MCP and the aggregate plugin index retain their existing representations.
+
+Oversized native results retain root safety/status fields and `truncated:true`;
+when budget permits, `reduction` identifies `root_fields/v1` and the full flat
+receipt's SHA-256. Omitted data is not an escaped JSON excerpt. The existing
+durable archive reference remains outside the reduction and holds the original
+ToolResult. Extremely small budgets may omit optional diagnostic fields;
+non-journaled callers have no durable archive, as before.
+
+The native model-wire regression runs the real tool executor and Core loop with
+the production OpenAI-compatible provider against a loopback HTTP server. It
+checks the received HTTP bodies in both protocols, both backends and both native
+entry paths, failures/validation, no replay, screenshot image blocks and restored
+durable history. The browser bridge and model replies are scripted fixtures;
+this verifies serialization, not a paid model's quality or live GUI behavior.
+
 ## Discovery compatibility
 
 `plugin_mcp` advertises the embedded browser first in its description. Its existing

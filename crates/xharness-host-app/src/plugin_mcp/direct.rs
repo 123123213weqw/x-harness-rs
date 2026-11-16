@@ -37,7 +37,7 @@ pub(super) async fn invoke(
             .screenshot(owner, parameters, media.as_ref(), cancellation)
             .await;
     }
-    super::call_output(
+    super::native_output::receipt(
         native
             .call(owner, tool, parameters, cancellation)
             .await
@@ -79,39 +79,41 @@ pub(super) fn specs(
                 let media = media.clone();
                 let tool = tool.clone();
                 async move {
-                    let mut parameters = context
-                        .arguments
-                        .as_object()
-                        .cloned()
-                        .ok_or_else(|| super::error("browser arguments must be an object"))?;
-                    let backend = parameters
-                        .remove("backend")
-                        .ok_or_else(|| super::error("browser backend required"))?;
-                    let headless = match backend.as_str() {
-                        Some(native_browser::HEADLESS_SERVER) if !webview_only => true,
-                        Some(native_browser::SERVER) => false,
-                        _ => {
-                            return Err(super::error(
-                                "invalid browser backend; no backend was selected or changed",
-                            ))
-                        }
-                    };
-                    let background = native.headless();
-                    let selected = if headless {
-                        &background
-                    } else {
-                        native.as_ref()
-                    };
-                    invoke(
-                        selected,
-                        headless,
-                        &owner,
-                        &tool,
-                        parameters,
-                        media.as_ref(),
-                        &context.cancellation,
-                    )
-                    .await
+                    let result = async {
+                        let mut parameters =
+                            context.arguments.as_object().cloned().ok_or_else(|| {
+                                super::error("browser arguments must be an object")
+                            })?;
+                        let backend = parameters
+                            .remove("backend")
+                            .ok_or_else(|| super::error("browser backend required"))?;
+                        let headless =
+                            match backend.as_str() {
+                                Some(native_browser::HEADLESS_SERVER) if !webview_only => true,
+                                Some(native_browser::SERVER) => false,
+                                _ => return Err(super::error(
+                                    "invalid browser backend; no backend was selected or changed",
+                                )),
+                            };
+                        let background = native.headless();
+                        let selected = if headless {
+                            &background
+                        } else {
+                            native.as_ref()
+                        };
+                        invoke(
+                            selected,
+                            headless,
+                            &owner,
+                            &tool,
+                            parameters,
+                            media.as_ref(),
+                            &context.cancellation,
+                        )
+                        .await
+                    }
+                    .await;
+                    super::native_output::finish(result)
                 }
             })
             .with_timeout(std::time::Duration::from_secs(45))
