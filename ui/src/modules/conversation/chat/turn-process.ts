@@ -11,10 +11,11 @@ export function turnProcessPresentation(node: ChatNode, tail: Readonly<TurnTailC
   if (!collapsed) return { collapsed: false, hidden: false }
   if (tail === undefined) {
     // Active/failed tools remain under the protected adaptive-fold policy.
-    // Reasoning-only rows have one turn summary instead of growing blank seats.
+    // Reasoning renders its own Think disclosure, so reasoning-bearing rows
+    // are never blank seats; only rows without any renderable block hide.
     const hidden = node.kind === 'assistant-step' && node.data.status !== 'interrupted'
-      && !node.data.blocks.some(block => block.kind !== 'reasoning' && block.kind !== 'tool-call'
-        && (block.kind !== 'text' || block.text.trim() !== ''))
+      && !node.data.blocks.some(block => block.kind === 'reasoning'
+        || (block.kind !== 'tool-call' && (block.kind !== 'text' || block.text.trim() !== '')))
       && !node.data.blocks.some(preparingCall)
     return { collapsed, hidden }
   }

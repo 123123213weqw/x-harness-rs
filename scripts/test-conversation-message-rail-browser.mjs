@@ -40,9 +40,11 @@ try {
   const assertLeft = async () => {
     const position = await rail.evaluate(el => {
       const box = el.getBoundingClientRect(), parent = el.parentElement.getBoundingClientRect()
-      return { offset: box.left - parent.left, rightGap: parent.right - box.right }
+      const column = el.closest('[data-conversation-scroll]')?.querySelector('.IxU-fW_column')?.getBoundingClientRect()
+      return { offset: box.left - parent.left, rightGap: parent.right - box.right, columnGap: column === undefined ? null : column.left - box.right }
     })
-    assert.ok(Math.abs(position.offset - 8) <= 1, 'rail is at the approved left edge: ' + JSON.stringify(position))
+    assert.ok(position.offset >= 7, 'rail never leaves the conversation left edge: ' + JSON.stringify(position))
+    assert.ok(position.columnGap === null || Math.abs(position.columnGap - 8) <= 1, 'rail rides the message column left edge: ' + JSON.stringify(position))
     assert.ok(position.rightGap > position.offset, 'right-edge placement must not pass navigation-only tests')
   }
   await assertLeft()

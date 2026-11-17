@@ -7448,10 +7448,11 @@ function turnProcessPresentation(node, tail, expanded, live = false) {
         return { collapsed: false, hidden: false };
     if (tail === undefined) {
         // Active/failed tools remain under the protected adaptive-fold policy.
-        // Reasoning-only rows have one turn summary instead of growing blank seats.
+        // Reasoning renders its own Think disclosure, so reasoning-bearing rows
+        // are never blank seats; only rows without any renderable block hide.
         const hidden = node.kind === 'assistant-step' && node.data.status !== 'interrupted'
-            && !node.data.blocks.some(block => block.kind !== 'reasoning' && block.kind !== 'tool-call'
-                && (block.kind !== 'text' || block.text.trim() !== ''))
+            && !node.data.blocks.some(block => block.kind === 'reasoning'
+                || (block.kind !== 'tool-call' && (block.kind !== 'text' || block.text.trim() !== '')))
             && !node.data.blocks.some(preparing_call_1.preparingCall);
         return { collapsed, hidden };
     }
@@ -8243,7 +8244,7 @@ exports.default = styles;
 // source: src/modules/conversation/chat/MessageRail.css
 
 Object.defineProperty(exports, '__esModule', { value: true });
-exports.default = "[data-conversation-root] { position: relative; }\n.xh-message-rail {\n  position: absolute;\n  z-index: 6;\n  top: 50%;\n  left: 8px;\n  transform: translateY(-50%);\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  width: 24px;\n  max-height: min(70%, 480px);\n  overflow-y: auto;\n  overscroll-behavior: contain;\n  scrollbar-width: none;\n}\n/* AppFrame owns docked/drawer workspace state; hiding this navigation never\n   changes the loaded history, scroll owner or panel state. */\n[data-xhworkspace-open] .xh-message-rail { display: none; }\n.xh-message-rail::-webkit-scrollbar { display: none; }\n.xh-message-rail-item {\n  display: flex;\n  flex: none;\n  align-items: center;\n  justify-content: center;\n  width: 24px;\n  height: 17px;\n  padding: 0;\n  border: 0;\n  background: transparent;\n  cursor: pointer;\n}\n.xh-message-rail-mark {\n  width: 10px;\n  height: 2px;\n  border-radius: 2px;\n  background: var(--dsw-alias-label-dimmed);\n}\n.xh-message-rail-item:hover .xh-message-rail-mark,\n.xh-message-rail-item:focus-visible .xh-message-rail-mark,\n.xh-message-rail-item[aria-current=\"location\"] .xh-message-rail-mark {\n  background: var(--dsw-alias-label-primary);\n}\n.xh-message-rail-item:focus-visible { outline: 2px solid var(--dsw-alias-label-primary); outline-offset: -2px; border-radius: 4px; }\n";
+exports.default = "[data-conversation-root] { position: relative; }\n.xh-message-rail {\n  position: absolute;\n  z-index: 6;\n  top: 50%;\n  /* Ride the message column's left edge (8px gap) so tool output and turn\n     process sit directly beside the rail, like the terminal timeline. */\n  left: max(8px, calc(50% - var(--dsh-chat-content-width) / 2 - 32px));\n  transform: translateY(-50%);\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  width: 24px;\n  max-height: min(70%, 480px);\n  overflow-y: auto;\n  overscroll-behavior: contain;\n  scrollbar-width: none;\n}\n/* AppFrame owns docked/drawer workspace state; hiding this navigation never\n   changes the loaded history, scroll owner or panel state. */\n[data-xhworkspace-open] .xh-message-rail { display: none; }\n.xh-message-rail::-webkit-scrollbar { display: none; }\n.xh-message-rail-item {\n  display: flex;\n  flex: none;\n  align-items: center;\n  justify-content: center;\n  width: 24px;\n  height: 17px;\n  padding: 0;\n  border: 0;\n  background: transparent;\n  cursor: pointer;\n}\n.xh-message-rail-mark {\n  width: 10px;\n  height: 2px;\n  border-radius: 2px;\n  background: var(--dsw-alias-label-dimmed);\n}\n.xh-message-rail-item:hover .xh-message-rail-mark,\n.xh-message-rail-item:focus-visible .xh-message-rail-mark,\n.xh-message-rail-item[aria-current=\"location\"] .xh-message-rail-mark {\n  background: var(--dsw-alias-label-primary);\n}\n.xh-message-rail-item:focus-visible { outline: 2px solid var(--dsw-alias-label-primary); outline-offset: -2px; border-radius: 4px; }\n";
 
 },
 "src/modules/shared/foundation-styles.js": function(module, exports, require) {
@@ -12465,7 +12466,7 @@ const chat_node_codec_1 = require("../contract/chat-node-codec");
 const react_1 = require("react");
 const AssistantMarkdown_1 = require("./AssistantMarkdown");
 /** Streaming, settled, and interrupted Assistant states share one keyed renderer instance. */
-exports.AssistantNodeView = (0, react_1.memo)(function AssistantNodeView({ node, useTurnData, openFile, renderMessageImages, fileMentions, t, processCollapsed, }) {
+exports.AssistantNodeView = (0, react_1.memo)(function AssistantNodeView({ node, useTurnData, openFile, renderMessageImages, fileMentions, t, }) {
     const data = node.data;
     const turn = node.location.kind === 'turn' || node.location.kind === 'step'
         ? node.location.turn
@@ -12480,7 +12481,10 @@ exports.AssistantNodeView = (0, react_1.memo)(function AssistantNodeView({ node,
         return { turn, seq: data.finalNode.seq, openFile };
     }, [data.finalNode, openFile, tail, turn]);
     const mentions = (0, react_1.useMemo)(() => owner === undefined ? undefined : fileMentions(owner), [fileMentions, owner]);
-    return ((0, jsx_runtime_1.jsx)(AssistantMarkdown_1.AssistantMarkdown, { blocks: data.blocks, streaming: data.status === 'running', interrupted: data.status === 'interrupted', hideReasoning: processCollapsed, renderMessageImages: renderMessageImages, mentions: mentions, t: t }));
+    return ((0, jsx_runtime_1.jsx)(AssistantMarkdown_1.AssistantMarkdown, { blocks: data.blocks, streaming: data.status === 'running', interrupted: data.status === 'interrupted',
+        // The Think disclosure owns its own collapsed presentation; a folded
+        // turn process must not erase reasoning rows from the transcript.
+        renderMessageImages: renderMessageImages, mentions: mentions, t: t }));
 });
 
 },

@@ -87,10 +87,10 @@ test('compact mode folds earlier success even below the old budget, but newest/p
   assert.equal(plugin.turnProcessPresentation(tool(root),{turn:1,closing:null},false).hidden,false)
  }
 })
-test('live reasoning is grouped without hiding prose, images, preparing inputs, unknown blocks or interruption',()=>{
+test('live reasoning renders its own Think disclosure instead of hiding; prose, images, preparing inputs, unknown blocks and interruption stay visible',()=>{
  const assistant=(blocks,status='running')=>({kind:'assistant-step',data:{blocks,status}})
  const present=node=>json(plugin.turnProcessPresentation(node,undefined,false,true))
- assert.deepEqual(present(assistant([{kind:'reasoning',text:'thinking'}])),{collapsed:true,hidden:true})
+ assert.deepEqual(present(assistant([{kind:'reasoning',text:'thinking'}])),{collapsed:true,hidden:false})
  for(const blocks of [[{kind:'text',text:'visible narration'}],[{kind:'image',attachment:{}}],[{kind:'other',block:{}}],[{kind:'tool-call',callId:'x',name:'edit',argsRaw:'{"path":'}]])assert.deepEqual(present(assistant(blocks)),{collapsed:true,hidden:false})
  assert.deepEqual(present(assistant([{kind:'reasoning',text:'stopped'}],'interrupted')),{collapsed:true,hidden:false})
  assert.deepEqual(json(plugin.turnProcessPresentation(assistant([{kind:'reasoning',text:'thinking'}]),undefined,true,true)),{collapsed:false,hidden:false})
