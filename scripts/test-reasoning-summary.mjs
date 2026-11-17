@@ -158,10 +158,10 @@ test('reasoning hook: reduced motion keeps pacing but never produces an animated
 test('reasoning integration: full body unchanged; fixed-height, two-line motion and original sweep retained', () => {
   const read = path => readFileSync(new URL('../' + path, import.meta.url), 'utf8')
   const row = read('ui/src/modules/conversation/chat/ReasoningRow.tsx')
-  assert.match(row, /useReasoningSummary\(text, running && !expanded\)/)
+  assert.doesNotMatch(row, /useReasoningSummary|scrollLeft|data-paging/)
   assert.match(row, /<div className=\{css.thinkBody\}>\{text\}<\/div>/)
   assert.match(row, /firstReasoningLine\(text\)/)
-  assert.match(row, /css.pageOut\} aria-hidden/)
+  assert.match(row, /flat\.slice\(-72\)/)
   const css = read('ui/src/modules/conversation/chat/ReasoningRow.css')
   assert.match(css, /reasoning-row-sweep/)
   assert.match(css, /--xh-duration-reasoning-flip,180ms/)
