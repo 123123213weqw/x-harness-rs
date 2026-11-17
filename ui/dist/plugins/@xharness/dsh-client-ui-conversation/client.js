@@ -7448,10 +7448,11 @@ function turnProcessPresentation(node, tail, expanded, live = false) {
         return { collapsed: false, hidden: false };
     if (tail === undefined) {
         // Active/failed tools remain under the protected adaptive-fold policy.
-        // Reasoning-only rows have one turn summary instead of growing blank seats.
+        // Reasoning renders its own Think disclosure, so reasoning-bearing rows
+        // are never blank seats; only rows without any renderable block hide.
         const hidden = node.kind === 'assistant-step' && node.data.status !== 'interrupted'
-            && !node.data.blocks.some(block => block.kind !== 'reasoning' && block.kind !== 'tool-call'
-                && (block.kind !== 'text' || block.text.trim() !== ''))
+            && !node.data.blocks.some(block => block.kind === 'reasoning'
+                || (block.kind !== 'tool-call' && (block.kind !== 'text' || block.text.trim() !== '')))
             && !node.data.blocks.some(preparing_call_1.preparingCall);
         return { collapsed, hidden };
     }
@@ -12465,7 +12466,7 @@ const chat_node_codec_1 = require("../contract/chat-node-codec");
 const react_1 = require("react");
 const AssistantMarkdown_1 = require("./AssistantMarkdown");
 /** Streaming, settled, and interrupted Assistant states share one keyed renderer instance. */
-exports.AssistantNodeView = (0, react_1.memo)(function AssistantNodeView({ node, useTurnData, openFile, renderMessageImages, fileMentions, t, processCollapsed, }) {
+exports.AssistantNodeView = (0, react_1.memo)(function AssistantNodeView({ node, useTurnData, openFile, renderMessageImages, fileMentions, t, }) {
     const data = node.data;
     const turn = node.location.kind === 'turn' || node.location.kind === 'step'
         ? node.location.turn
@@ -12480,7 +12481,10 @@ exports.AssistantNodeView = (0, react_1.memo)(function AssistantNodeView({ node,
         return { turn, seq: data.finalNode.seq, openFile };
     }, [data.finalNode, openFile, tail, turn]);
     const mentions = (0, react_1.useMemo)(() => owner === undefined ? undefined : fileMentions(owner), [fileMentions, owner]);
-    return ((0, jsx_runtime_1.jsx)(AssistantMarkdown_1.AssistantMarkdown, { blocks: data.blocks, streaming: data.status === 'running', interrupted: data.status === 'interrupted', hideReasoning: processCollapsed, renderMessageImages: renderMessageImages, mentions: mentions, t: t }));
+    return ((0, jsx_runtime_1.jsx)(AssistantMarkdown_1.AssistantMarkdown, { blocks: data.blocks, streaming: data.status === 'running', interrupted: data.status === 'interrupted',
+        // The Think disclosure owns its own collapsed presentation; a folded
+        // turn process must not erase reasoning rows from the transcript.
+        renderMessageImages: renderMessageImages, mentions: mentions, t: t }));
 });
 
 },
