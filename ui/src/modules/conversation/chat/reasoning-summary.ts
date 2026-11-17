@@ -7,6 +7,15 @@ const RATE_BUCKET_MS = 100
 const MIN_RATE_SAMPLE_MS = 200
 const SLOW_CHARS_PER_SECOND = 80
 
+/** Only abbreviate the preview; never split a UTF-16 surrogate pair. */
+export function reasoningTailWindow(text: string): string {
+  const flat = text.replace(/\s+/g, ' ')
+  // Bound code-point allocation even when a reasoning block is very large.
+  const suffix = Array.from(flat.slice(-146))
+  const truncated = flat.length > 146 || suffix.length > 72
+  return (truncated ? '…' : '') + suffix.slice(-72).join('')
+}
+
 export function firstReasoningLine(text: string): string {
   const newline = text.indexOf('\n')
   return newline === -1 ? text : text.slice(0, newline)

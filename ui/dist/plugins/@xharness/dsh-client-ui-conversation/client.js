@@ -12610,13 +12610,12 @@ function ReasoningRow({ text, running, t, stateKey = 0 }) {
             return;
         setAppliedMode(processMode);
         setExpanded(processMode === 'expanded');
-    }, [processMode, appliedMode, setExpanded, setExpanded]);
+    }, [processMode, appliedMode, setAppliedMode, setExpanded]);
     // Streaming preview is a tail window beside the row's timeline edge: the
     // newest reasoning fragment stays visible in place — no marquee scrolling
     // and no paging flip. Settled rows keep the first line as the summary.
-    const flat = text.replace(/\s+/g, ' ');
     const summary = running && !expanded
-        ? (flat.length > 72 ? '…' + flat.slice(-72) : flat)
+        ? (0, reasoning_summary_1.reasoningTailWindow)(text)
         : (0, reasoning_summary_1.firstReasoningLine)(text);
     return ((0, jsx_runtime_1.jsxs)("div", { className: ReasoningRow_styles_1.default.root, "data-variant": "think", "data-state": running ? 'running' : 'ok', children: [running && (0, jsx_runtime_1.jsx)("span", { className: accessibility_styles_1.default.visuallyHidden, children: t('row.running') }), (0, jsx_runtime_1.jsx)(primitives_1.DisclosureRow, { rowClassName: ReasoningRow_styles_1.default.row, leadingClassName: ReasoningRow_styles_1.default.leading, titleClassName: ReasoningRow_styles_1.default.title, chevronClassName: ReasoningRow_styles_1.default.chevron, icon: (0, jsx_runtime_1.jsx)(ToolGlyph_1.ToolGlyph, { kind: "thought", size: 14 }), title: "Thought", open: expanded, expandable: true, expandOnRowClick: true, keepIconWhenOpen: true, previewChevron: false, keepContentWhenOpen: true, onToggle: () => { setExpanded(value => !value); }, collapsedContent: ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("span", { className: ReasoningRow_styles_1.default.separator, "aria-hidden": true }), (0, jsx_runtime_1.jsx)("span", { className: ReasoningRow_styles_1.default.summary, children: summary }), (0, jsx_runtime_1.jsx)("span", { className: "xh-thought-chevron", "aria-hidden": "true", children: (0, jsx_runtime_1.jsx)(primitives_1.IconChevronRightOutline14, {}) })] })), children: (0, jsx_runtime_1.jsx)("div", { className: ReasoningRow_styles_1.default.thinkBody, children: text }) })] }));
 }
@@ -12695,6 +12694,7 @@ exports.default = ".U8JO7q_root{flex-direction:column;display:flex}.U8JO7q_row{p
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ReasoningSummaryPresentation = exports.REASONING_FLIP_MS = exports.REASONING_PAGE_MS = exports.REASONING_FAST_CHARS_PER_SECOND = void 0;
+exports.reasoningTailWindow = reasoningTailWindow;
 exports.firstReasoningLine = firstReasoningLine;
 exports.latestReasoningLine = latestReasoningLine;
 /** Presentation-only pacing. Character growth is a visual proxy, not model TPS. */
@@ -12705,6 +12705,14 @@ const RATE_WINDOW_MS = 1000;
 const RATE_BUCKET_MS = 100;
 const MIN_RATE_SAMPLE_MS = 200;
 const SLOW_CHARS_PER_SECOND = 80;
+/** Only abbreviate the preview; never split a UTF-16 surrogate pair. */
+function reasoningTailWindow(text) {
+    const flat = text.replace(/\s+/g, ' ');
+    // Bound code-point allocation even when a reasoning block is very large.
+    const suffix = Array.from(flat.slice(-146));
+    const truncated = flat.length > 146 || suffix.length > 72;
+    return (truncated ? '…' : '') + suffix.slice(-72).join('');
+}
 function firstReasoningLine(text) {
     const newline = text.indexOf('\n');
     return newline === -1 ? text : text.slice(0, newline);

@@ -6,7 +6,7 @@ import a11yCss from './accessibility.styles'
 import css from './ReasoningRow.styles'
 import { useTranscriptState } from './transcript-state'
 import { useProcessMode } from './process-mode'
-import { firstReasoningLine } from './reasoning-summary'
+import { firstReasoningLine, reasoningTailWindow } from './reasoning-summary'
 import { ToolGlyph } from '../../shared/ToolGlyph'
 
 /**
@@ -24,13 +24,12 @@ export function ReasoningRow({ text, running, t, stateKey = 0 }: { text: string;
     if (appliedMode === processMode) return
     setAppliedMode(processMode)
     setExpanded(processMode === 'expanded')
-  }, [processMode, appliedMode, setExpanded, setExpanded])
+  }, [processMode, appliedMode, setAppliedMode, setExpanded])
   // Streaming preview is a tail window beside the row's timeline edge: the
   // newest reasoning fragment stays visible in place — no marquee scrolling
   // and no paging flip. Settled rows keep the first line as the summary.
-  const flat = text.replace(/\s+/g, ' ')
   const summary = running && !expanded
-    ? (flat.length > 72 ? '…' + flat.slice(-72) : flat)
+    ? reasoningTailWindow(text)
     : firstReasoningLine(text)
 
   return (
