@@ -15,6 +15,7 @@ import type { ClientContext } from './contracts'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from './contract/slots'
 import { createWorkspaceViewStore } from './stores'
+import { ProjectEventFeed } from './project-events'
 import { projectStatusReader } from './project-github'
 import { WorkspaceBrowser } from './WorkspaceBrowser'
 import { WorkspacePicker } from './WorkspacePicker'
@@ -38,7 +39,7 @@ const NS = 'workspace'
  * provides a waitable service. apply therefore depends on each slot
  * declaration through `slots.inject()` instead of assuming order.
  */
-export const inject = ['slots', 'sessions', 'workspaces', 'locale', 'connection']
+export const inject = ['slots', 'sessions', 'workspaces', 'locale', 'connection', 'remote']
 
 /**
  * Register the browser and picker once their slot declarations are on the
@@ -49,6 +50,13 @@ export const inject = ['slots', 'sessions', 'workspaces', 'locale', 'connection'
 export function apply(ctx: ClientContext): void {
   const connection = ctx.get('connection')
   const hostDescription = connection.hostDescription
+  const projectEvents = ctx.remote ? new ProjectEventFeed() : undefined
+  ctx.effect(() => {
+    if (!projectEvents || !ctx.remote) return
+    const off = ctx.remote.$on('github/project-status-invalidated', payload => {projectEvents.receive(payload, hostDescription.getSnapshot())})
+    const reset = hostDescription.subscribe(() => projectEvents.reset())
+    return () => {off(); reset(); projectEvents.dispose()}
+  }, 'workspace: metadata-only GitHub event subscription')
   const readProjectStatus = connection.rpc ? projectStatusReader(connection.rpc) : undefined
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-workspace: dictionaries')
 
@@ -68,6 +76,7 @@ export function apply(ctx: ClientContext): void {
   const pickerFlowSource = flowSource('conversation.hero.workspace.directoryFlow')
   const browserInjected = (): WorkspaceBrowserInjected => ({
     ...(readProjectStatus ? {readProjectStatus} : {}),
+    ...(projectEvents ? {projectEvents} : {}),
     // Explicit group actions keep their target; unscoped New Session inherits
     // the current Session Workspace before the recent-Workspace fallback.
     startSession: (workspaceId) => { ctx.workspaces.startSession(workspaceId) },

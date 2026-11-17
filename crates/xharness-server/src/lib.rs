@@ -5,6 +5,7 @@
 //! use two downlink-only WebSockets. The server owns transport validation only;
 //! business behavior is supplied by [`xharness_api::ApiBackend`].
 
+pub mod github_webhook;
 pub mod plugin_assets;
 
 use std::{

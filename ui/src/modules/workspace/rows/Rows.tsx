@@ -114,9 +114,10 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
  * @param props.t - the browser root's locale seat.
  * @returns the row element.
  */
-export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home, t, readProjectStatus, projectGeneration }: {
+export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home, t, readProjectStatus, projectGeneration, projectEvents }: {
   group: GroupNode
   readProjectStatus?: ReadProjectStatus | undefined
+  projectEvents?: import('../project-events').ProjectEvents | undefined
   projectGeneration?: object | undefined
   onToggle: () => void
   onCreate: () => void
@@ -163,7 +164,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
       <span className={css.projectText}>
         <span className={css.title}>{label}</span>
       </span>
-      {row.workspaceId && readProjectStatus && <ProjectGitHubStatus workspaceId={row.workspaceId} path={row.cwd} generation={projectGeneration} active={row.containsCurrent} expanded={row.expanded} read={readProjectStatus} t={t} onOpenChange={setGitHubOpen}/>}
+      {row.workspaceId && readProjectStatus && <ProjectGitHubStatus workspaceId={row.workspaceId} path={row.cwd} generation={projectGeneration} events={projectEvents} active={row.containsCurrent} expanded={row.expanded} read={readProjectStatus} t={t} onOpenChange={setGitHubOpen}/>}
       <span className={css.rowActions}>
         {actions !== undefined && (
           <Menu

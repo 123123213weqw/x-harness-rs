@@ -1,8 +1,8 @@
 import type {ClientConnectionRpc} from '../client-connection/rpc-contracts'
 import {objectValue} from '../shared/runtime-types'
 export type ProjectCI = 'none'|'unknown'|'outdated'|'pending'|'passing'|'failing'|'neutral'
-export type ProjectGitHub = {kind: 'unsupported'|'ambiguous'|'no_pr'; ci: ProjectCI} | {
-  kind: 'ready'; ci: ProjectCI; repository: string; branch: string; localSha: string; headSha: string
+export type ProjectGitHub = {kind: 'unsupported'|'ambiguous'|'no_pr'; ci: ProjectCI; repositoryId?: string|undefined} | {
+  kind: 'ready'; ci: ProjectCI; repositoryId?: string|undefined; repository: string; branch: string; localSha: string; headSha: string
   number: number; url: string; state: 'OPEN'|'CLOSED'|'MERGED'; draft: boolean
 }
 export type ReadProjectStatus = (workspaceId: string, signal: AbortSignal) => Promise<ProjectGitHub>
@@ -11,10 +11,12 @@ function isPRState(v: unknown): v is 'OPEN'|'CLOSED'|'MERGED' {return v === 'OPE
 export function parseProjectGitHub(raw: unknown): ProjectGitHub {
   const v = objectValue(raw)
   if (!isCI(v.ci)) throw Error('Invalid project CI status')
+  if (v.repositoryId !== undefined && (typeof v.repositoryId !== 'string' || !/^[A-Za-z0-9_+/=-]{8,128}$/.test(v.repositoryId))) throw Error('Invalid GitHub repository identity')
+  const repositoryId = typeof v.repositoryId === 'string' ? v.repositoryId : undefined
   const ci = v.ci
   if (v.kind === 'unsupported' || v.kind === 'ambiguous' || v.kind === 'no_pr') {
     if (ci !== 'none' && ci !== 'unknown') throw Error('Invalid absent PR status')
-    return {kind: v.kind, ci}
+    return {kind: v.kind, ci, repositoryId}
   }
   if (v.kind !== 'ready' || typeof v.repository !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(v.repository) ||
       v.repository.split('/').some(s => s === '.' || s === '..') || typeof v.branch !== 'string' || !v.branch || v.branch.length > 1024 || /[\x00-\x1f\x7f]/.test(v.branch) ||
@@ -22,7 +24,7 @@ export function parseProjectGitHub(raw: unknown): ProjectGitHub {
       typeof v.number !== 'number' || !Number.isSafeInteger(v.number) || v.number < 1 || typeof v.draft !== 'boolean' ||
       !isPRState(v.state) || typeof v.url !== 'string' || v.url !== `https://github.com/${v.repository}/pull/${v.number}` ||
       (v.localSha !== v.headSha && ci !== 'outdated')) throw Error('Invalid project GitHub status')
-  return {kind: 'ready', ci, repository: v.repository, branch: v.branch, localSha: v.localSha, headSha: v.headSha,
+  return {kind: 'ready', ci, repositoryId, repository: v.repository, branch: v.branch, localSha: v.localSha, headSha: v.headSha,
     number: v.number, url: v.url, state: v.state, draft: v.draft}
 }
 export function projectStatusReader(rpc: ClientConnectionRpc): ReadProjectStatus {
@@ -37,6 +39,7 @@ export function projectStatusReader(rpc: ClientConnectionRpc): ReadProjectStatus
 export class ProjectStatusRequest {
   private controller: AbortController | undefined
   private disposed = false
+  private queued = false
   constructor(private readonly read: ReadProjectStatus, private readonly id: string) {}
   async refresh(publish: (value: ProjectGitHub|undefined, error: string|undefined, loading: boolean) => void): Promise<void> {
     if (this.disposed || this.controller) return
@@ -47,7 +50,16 @@ export class ProjectStatusRequest {
       if (!this.disposed && !controller.signal.aborted) publish(value, undefined, false)
     } catch (e: unknown) {
       if (!this.disposed && !controller.signal.aborted) publish(undefined, e instanceof Error ? e.message : 'Project status failed', false)
-    } finally {if (this.controller === controller) this.controller = undefined}
+    } finally {
+      if (this.controller === controller) this.controller = undefined
+      if (this.queued && !this.disposed) {this.queued = false; void this.refresh(publish)}
+    }
   }
-  dispose(): void {this.disposed = true; this.controller?.abort(); this.controller = undefined}
+  invalidate(publish: (value: ProjectGitHub|undefined, error: string|undefined, loading: boolean) => void): void {
+    if (this.disposed) return
+    if (this.controller) {this.queued = true; this.controller.abort()}
+    else void this.refresh(publish)
+  }
+  cancel(): void {this.queued = false; this.controller?.abort()}
+  dispose(): void {this.disposed = true; this.queued = false; this.controller?.abort(); this.controller = undefined}
 }

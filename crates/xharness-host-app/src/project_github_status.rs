@@ -254,16 +254,24 @@ async fn gh(commands: &dyn Commands, values: &[&str]) -> Result<Value, RpcError>
     }
     Ok(value)
 }
-async fn canonical_repository(commands: &dyn Commands, remote: &str) -> Result<String, RpcError> {
+async fn canonical_repository(
+    commands: &dyn Commands,
+    remote: &str,
+) -> Result<(String, String), RpcError> {
     let value = gh(
         commands,
-        &["repo", "view", remote, "--json", "nameWithOwner"],
+        &["repo", "view", remote, "--json", "id,nameWithOwner"],
     )
     .await?;
     let name = value["nameWithOwner"].as_str().ok_or_else(invalid)?;
-    repository(&format!("https://github.com/{name}"))
+    let name = repository(&format!("https://github.com/{name}"))
         .filter(|v| v == name)
-        .ok_or_else(invalid)
+        .ok_or_else(invalid)?;
+    let id = value["id"]
+        .as_str()
+        .filter(|v| xharness_server::github_webhook::valid_node_id(v))
+        .ok_or_else(invalid)?;
+    Ok((name, id.to_owned()))
 }
 
 pub(crate) async fn read(
@@ -290,7 +298,7 @@ async fn read_with(commands: &dyn Commands) -> Result<Value, RpcError> {
     };
     // Follow GitHub repository renames without accepting a PR from another
     // fork merely because it uses the same branch name.
-    let repo = canonical_repository(commands, &remote_repo).await?;
+    let (repo, repository_id) = canonical_repository(commands, &remote_repo).await?;
     let list = gh(
         commands,
         &[
@@ -311,7 +319,7 @@ async fn read_with(commands: &dyn Commands) -> Result<Value, RpcError> {
     .await?;
     let items = list.as_array().ok_or_else(invalid)?;
     if items.len() >= 20 {
-        return Ok(json!({"kind":"ambiguous", "ci":"unknown"}));
+        return Ok(json!({"kind":"ambiguous", "ci":"unknown", "repositoryId":repository_id}));
     }
     let mut matches: Vec<_> = items
         .iter()
@@ -335,7 +343,7 @@ async fn read_with(commands: &dyn Commands) -> Result<Value, RpcError> {
     }
     let Some(selected) = matches.first() else {
         return Ok(
-            json!({"kind":if items.len() >= 20 {"ambiguous"} else {"no_pr"},"repository":repo,"branch":branch,"localSha":local_sha,"ci":"none"}),
+            json!({"kind":if items.len() >= 20 {"ambiguous"} else {"no_pr"},"repositoryId":repository_id,"repository":repo,"branch":branch,"localSha":local_sha,"ci":"none"}),
         );
     };
     let number = selected["number"]
@@ -393,7 +401,7 @@ async fn read_with(commands: &dyn Commands) -> Result<Value, RpcError> {
     };
     // Construct the link locally. Never hand an arbitrary remote URL to UI.
     Ok(
-        json!({"kind":"ready","repository":repo,"branch":branch,"localSha":local_sha,"headSha":head,"number":number,"url":format!("https://github.com/{repo}/pull/{number}"),"state":state,"draft":pr["isDraft"].as_bool().ok_or_else(invalid)?,"ci":ci}),
+        json!({"kind":"ready","repositoryId":repository_id,"repository":repo,"branch":branch,"localSha":local_sha,"headSha":head,"number":number,"url":format!("https://github.com/{repo}/pull/{number}"),"state":state,"draft":pr["isDraft"].as_bool().ok_or_else(invalid)?,"ci":ci}),
     )
 }
 fn ci_status(rollup: &Value) -> &'static str {

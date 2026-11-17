@@ -647,8 +647,19 @@ async fn run(
         }
         hydration_host.backfill_startup_metrics().await;
     });
+    // Optional read-only event ingress. The public/hosted composition never
+    // reads its local secret or opens this outbound connection.
+    let github_event_config = if hosted.is_none() && args.bind.ip().is_loopback() {
+        env::var_os("XHARNESS_GITHUB_EVENTS_CONFIG").map(PathBuf::from)
+    } else {
+        None
+    };
+    let github_events =
+        xharness_host_app::github_events::run_configured(host.clone(), github_event_config);
+    let mut github_events = Box::pin(github_events);
     let mut signal_error = None;
     let early_server_result = tokio::select! {
+        _ = &mut github_events => None,
         result = &mut server_task => Some(result),
         signal = shutdown_signal(args.shutdown_file.clone()) => {
             signal_error = signal.err();
@@ -659,6 +670,7 @@ async fn run(
             None
         }
     };
+    drop(github_events);
     // Resolve Axum's graceful-shutdown future first so its accept loop closes
     // while the backend stops new Agent admission and joins active work.
     let _ = server_stop_tx.send(());

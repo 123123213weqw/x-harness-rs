@@ -4,34 +4,59 @@ import {installStyles} from '../shared/foundation-styles'
 import type {Translation} from '../shared/runtime-types'
 import {ProjectStatusRequest} from './project-github'
 import type {ProjectGitHub, ReadProjectStatus} from './project-github'
+import type {ProjectEvents} from './project-events'
 import source from './ProjectGitHubStatus.css'
 installStyles('@xharness/dsh-client-ui-workspace/ProjectGitHubStatus.css', '@xharness/dsh-client-ui-workspace', source)
 function checkedTime(date: Date): string {
   const pad = (n: number): string => String(n).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
-export function ProjectGitHubStatus({workspaceId, path, generation, active, expanded, read, t, onOpenChange}: {
+export function ProjectGitHubStatus({workspaceId, path, generation, active, expanded, read, t, onOpenChange, events}: {
   workspaceId: string; path: string|undefined; generation: object|undefined; active: boolean; expanded: boolean
+  events?: ProjectEvents|undefined
   read: ReadProjectStatus; t: Translation; onOpenChange(open: boolean): void
 }) {
   const [entry, setEntry] = useState<{generation: object|undefined; id: string; path: string|undefined; value: ProjectGitHub|undefined; error: string|undefined; loading: boolean; checkedAt: string}>()
+  const [live, setLive] = useState<{generation: object; connected: boolean}>()
   const [position, setPosition] = useState<{left: number; top: number}>()
   const trigger = useRef<HTMLButtonElement>(null), panel = useRef<HTMLDivElement>(null)
-  const refresh = useRef<(() => void)|undefined>()
+  const refresh = useRef<(() => void)|undefined>(), manualRefresh = useRef<(() => void)|undefined>()
   useEffect(() => {
     setPosition(undefined)
     if (!generation) {setEntry(undefined); return}
     const request = new ProjectStatusRequest(read, workspaceId)
+    let repositoryId: string|undefined
+    let dirtyWhileHidden = false
+    const state = events?.current()
+    setLive(state?.generation === generation ? {generation, connected: state.connected} : undefined)
     const publish = (value: ProjectGitHub|undefined, error: string|undefined, loading: boolean): void => {
+      if (value?.repositoryId) repositoryId = value.repositoryId
       setEntry({generation, id: workspaceId, path, value, error, loading, checkedAt: loading ? '' : checkedTime(new Date())})
     }
-    const run = (): void => {if (!document.hidden) void request.refresh(publish)}
+    const run = (): void => {
+      if (document.hidden) return
+      if (dirtyWhileHidden) {dirtyWhileHidden = false; request.invalidate(publish)}
+      else void request.refresh(publish)
+    }
+    const unlisten = events?.subscribe(signal => {
+      if (signal.generation !== generation) return
+      setLive({generation, connected: signal.connected})
+      if (!signal.connected) {
+        request.cancel()
+        if (repositoryId) publish(undefined, t('github.live_disconnected'), false)
+        return
+      }
+      if (!signal.reset && (signal.repositoryIds.length === 0 || repositoryId && !signal.repositoryIds.includes(repositoryId))) return
+      if (document.hidden) {dirtyWhileHidden = true; return}
+      request.invalidate(publish)
+    })
+    manualRefresh.current = () => {if (!document.hidden) request.invalidate(publish)}
     refresh.current = run
     window.addEventListener('focus', run)
     document.addEventListener('visibilitychange', run)
     run()
-    return () => {request.dispose(); refresh.current = undefined; window.removeEventListener('focus', run); document.removeEventListener('visibilitychange', run)}
-  }, [read, workspaceId, path, generation])
+    return () => {unlisten?.(); request.dispose(); refresh.current = undefined; manualRefresh.current = undefined; window.removeEventListener('focus', run); document.removeEventListener('visibilitychange', run)}
+  }, [read, workspaceId, path, generation, events])
   useEffect(() => {if (active) refresh.current?.()}, [active])
   useEffect(() => {if (expanded) refresh.current?.()}, [expanded])
   useEffect(() => {onOpenChange(!!position); return () => onOpenChange(false)}, [position, onOpenChange])
@@ -64,7 +89,8 @@ export function ProjectGitHubStatus({workspaceId, path, generation, active, expa
       {current?.error && <p role="alert">{current.error}</p>}
       {current?.checkedAt && <p>{t('github.checked')} {current.checkedAt}</p>}
       <p>{t('github.on_demand')}</p>
-      <button type="button" disabled={current?.loading || !generation} onClick={() => refresh.current?.()}>{t('github.refresh')}</button>
+      {live && live.generation === generation && <p role="status">{t(live.connected ? 'github.live_connected' : 'github.live_disconnected')}</p>}
+      <button type="button" disabled={current?.loading || !generation} onClick={() => manualRefresh.current?.()}>{t('github.refresh')}</button>
     </div>, document.body)}
   </span>
 }
