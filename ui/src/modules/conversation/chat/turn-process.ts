@@ -1,16 +1,18 @@
 import type { ChatNode, TurnTailChatData } from '../contract/chat-nodes'
-import { toolCanFoldAfterTurn } from './adaptive-tool-fold'
+import { toolCanAutoFold, toolCanFoldAfterTurn, toolCanSummarizeLive } from './adaptive-tool-fold'
 import { preparingCall } from './preparing-call'
 
 /** Only an authoritative turn/end tail closes the process; idle/step/end do not. */
-export function turnProcessPresentation(node: ChatNode, tail: Readonly<TurnTailChatData> | undefined, expanded: boolean, live = false): {
+export function turnProcessPresentation(node: ChatNode, tail: Readonly<TurnTailChatData> | undefined, expanded: boolean, live = false, summaryAvailable = false): {
   collapsed: boolean
   hidden: boolean
 } {
   const collapsed = (tail !== undefined || live) && !expanded
   if (!collapsed) return { collapsed: false, hidden: false }
   if (tail === undefined) {
-    // Active/failed tools remain under the protected adaptive-fold policy.
+    // Active rows may leave the DOM only when the authoritative session can
+    // show their summary. Privacy/interactive/unknown carriers stay mounted.
+    if (node.kind === 'tool-call') return { collapsed, hidden: summaryAvailable && (toolCanAutoFold(node) || toolCanSummarizeLive(node)) }
     // Reasoning renders its own Think disclosure, so reasoning-bearing rows
     // are never blank seats; only rows without any renderable block hide.
     const hidden = node.kind === 'assistant-step' && node.data.status !== 'interrupted'
