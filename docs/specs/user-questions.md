@@ -64,6 +64,12 @@ Tool Result 必须携带 `unansweredQuestionIds`，使模型明确知道哪些�
 继续保持 Pending；重新打开或重连后恢复草稿。只有显式 `continue`、`submit`、Session Cancel 或
 Host Policy Cancel 才能结算。
 
+## 前端呈现（单一滚动视口）
+
+提问卡片在场时，会话列必须保持唯一的滚动视口：卡片随消息流排在尾部参与同一滚动，
+不得 `sticky` 悬浮遮挡消息，也不得在卡片内部（选项列表）再开第二滚动区；选项全部
+展开，由会话主滚动区承载。无提问时输入栏的常规呈现不受本节影响。
+
 ## 状态机
 
 ```text
