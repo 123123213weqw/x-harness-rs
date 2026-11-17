@@ -73,3 +73,46 @@ Validation covers deterministic presentation clocks, same-call refresh, bursts,
 late callbacks, no idle timers/replay, protected rows, and real assembled
 Chromium/WebKit transcript behavior including narrow screens, keyboard
 expansion, selection/hover, waits, errors, stop, disconnect and session switch.
+
+## Tool identity
+
+Small repository-owned monochrome SVGs share stroke, size and currentColor. Tool
+identity remains visible while open and when failed/interrupted; the state badge
+is independent. Search is a magnifier, Browser a browser window, Image a landscape,
+Thought a brain, and TodoList a checklist. Known built-in names map explicitly;
+unknown names retain a neutral glyph rather than a fuzzy substring guess.
+
+Only exact browser MCP plugin/server identities and the WordCraft plugin refine
+the MCP glyph. JSON parsing is bounded to 16,384 JavaScript string code units and
+cannot dispatch a tool. Partial/malformed/large arguments keep the neutral MCP
+identity. No icon package, font, network request, dependency or lockfile is added.
+
+The new `todolist` view is registered alongside historical `todo_write` rendering.
+`get` and `update` share one identity; updates show item count, not completion.
+The UI accepts no status-writing shortcut and does not infer plan completion from
+a successful command or model turn. Raw inputs/results remain in the normal
+expanded tool details. This PR does **not** include the separate unsubmitted
+`todolist` backend branch, enable a `plan` alias, or change Host capability policy.
+
+Failure summaries unwrap bounded JSON messages and cap plain previews at 240
+Unicode code points. Full error output remains unchanged and expandable.
+
+## Validation
+
+Private test exports are not added to the production apply/inject ABI. Existing
+frozen references remain byte-for-byte unchanged. Exact reviewed CSS appends and
+locale additions are pinned; unrelated styling/copy/slot deltas still fail parity.
+New regressions cover live/history assembly, incomplete history, turn/step call-ID
+reuse, malformed inputs, recursive failures, terminal failure envelopes, explicit
+and automatic fold protections, keyboard controls, row-owned state restoration,
+ordinary typography, 320px layout and reader anchoring. The new end-to-end fixture
+uses the real Session/Assembler and maintained platform/ChatView/ToolRow/Markdown
+in Chromium and WebKit and is enrolled in both existing CI browser matrices.
+Native wheel input must settle before measuring a disclosure. The real gesture
+places a visible reader anchor with sufficient post-collapse scroll range; the
+less-than-2px assertion is unchanged and no blank production padding is added.
+Existing lifecycle, 42 terminal windows, scroll-follow, virtualization, observer
+cleanup and canonical reproducible-build gates remain required.
+
+This is not an installation, release, native App/WebView lifetime measurement or
+long-term memory benchmark. It does not restart/stop any installed App or Host.
