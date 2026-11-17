@@ -42,85 +42,34 @@ inherit the assistant reading tokens.
   running turn. There is no duplicate ticking header clock. Completed headers show
   logged duration in h/m/s without a visible “Ran for” prefix.
 
-## Recent-tool paging
+## Event-driven collapsed tool summary
 
-Only the collapsed, loaded, currently running turn gets a decorative **Recent**
-preview inside its existing header. It is not a second execution status: a short
-preview may outlive a fast returned tool. The real keyed cards remain mounted in
-their original seats and retain all actions, Inspect, pending controls and native
-privacy effects. Expanded/history/closed turns do not page. Neither the bottom
-pixel ring nor its single h/m/s timer is recreated or duplicated.
+The live collapsed header shows the current tool glyph, action and bounded input
+summary instead of a separate statistics + Recent carousel. A new tool identity
+slides up over 300ms; at most one latest update waits through the 800ms read
+window. Same-call input refreshes in place. Parallel roots have a count badge,
+not cyclic playback. Idle summaries own no repeating timer. Delayed callbacks
+coalesce to the latest state without animating stale backlog. Reduced motion,
+background visibility, hover, focus and selection retain the existing controls.
+A hidden/zero-size viewport restores the existing fail-open policy. Focus,
+selection, open details and the existing reader-anchor owner protect recovery
+from an error/pending row before any DOM is removed. Explicit group-close still
+outranks earlier child expansion without erasing that state.
+Statistics remain the fallback when no live summary is available and on explicit
+expansion/completed turns. Thought remains its own disclosure (#468 tail window).
 
-The presentation keeps one latest snapshot and at most two short faces, never an
-event replay queue or result bodies. Updates coalesce at a 1,000ms cadence with a
-180ms vertical flip. Parallel presentation cycles at most eight recent root calls;
-the badge counts all actual active roots, not nested parent/child calls. Scoped
-turn/step/sequence keys do not assume model-generated call IDs are globally unique.
-Only bounded input metadata is parsed for the preview; original inputs/results
-remain exact in their original cards. A large/incomplete argument keeps a neutral
-preview rather than being reparsed without a limit.
+The existing chat owner selects a primitive summary-ready turn, independently
+of per-token preview text. Only ordinary built-in tools with no native view can
+be represented by that summary while running. Plugin/native privacy carriers,
+agent communications, unknown tools, questions, approvals, failure/unknown-outcome
+barriers, stop and disconnected states retain their real seats. Completed
+successful tools retain the existing fold policy. Manual expansion always
+restores the original keyed tool rows, without replacing their data or execution
+state. The single pixel ring/timer, reader anchor and scoped expansion state are
+unchanged. This is a conservative difference from ZCode: no blanket unmount of
+native/plugin tools, whose privacy effects are owned by their rendered cards.
 
-Error/unknown-outcome/interruption/nonzero or signalled terminal results cancel
-both faces immediately until a genuinely later dispatch. Pending questions,
-approvals, a stop request or a disconnected session disable this decorative layer;
-they cannot hide the actual error/control. The preview does not dispatch anything,
-infer task completion, or change tool/execution/fold policy.
-
-Hover on a fine pointer, keyboard focus and selection hold a static face. Hidden
-documents and reduced-motion users get no paging timer; resuming selects the latest
-snapshot without replay. Expansion, virtualization and session changes dispose
-the one timeout and listeners. The duplicate short text is aria-hidden; the header
-keeps its semantic expand/collapse name and accessible counts, while original cards
-provide the full details. No animation-frame loop, new dependency, SVG package or
-second tool-card tree is introduced.
-
-The pure pacing/projection regressions cover coalescing, delayed timers, duplicate
-faces, bounded previews, scoped keys, recursive error barriers and root-only
-parallelism. The real Session/Assembler browser regression also exercises keyboard
-pause/expansion, streaming, error/recovery, waiting, stop/disconnect, reduced motion,
-session isolation, stable ring/timer identity and 320px layout in Chromium/WebKit.
-These are functional/lifecycle checks, not a claim of lower measured memory or a
-native macOS long-running profile.
-
-## Tool identity
-
-Small repository-owned monochrome SVGs share stroke, size and currentColor. Tool
-identity remains visible while open and when failed/interrupted; the state badge
-is independent. Search is a magnifier, Browser a browser window, Image a landscape,
-Thought a brain, and TodoList a checklist. Known built-in names map explicitly;
-unknown names retain a neutral glyph rather than a fuzzy substring guess.
-
-Only exact browser MCP plugin/server identities and the WordCraft plugin refine
-the MCP glyph. JSON parsing is bounded to 16,384 JavaScript string code units and
-cannot dispatch a tool. Partial/malformed/large arguments keep the neutral MCP
-identity. No icon package, font, network request, dependency or lockfile is added.
-
-The new `todolist` view is registered alongside historical `todo_write` rendering.
-`get` and `update` share one identity; updates show item count, not completion.
-The UI accepts no status-writing shortcut and does not infer plan completion from
-a successful command or model turn. Raw inputs/results remain in the normal
-expanded tool details. This PR does **not** include the separate unsubmitted
-`todolist` backend branch, enable a `plan` alias, or change Host capability policy.
-
-Failure summaries unwrap bounded JSON messages and cap plain previews at 240
-Unicode code points. Full error output remains unchanged and expandable.
-
-## Validation
-
-Private test exports are not added to the production apply/inject ABI. Existing
-frozen references remain byte-for-byte unchanged. Exact reviewed CSS appends and
-locale additions are pinned; unrelated styling/copy/slot deltas still fail parity.
-New regressions cover live/history assembly, incomplete history, turn/step call-ID
-reuse, malformed inputs, recursive failures, terminal failure envelopes, explicit
-and automatic fold protections, keyboard controls, row-owned state restoration,
-ordinary typography, 320px layout and reader anchoring. The new end-to-end fixture
-uses the real Session/Assembler and maintained platform/ChatView/ToolRow/Markdown
-in Chromium and WebKit and is enrolled in both existing CI browser matrices.
-Native wheel input must settle before measuring a disclosure. The real gesture
-places a visible reader anchor with sufficient post-collapse scroll range; the
-less-than-2px assertion is unchanged and no blank production padding is added.
-Existing lifecycle, 42 terminal windows, scroll-follow, virtualization, observer
-cleanup and canonical reproducible-build gates remain required.
-
-This is not an installation, release, native App/WebView lifetime measurement or
-long-term memory benchmark. It does not restart/stop any installed App or Host.
+Validation covers deterministic presentation clocks, same-call refresh, bursts,
+late callbacks, no idle timers/replay, protected rows, and real assembled
+Chromium/WebKit transcript behavior including narrow screens, keyboard
+expansion, selection/hover, waits, errors, stop, disconnect and session switch.

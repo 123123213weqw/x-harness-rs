@@ -16,8 +16,25 @@ export function toolCanFoldAfterTurn(node: ChatNode): boolean {
   return toolCanFold(node)
 }
 
+const LIVE_SUMMARY_TOOLS = new Set(['read', 'write', 'edit', 'grep', 'glob', 'bash', 'pwsh', 'run_code', 'todolist', 'todo_write', 'web_search', 'web_fetch'])
+
+/** Conservative live-only subset: native/plugin privacy and interactive seats
+ * must remain mounted. Completed rows retain the existing recursive policy. */
+export function toolCanSummarizeLive(node: ChatNode): boolean {
+  if (node.kind !== 'tool-call' || node.data.root === undefined) return false
+  const stack: ToolCallBlock[] = [node.data.root]
+  for (let block = stack.pop(); block !== undefined; block = stack.pop()) {
+    if ('kind' in block) {
+      if (!toolCanFold({ ...node, data: { root: block } })) return false
+      continue
+    } else if (!LIVE_SUMMARY_TOOLS.has(block.name) || block.callView !== null) return false
+    stack.push(...block.subCalls)
+  }
+  return true
+}
+
 function toolCanFold(node: ChatNode): boolean {
-  if (node.kind !== 'tool-call') return false
+  if (node.kind !== 'tool-call' || node.data.root === undefined) return false
   const stack: ToolCallBlock[] = [node.data.root]
   for (let block = stack.pop(); block !== undefined; block = stack.pop()) {
     // Agent communication acknowledgements must remain visible when a turn

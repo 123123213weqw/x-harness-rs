@@ -8,12 +8,16 @@ interface AdaptiveToolFoldState {
   readonly foldedTools: FoldedTools
   readonly invalidateFoldedTool: (key: string) => void
   readonly collapseTurn: (turn: number) => void
+  readonly isFoldReaderAnchor: (key: string) => boolean
+  readonly toolSummaryViewportReady: boolean
 }
 
 /** One observer per chat, not per Tool. No transport/event parsing in this seat. */
 export function useAdaptiveToolFold(sessionId: string, list: React.RefObject<HTMLElement>, expanded: ReadonlySet<number>,
   beforeFold: (commit: boolean) => string | undefined, revision: Pick<ReadonlyMap<string, ChatConversationViewNode>, 'get'>): AdaptiveToolFoldState {
   const mode = useProcessMode()
+  const [toolSummaryViewportReady, setToolSummaryViewportReady] = useState(true)
+  const viewportReady = useRef(true)
   const [state, setState] = useState<{ sessionId: string; folded: FoldedTools }>(() => ({ sessionId, folded: NO_FOLDED_TOOLS }))
   if (state.sessionId !== sessionId) setState({ sessionId, folded: NO_FOLDED_TOOLS })
   // Seats subscribe to individual lifecycle updates, while the parent store
@@ -36,6 +40,7 @@ export function useAdaptiveToolFold(sessionId: string, list: React.RefObject<HTM
   }, [sessionId])
   const latest = useRef({ expanded, beforeFold, revision })
   latest.current = { expanded, beforeFold, revision }
+  const isFoldReaderAnchor = useCallback((key: string): boolean => latest.current.beforeFold(false) === key, [])
   const manuallyOpenedRef = useRef(new Set<string>())
   const collapseTurn = useCallback((turn: number): void => {
     // An explicit group-close gesture outranks earlier child expansion, but
@@ -84,6 +89,11 @@ export function useAdaptiveToolFold(sessionId: string, list: React.RefObject<HTM
       attributeFilter: ['data-chat-auto-fold-turn', 'data-chat-auto-fold-eligible'] })
     function measure(): void {
       frame = 0
+      const ready = scrollport.clientHeight > 0 && scrollport.clientWidth > 0
+      if (viewportReady.current !== ready) {
+        viewportReady.current = ready
+        setToolSummaryViewportReady(ready)
+      }
       const elements = [...elementRoot.querySelectorAll<HTMLElement>('[data-chat-auto-fold-turn]')]
       const current = new Set(elements)
       for (const key of manuallyOpened) {
@@ -170,5 +180,5 @@ export function useAdaptiveToolFold(sessionId: string, list: React.RefObject<HTM
   // New/settled nodes and explicit choices may change eligibility without
   // changing geometry. Observe them without tearing down the ResizeObserver.
   useLayoutEffect(() => { scheduleRef.current() }, [revision, expanded, state])
-  return { foldedTools: state.sessionId === sessionId ? state.folded : NO_FOLDED_TOOLS, invalidateFoldedTool, collapseTurn }
+  return { foldedTools: state.sessionId === sessionId ? state.folded : NO_FOLDED_TOOLS, invalidateFoldedTool, collapseTurn, isFoldReaderAnchor, toolSummaryViewportReady }
 }
