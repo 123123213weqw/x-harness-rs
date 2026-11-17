@@ -125,7 +125,7 @@ try{
  },{thinking,thinkingMore,live,failed,closed,activityOne,activityTwo,activityLatest,activityParallel,activityFailure,activityRecovery});console.log('real fixture mounted')
  const frame=()=>page.evaluate(()=>new Promise((resolve,reject)=>{const id=setTimeout(()=>reject(Error('animation frame deadline')),3000);requestAnimationFrame(()=>requestAnimationFrame(()=>{clearTimeout(id);resolve()}))}))
  const group=page.locator('[data-live-tool-summary="12"]')
- await group.waitFor();assert.equal(await page.locator('[data-variant="think"]').count(),0,'live thought stays inside the collapsed round')
+ await group.waitFor();assert.equal(await page.locator('[data-variant="think"]').count(),1,'live thought renders its own Think row beside the collapsed round')
  console.log('thinking grouped');const before=await group.boundingBox();await page.evaluate(()=>installFixture('thinkingMore'));await frame();const after=await group.boundingBox()
  assert.equal(after.height,before.height,'reasoning deltas do not grow the collapsed header')
  await page.evaluate(()=>installFixture('live'));await page.locator('[data-tool="bash"]').waitFor();await frame();await frame()

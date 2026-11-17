@@ -237,7 +237,7 @@ try {
  assert.equal(await summary.getAttribute('aria-expanded'),'false')
  assert.equal(await page.locator('[data-tool-card]').count(),0)
  assert.equal(await page.getByText('intermediate reply',{exact:true}).count(),0)
- assert.equal(await page.locator('[data-variant=think]').count(),0)
+ assert.equal(await page.locator('[data-variant=think]').count(),1)
  await page.getByText('final answer',{exact:true}).waitFor()
  await page.mouse.move(900,10);assert.equal(await summary.evaluate(e=>getComputedStyle(e).opacity),'1')
  // Keyboard reopen and close: same footer retains focus and process stores are unchanged.
