@@ -42,9 +42,17 @@ pub(crate) enum SearchQueryError {
 pub(crate) struct SessionProcessor;
 
 impl SessionProcessor {
+    /// Creation-descending order. `updatedAt` is only a tie-breaker: background
+    /// events (title generation, compaction, schedule restore) advance it
+    /// without user activity and must never float old sessions above newer
+    /// ones.
     pub(crate) fn list(mut summaries: Vec<Value>) -> Value {
-        summaries
-            .sort_by_key(|item| std::cmp::Reverse(item["updatedAt"].as_u64().unwrap_or_default()));
+        summaries.sort_by_key(|item| {
+            std::cmp::Reverse((
+                item["createdAt"].as_u64().unwrap_or_default(),
+                item["updatedAt"].as_u64().unwrap_or_default(),
+            ))
+        });
         json!({"items": summaries})
     }
 
@@ -127,14 +135,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn list_is_newest_first_and_missing_time_is_oldest() {
+    fn list_is_creation_descending_and_activity_never_reorders() {
         let value = SessionProcessor::list(vec![
-            json!({"sessionId": "old", "updatedAt": 1}),
+            json!({"sessionId": "old-quiet", "createdAt": 1, "updatedAt": 1}),
+            // Background events (e.g. title generation) advanced updatedAt far
+            // past every creation time; this row must stay below newer sessions.
+            json!({"sessionId": "old-titled", "createdAt": 2, "updatedAt": 99}),
             json!({"sessionId": "missing"}),
-            json!({"sessionId": "new", "updatedAt": 9}),
+            json!({"sessionId": "new", "createdAt": 9, "updatedAt": 3}),
         ]);
         assert_eq!(value["items"][0]["sessionId"], "new");
-        assert_eq!(value["items"][2]["sessionId"], "missing");
+        assert_eq!(value["items"][1]["sessionId"], "old-titled");
+        assert_eq!(value["items"][2]["sessionId"], "old-quiet");
+        assert_eq!(value["items"][3]["sessionId"], "missing");
     }
 
     #[test]
