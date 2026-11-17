@@ -1,5 +1,5 @@
 {
-  "rev": "345cffc522aeab2b",
+  "rev": "a771b70356536527",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -277,8 +277,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-conversation",
-      "url": "/plugins/@xharness/dsh-client-ui-conversation/client.js?rev=ba3d07072fa0622e",
-      "rev": "ba3d07072fa0622e",
+      "url": "/plugins/@xharness/dsh-client-ui-conversation/client.js?rev=d70de068d3dfc4de",
+      "rev": "d70de068d3dfc4de",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-client-locale",
@@ -665,8 +665,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-user-questions",
-      "url": "/plugins/@xharness/dsh-client-ui-user-questions/client.js?rev=2a09b6a2bb5327b8",
-      "rev": "2a09b6a2bb5327b8",
+      "url": "/plugins/@xharness/dsh-client-ui-user-questions/client.js?rev=d0ad3b9155af1d5b",
+      "rev": "d0ad3b9155af1d5b",
       "inject": [
         "@xharness/dsh-client-locale",
         "@xharness/dsh-client-ui-conversation"

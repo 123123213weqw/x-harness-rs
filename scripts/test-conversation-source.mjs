@@ -234,7 +234,9 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
   // Narrow-viewport tab strip: a 16px gap plus horizontal scroll below 600px,
   // and a 44px row on coarse pointers. Every byte above that append is
   // unchanged; the desktop declarations (gap 36, 27px row) are untouched.
-  'skeleton/ConversationRoot': 'ba9b67ea1576903f4d2727faf002d3fdaa15bc2f3576aadc5dcb19de64a4d3e0',
+  // Single scroll viewport: with a question card present the composer seat
+  // leaves sticky and joins the flow tail (static, no gradient).
+  'skeleton/ConversationRoot': '6ded2345dd75573fc008cc1a0d0741582adf4ee07e04652359f7e41956a987ab',
  };
  assert.equal(Object.hasOwn(oldCss,'@xharness/dsh-client-ui-conversation/LoadingIndicator.module.css'),false,'the frozen baseline must not acquire the new spinner sheet');
  for(const [name,sha] of Object.entries(reviewedStyles)) {
