@@ -217,17 +217,16 @@ try{
  // A keyboard reader holds a static face until leaving the summary control.
  const focusedId=await current.getAttribute('data-tool-activity-current')
  await page.evaluate(()=>installActivity('activityOne'))
- await page.waitForTimeout(1100);assert.equal(await current.getAttribute('data-tool-activity-current'),focusedId)
+ await page.waitForFunction(()=>document.querySelector('[data-tool-activity-current]')?.textContent.includes('first.css'));assert.ok((await current.innerText()).includes('first.css'),'static face updates immediately under keyboard focus')
  await activityHeader.press('Tab');await page.mouse.move(950,770)
  // Fine-pointer hover and text selection must pause, rather than churn under a reader.
- await activity.hover();const hoverId=await current.getAttribute('data-tool-activity-current')
+ await activity.hover()
  await page.evaluate(()=>installActivity('activityLatest'))
- await page.waitForTimeout(1100);assert.equal(await current.getAttribute('data-tool-activity-current'),hoverId)
+ await page.waitForFunction(()=>document.querySelector('[data-tool-activity-current]')?.textContent.includes('LATEST_ACTIVITY'));assert.ok((await current.innerText()).includes('LATEST_ACTIVITY'),'static face updates immediately under hover')
  await page.mouse.move(950,770)
  await page.evaluate(()=>{const range=document.createRange();range.selectNodeContents(document.querySelector('[data-tool-activity-pages]'));const selection=getSelection();selection.removeAllRanges();selection.addRange(range);document.dispatchEvent(new Event('selectionchange'))})
- const selectedId=await current.getAttribute('data-tool-activity-current')
  await page.evaluate(()=>installActivity('activityParallel'))
- await page.waitForTimeout(1100);assert.equal(await current.getAttribute('data-tool-activity-current'),selectedId)
+ await page.waitForFunction(()=>document.querySelector('[data-tool-activity-current]')?.textContent.includes('TodoList'));assert.ok((await current.innerText()).includes('TodoList'),'static face updates immediately under text selection')
  await page.evaluate(()=>{getSelection().removeAllRanges();document.dispatchEvent(new Event('selectionchange'))})
  // Controlled page visibility is an input to the real hook, not a fake execution state.
  await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'))})
@@ -265,7 +264,7 @@ try{
  if(output){await page.screenshot({path:join(output,engine+'-tool-activity.png'),fullPage:true})}
  console.log(engine+': coalesced latest tool, real parallel roots, focus/hover/selection/hidden/expansion, approval/question/error/stop/disconnect barriers, reduced motion, single stable clock/ring and session isolation passed')
  await page.evaluate(()=>renderGlyphs());await frame()
- assert.ok(await page.evaluate(()=>activityTimerPeak)>0,'the real timeout probe observed activity')
+ assert.equal(await page.evaluate(()=>activityTimerPeak),0,'the static summary never schedules activity timers')
  await page.waitForFunction(()=>activityTimers.size===0)
  assert.equal(await page.locator('[data-tool-activity]').count(),0,'no stale activity subtree after unmount')
  assert.equal(await page.evaluate(()=>[...activityListeners].every(([type,set])=>set.size===activityListenerBaseline.get(type).size&&[...set].every(listener=>activityListenerBaseline.get(type).has(listener)))),true,'all component visibility/selection subscriptions disposed; exact React root control retained')
