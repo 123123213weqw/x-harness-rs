@@ -239,7 +239,7 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
   // Single scroll viewport: tool-card bodies are unbounded flow content.
   'chat/ContextInjectionRow': 'a93c66501248ea81479dfdc94239cfcfa55ed4b09269ec41be8dcb5fc580dc01',
   // Single scroll viewport: tool-card bodies are unbounded flow content.
-  'chat/AssistantMarkdown': '4d1a1c0b61d140b857d3fcfa0fc33c1e6763c10f2c8679349a50b721ce2f20f0',
+  'chat/AssistantMarkdown': '21e87d66c7014089958318a0af382f05373ffda1081bc6284a478d8b4cd8293e',
   // Single scroll viewport: with a question card present the composer seat
   // leaves sticky and joins the flow tail (static, no gradient).
   'skeleton/ConversationRoot': '6ded2345dd75573fc008cc1a0d0741582adf4ee07e04652359f7e41956a987ab',
