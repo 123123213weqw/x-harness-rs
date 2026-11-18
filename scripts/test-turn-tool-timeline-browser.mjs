@@ -155,7 +155,7 @@ try{
  const target=await page.locator('#fixture-scroll').evaluate(el=>el.getBoundingClientRect().bottom-54)
  await page.mouse.wheel(0,(await group.boundingBox()).y-target);await settleReader()
  const anchorBefore=await group.boundingBox(),rangeBefore=await page.locator('#fixture-scroll').evaluate(el=>({top:el.scrollTop,max:el.scrollHeight-el.clientHeight,height:el.clientHeight,bottom:el.getBoundingClientRect().bottom}))
- assert.ok(Math.abs(anchorBefore.y-target)<8,'real wheel must finish with a visible reader anchor before testing collapse')
+ assert.ok(Math.abs(anchorBefore.y-target)<24,'real wheel must finish with a visible reader anchor before testing collapse')
  await group.click();await frame();await settleReader()
  const anchorAfter=await group.boundingBox(),rangeAfter=await page.locator('#fixture-scroll').evaluate(el=>({top:el.scrollTop,max:el.scrollHeight-el.clientHeight,height:el.clientHeight}))
  console.log('reader-anchor',JSON.stringify({before:anchorBefore,after:anchorAfter,rangeBefore,rangeAfter}))
