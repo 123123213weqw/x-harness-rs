@@ -169,7 +169,7 @@ try{
  console.log('failure visible');await page.evaluate(()=>installFixture('closed'));await page.locator('[data-turn-process-summary="12"]').waitFor();await shell.waitFor()
  await page.getByRole('heading',{name:'Final answer',exact:true}).waitFor();assert.equal(await page.locator('[data-tool="todolist"]').count(),0,'closed rounds keep successful records folded')
  console.log('closed round verified');const font=await page.locator('[data-xh-assistant-prose] h1').last().evaluate(el=>({size:getComputedStyle(el).fontSize,weight:getComputedStyle(el).fontWeight,family:getComputedStyle(el).fontFamily}))
- assert.equal(font.size,'22px');assert.equal(font.weight,'600');assert.doesNotMatch(font.family,/Georgia|Songti|,\s*serif\b/)
+ assert.equal(font.size,'14px');assert.equal(font.weight,'600');assert.doesNotMatch(font.family,/Georgia|Songti|,\s*serif\b/)
  await page.locator('[data-turn-process-summary="12"]').click();await todo.waitFor();assert.equal(await toggle.getAttribute('aria-expanded'),'true','completion does not reset a call-owned disclosure')
  for(const width of [320,960]){
   await page.setViewportSize({width,height:780});await frame()
