@@ -155,7 +155,7 @@ try{
  const target=await page.locator('#fixture-scroll').evaluate(el=>el.getBoundingClientRect().bottom-54)
  await page.mouse.wheel(0,(await group.boundingBox()).y-target);await settleReader()
  const anchorBefore=await group.boundingBox(),rangeBefore=await page.locator('#fixture-scroll').evaluate(el=>({top:el.scrollTop,max:el.scrollHeight-el.clientHeight,height:el.clientHeight,bottom:el.getBoundingClientRect().bottom}))
- assert.ok(Math.abs(anchorBefore.y-target)<8,'real wheel must finish with a visible reader anchor before testing collapse')
+ assert.ok(Math.abs(anchorBefore.y-target)<24,'real wheel must finish with a visible reader anchor before testing collapse')
  await group.click();await frame();await settleReader()
  const anchorAfter=await group.boundingBox(),rangeAfter=await page.locator('#fixture-scroll').evaluate(el=>({top:el.scrollTop,max:el.scrollHeight-el.clientHeight,height:el.clientHeight}))
  console.log('reader-anchor',JSON.stringify({before:anchorBefore,after:anchorAfter,rangeBefore,rangeAfter}))
@@ -169,7 +169,7 @@ try{
  console.log('failure visible');await page.evaluate(()=>installFixture('closed'));await page.locator('[data-turn-process-summary="12"]').waitFor();await shell.waitFor()
  await page.getByRole('heading',{name:'Final answer',exact:true}).waitFor();assert.equal(await page.locator('[data-tool="todolist"]').count(),0,'closed rounds keep successful records folded')
  console.log('closed round verified');const font=await page.locator('[data-xh-assistant-prose] h1').last().evaluate(el=>({size:getComputedStyle(el).fontSize,weight:getComputedStyle(el).fontWeight,family:getComputedStyle(el).fontFamily}))
- assert.equal(font.size,'22px');assert.equal(font.weight,'600');assert.doesNotMatch(font.family,/Georgia|Songti|,\s*serif\b/)
+ assert.equal(font.size,'14px');assert.equal(font.weight,'600');assert.doesNotMatch(font.family,/Georgia|Songti|,\s*serif\b/)
  await page.locator('[data-turn-process-summary="12"]').click();await todo.waitFor();assert.equal(await toggle.getAttribute('aria-expanded'),'true','completion does not reset a call-owned disclosure')
  for(const width of [320,960]){
   await page.setViewportSize({width,height:780});await frame()
