@@ -21,7 +21,7 @@ export function ToolActivitySummary({ turn, enabled, useSession, t, fallback }: 
     <span className="xh-tool-activity-pages" data-tool-activity-pages="">
       {current !== undefined && <span className="xh-tool-activity-page" data-tool-activity-current={current.key}>
         <span className="xh-tool-activity-face">
-          <ToolGlyph name={current.name} argsRaw={current.glyphArgs} size={14} /><span className="xh-tool-activity-name">{current.title}</span><span className="xh-tool-activity-description">{current.summary}</span>
+          <ToolGlyph name={current.name} argsRaw={current.glyphArgs} size={14} /><span className="xh-tool-activity-name">{current.title}</span>
         </span>
       </span>}
     </span>
