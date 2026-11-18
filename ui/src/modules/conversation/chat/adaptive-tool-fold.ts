@@ -6,6 +6,17 @@ export const TOOL_FOLD_VIEWPORT_SHARE = 0.4
 export type FoldedTools = ReadonlyMap<number, ReadonlySet<string>>
 export const NO_FOLDED_TOOLS: FoldedTools = new Map()
 
+/** Agent communication acknowledgements stay visible in settled transcripts. */
+export function toolIsAgentAcknowledgement(node: ChatNode): boolean {
+  if (node.kind !== 'tool-call') return false
+  const stack: ToolCallBlock[] = [node.data.root]
+  for (let block = stack.pop(); block !== undefined; block = stack.pop()) {
+    if (('kind' in block ? block.call?.name : block.name) === 'agent') return true
+    stack.push(...block.subCalls)
+  }
+  return false
+}
+
 /** Fail open on active, failed, recursive pending, or unknown tool carriers. */
 export function toolCanAutoFold(node: ChatNode): boolean {
   return toolCanFold(node)

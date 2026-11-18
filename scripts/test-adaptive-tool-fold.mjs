@@ -33,10 +33,10 @@ test('recursive calls: only all-successful settled roots eligible, output never 
  assert.equal(plugin.toolCanAutoFold({kind:'unknown',data:{}}),false)
  assert.equal(JSON.stringify(root),before)
 })
-test('turn/end folds success but preserves failures/pending/unknown outcomes; expansion restores every row',()=>{
+test('turn/end folds every settled tool including failures; expansion restores every row',()=>{
  const tail={turn:1,closing:null}
  for(const root of [block({isError:true}),block({subCalls:[block({isError:true})]}),block({subCalls:[{callId:'live',subCalls:[]}]}),block({isError:true,error:{name:'OutcomeUnknown',code:'OUTCOME_UNKNOWN'}}),block({subCalls:[block({isError:true,error:{name:'OutcomeUnknown',code:'OUTCOME_UNKNOWN'}})]}),block({isError:true,error:{name:'Interrupted',code:'interrupted'}}),block({subCalls:[block({isError:true,error:{name:'Interrupted',code:'interrupted'}})]})]){
-  assert.deepEqual(json(plugin.turnProcessPresentation(tool(root),tail,false)),{collapsed:true,hidden:false})
+  assert.deepEqual(json(plugin.turnProcessPresentation(tool(root),tail,false)),{collapsed:true,hidden:true})
   assert.deepEqual(json(plugin.turnProcessPresentation(tool(root),tail,true)),{collapsed:false,hidden:false})
  }
  for(const root of [block(),block({subCalls:[block()]})]){
@@ -84,7 +84,7 @@ test('compact mode folds earlier success even below the old budget, but newest/p
  assert.deepEqual([...plugin.planToolFold(rows,0,0.4,true)],[])
  for(const root of [block({resultView:{card:'terminal',exitCode:7}}),block({resultView:{card:'terminal',signal:'SIGTERM'}}),block({subCalls:[block({resultView:{card:'terminal',exitCode:1}})]})]){
   assert.equal(plugin.toolCanAutoFold(tool(root)),false)
-  assert.equal(plugin.turnProcessPresentation(tool(root),{turn:1,closing:null},false).hidden,false)
+  assert.equal(plugin.turnProcessPresentation(tool(root),{turn:1,closing:null},false).hidden,true)
  }
 })
 test('live reasoning renders its own Think disclosure instead of hiding; prose, images, preparing inputs, unknown blocks and interruption stay visible',()=>{

@@ -166,7 +166,7 @@ try{
  const shell=page.locator('[data-tool="bash"]');await shell.waitFor();await shell.getByText('regression failed',{exact:true}).waitFor()
  assert.equal(await shell.locator('[data-tool-glyph="terminal"]').count(),1,'failure badge does not replace the tool icon')
  assert.equal(await page.locator('[data-tool="plugin_mcp"] [data-tool-glyph="browser"]').count(),1,'exact browser MCP calls use a browser window')
- console.log('failure visible');await page.evaluate(()=>installFixture('closed'));await page.locator('[data-turn-process-summary="12"]').waitFor();await shell.waitFor()
+ console.log('failure visible');await page.evaluate(()=>installFixture('closed'));await page.locator('[data-turn-process-summary="12"]').waitFor();assert.equal(await shell.count(),0,'closed rounds fold failures into the summary too')
  await page.getByRole('heading',{name:'Final answer',exact:true}).waitFor();assert.equal(await page.locator('[data-tool="todolist"]').count(),0,'closed rounds keep successful records folded')
  console.log('closed round verified');const font=await page.locator('[data-xh-assistant-prose] h1').last().evaluate(el=>({size:getComputedStyle(el).fontSize,weight:getComputedStyle(el).fontWeight,family:getComputedStyle(el).fontFamily}))
  assert.equal(font.size,'14px');assert.equal(font.weight,'600');assert.doesNotMatch(font.family,/Georgia|Songti|,\s*serif\b/)

@@ -1,5 +1,5 @@
 import type { ChatNode, TurnTailChatData } from '../contract/chat-nodes'
-import { toolCanAutoFold, toolCanFoldAfterTurn, toolCanSummarizeLive } from './adaptive-tool-fold'
+import { toolCanAutoFold, toolCanSummarizeLive, toolIsAgentAcknowledgement } from './adaptive-tool-fold'
 import { preparingCall } from './preparing-call'
 
 /** Only an authoritative turn/end tail closes the process; idle/step/end do not. */
@@ -25,10 +25,12 @@ export function turnProcessPresentation(node: ChatNode, tail: Readonly<TurnTailC
     case 'assistant-step':
       return { collapsed, hidden: tail.closing === null || node.data.finalNode?.seq !== tail.closing.finalNode.seq }
     case 'tool-call':
-      // Keep failures and recursive pending/unknown outcomes visible even
-      // if a stale turn/end is present; completion is not success.
-      // Composer approvals/questions and turn failures have their own seats.
-      if (node.data.root !== undefined && !toolCanFoldAfterTurn(node)) return { collapsed, hidden: false }
+      // A settled transcript stays clean: every tool card folds into the
+      // turn summary, failures included — their count rides the summary row
+      // and a disclosure click restores the full-fidelity cards. Agent
+      // communication acknowledgements stay visible; composer approvals,
+      // questions and turn failures have their own seats.
+      if (toolIsAgentAcknowledgement(node)) return { collapsed, hidden: false }
       return { collapsed, hidden: true }
     case 'model-retry':
     case 'context':

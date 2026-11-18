@@ -6124,6 +6124,7 @@ function useProcessMode() {
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.NO_FOLDED_TOOLS = exports.TOOL_FOLD_VIEWPORT_SHARE = void 0;
+exports.toolIsAgentAcknowledgement = toolIsAgentAcknowledgement;
 exports.toolCanAutoFold = toolCanAutoFold;
 exports.toolCanFoldAfterTurn = toolCanFoldAfterTurn;
 exports.toolCanSummarizeLive = toolCanSummarizeLive;
@@ -6131,6 +6132,18 @@ exports.planToolFold = planToolFold;
 /** Display budget only: no request, token, Tool output or runtime policy changes. */
 exports.TOOL_FOLD_VIEWPORT_SHARE = 0.4;
 exports.NO_FOLDED_TOOLS = new Map();
+/** Agent communication acknowledgements stay visible in settled transcripts. */
+function toolIsAgentAcknowledgement(node) {
+    if (node.kind !== 'tool-call')
+        return false;
+    const stack = [node.data.root];
+    for (let block = stack.pop(); block !== undefined; block = stack.pop()) {
+        if (('kind' in block ? block.call?.name : block.name) === 'agent')
+            return true;
+        stack.push(...block.subCalls);
+    }
+    return false;
+}
 /** Fail open on active, failed, recursive pending, or unknown tool carriers. */
 function toolCanAutoFold(node) {
     return toolCanFold(node);
@@ -7825,10 +7838,12 @@ function turnProcessPresentation(node, tail, expanded, live = false, summaryAvai
         case 'assistant-step':
             return { collapsed, hidden: tail.closing === null || node.data.finalNode?.seq !== tail.closing.finalNode.seq };
         case 'tool-call':
-            // Keep failures and recursive pending/unknown outcomes visible even
-            // if a stale turn/end is present; completion is not success.
-            // Composer approvals/questions and turn failures have their own seats.
-            if (node.data.root !== undefined && !(0, adaptive_tool_fold_1.toolCanFoldAfterTurn)(node))
+            // A settled transcript stays clean: every tool card folds into the
+            // turn summary, failures included — their count rides the summary row
+            // and a disclosure click restores the full-fidelity cards. Agent
+            // communication acknowledgements stay visible; composer approvals,
+            // questions and turn failures have their own seats.
+            if ((0, adaptive_tool_fold_1.toolIsAgentAcknowledgement)(node))
                 return { collapsed, hidden: false };
             return { collapsed, hidden: true };
         case 'model-retry':
