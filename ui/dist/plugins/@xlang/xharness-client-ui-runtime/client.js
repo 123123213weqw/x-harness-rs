@@ -29,6 +29,7 @@ function apply(ctx) {
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.GatewayCreationPicker = GatewayCreationPicker;
 exports.GatewayHeader = GatewayHeader;
 exports.GatewayHero = GatewayHero;
 exports.GatewayCloudStatus = GatewayCloudStatus;
@@ -60,30 +61,49 @@ function useCatalogue(client) {
     }, [client]);
     return catalogue;
 }
-function Picker({ catalogue, t, appearance }) {
+function GatewayCreationPicker({ catalogue, t, sessionId, appearance }) {
     const [open, setOpen] = (0, react_1.useState)(false);
     const [blocked, setBlocked] = (0, react_1.useState)(false);
+    const eligible = (0, react_1.useRef)(sessionId === undefined);
+    eligible.current = sessionId === undefined;
+    (0, react_1.useEffect)(() => {
+        eligible.current = sessionId === undefined;
+        setOpen(false);
+        setBlocked(false);
+        return () => { eligible.current = false; };
+    }, [sessionId]);
     const current = catalogue.entries.find(e => e.id === catalogue.current);
     const Icon = current?.kind === 'cloud' ? dsh_client_ui_primitives_1.IconGlobeOutline14 : dsh_client_ui_primitives_1.IconFollowsystemOutline16;
-    return (0, jsx_runtime_1.jsxs)("span", { "data-xh-environment-switcher": "", style: { display: 'inline-flex', alignItems: 'center', gap: 8, maxWidth: '100%', flexWrap: 'wrap' }, children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: open, portal: true, side: "bottom", selectedId: catalogue.current, onClose: () => { setOpen(false); }, onSelect: id => {
+    if (sessionId !== undefined)
+        return (0, jsx_runtime_1.jsx)(EnvironmentLabel, { catalogue: catalogue, t: t });
+    return (0, jsx_runtime_1.jsxs)("span", { "data-xh-environment-create-picker": "", style: { display: 'inline-flex', alignItems: 'center', gap: 8, maxWidth: '100%', flexWrap: 'wrap' }, children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: open, portal: true, side: "bottom", selectedId: catalogue.current, onClose: () => { setOpen(false); }, onSelect: id => {
+                    if (!eligible.current)
+                        return;
                     setOpen(false);
                     if (id === catalogue.current)
                         return;
-                    setBlocked(!(0, gateway_1.openEnvironment)(catalogue, id, href => { const page = window.open('about:blank', '_blank'); if (page !== null) {
+                    setBlocked(!(0, gateway_1.openNewTaskEnvironment)(catalogue, eligible.current, id, href => { const page = window.open('about:blank', '_blank'); if (page !== null) {
                         page.opener = null;
                         page.location.replace(href);
                     } ; return page; }));
                 }, items: catalogue.entries.map(e => ({ id: e.id, label: e.label, disabled: e.id === catalogue.current,
                     icon: e.kind === 'cloud' ? (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconGlobeOutline14, { size: 16, "aria-hidden": "true" }) : (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconFollowsystemOutline16, { size: 16, "aria-hidden": "true" }) })), anchor: (0, jsx_runtime_1.jsxs)("button", { type: "button", className: appearance?.trigger, "aria-label": t('choose'), "aria-haspopup": "menu", "aria-expanded": open, title: t('separate'), onClick: () => { setOpen(value => !value); }, style: appearance ? undefined : { display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid currentColor', borderRadius: 8, padding: '5px 9px', background: 'transparent', color: 'inherit', cursor: 'pointer', font: 'inherit' }, children: [(0, jsx_runtime_1.jsx)(Icon, { size: 16, className: appearance?.icon, "aria-hidden": "true" }), (0, jsx_runtime_1.jsx)("span", { className: appearance?.label, children: current?.label }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconChevronDownOutline14, { size: 12, className: appearance?.chevron, "aria-hidden": "true" })] }) }), blocked && (0, jsx_runtime_1.jsx)("span", { role: "alert", children: t('popupBlocked') })] });
 }
-/** Header selector exists for real configured Gateways only. Local stays quiet. */
+function EnvironmentLabel({ catalogue, t }) {
+    const current = catalogue.entries.find(e => e.id === catalogue.current);
+    if (current === undefined)
+        return null;
+    const Icon = current.kind === 'cloud' ? dsh_client_ui_primitives_1.IconGlobeOutline14 : dsh_client_ui_primitives_1.IconFollowsystemOutline16;
+    return (0, jsx_runtime_1.jsxs)("span", { "data-xh-environment-bound": "", title: t('bound'), style: { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }, children: [(0, jsx_runtime_1.jsx)(Icon, { size: 14, "aria-hidden": "true" }), (0, jsx_runtime_1.jsx)("span", { children: current.label })] });
+}
+/** Existing chats show their immutable environment, never a switch control. */
 function GatewayHeader({ t, catalogueClient }) {
     const catalogue = useCatalogue(catalogueClient);
-    return catalogue === undefined ? null : (0, jsx_runtime_1.jsx)(Picker, { catalogue: catalogue, t: t });
+    return catalogue === undefined ? null : (0, jsx_runtime_1.jsx)(EnvironmentLabel, { catalogue: catalogue, t: t });
 }
 function GatewayHero({ t, catalogueClient, ...owner }) {
     const catalogue = useCatalogue(catalogueClient);
-    return catalogue === undefined ? (0, jsx_runtime_1.jsx)(EnvironmentPicker_1.EnvironmentPicker, { ...owner, t: t }) : (0, jsx_runtime_1.jsx)(Picker, { catalogue: catalogue, t: t, appearance: owner.appearance });
+    return catalogue === undefined ? (0, jsx_runtime_1.jsx)(EnvironmentPicker_1.EnvironmentPicker, { ...owner, t: t }) : (0, jsx_runtime_1.jsx)(GatewayCreationPicker, { catalogue: catalogue, t: t, sessionId: owner.sessionId, appearance: owner.appearance });
 }
 /** No “takeover” or “synced” claim: v1 only provides real isolated connections. */
 function GatewayCloudStatus({ t, description, catalogueClient }) {
@@ -193,10 +213,33 @@ function canAcknowledgeLocalPick(presentation, id) {
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.parseCatalogue = void 0;
+exports.openNewTaskEnvironment = openNewTaskEnvironment;
+const environment_catalogue_1 = require("../client-connection/contracts/environment-catalogue");
+var environment_catalogue_2 = require("../client-connection/contracts/environment-catalogue");
+Object.defineProperty(exports, "parseCatalogue", { enumerable: true, get: function () { return environment_catalogue_2.parseCatalogue; } });
+/** A new-task pick opens another origin. It never rebinds a SessionManager or copies its
+ * draft/history/attachment cache. A blocked popup is not a successful switch. */
+function openNewTaskEnvironment(catalogue, canChoose, id, open) {
+    if (!canChoose)
+        return false;
+    const target = catalogue.entries.find(e => e.id === id);
+    if (target === undefined || id === catalogue.current || !(0, environment_catalogue_1.validEnvironmentEntry)(target))
+        return false;
+    // The target runtime consumes only this navigation intent, never a backend URL.
+    return open(target.href + '#new-task') !== null;
+}
+
+},
+"src/modules/client-connection/contracts/environment-catalogue.js": function(module, exports, require) {
+// source: src/modules/client-connection/contracts/environment-catalogue.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.validEnvironmentEntry = validEnvironmentEntry;
 exports.parseCatalogue = parseCatalogue;
-exports.openEnvironment = openEnvironment;
 function object(value) { return typeof value === 'object' && value !== null && !Array.isArray(value); }
-function entry(value) {
+function validEnvironmentEntry(value) {
     if (!object(value) || Object.keys(value).length !== 4 || Object.keys(value).some(key => !['id', 'label', 'kind', 'href'].includes(key)) || typeof value.id !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(value.id)
         || typeof value.label !== 'string' || value.label.trim() === '' || value.label.length > 80 || /[\x00-\x1f\x7f]/.test(value.label)
         || (value.kind !== 'local' && value.kind !== 'cloud') || typeof value.href !== 'string')
@@ -212,21 +255,13 @@ function entry(value) {
 function parseCatalogue(value, origin) {
     if (!object(value) || Object.keys(value).length !== 5 || Object.keys(value).some(key => !['version', 'current', 'entries', 'sessionMigration', 'workspaceSync'].includes(key)) || value.version !== 1 || typeof value.current !== 'string'
         || value.sessionMigration !== false || value.workspaceSync !== false || !Array.isArray(value.entries)
-        || !value.entries.length || value.entries.length > 8 || !value.entries.every(entry))
+        || !value.entries.length || value.entries.length > 8 || !value.entries.every(validEnvironmentEntry))
         return undefined;
     const entries = value.entries;
     if (new Set(entries.map(e => e.id)).size !== entries.length || new Set(entries.map(e => e.href)).size !== entries.length
         || entries.filter(e => e.kind === 'local').length !== 1 || entries.find(e => e.id === value.current)?.href !== origin + '/')
         return undefined;
     return { version: 1, current: value.current, entries, sessionMigration: false, workspaceSync: false };
-}
-/** A pick opens another origin. It never rebinds a SessionManager or copies its
- * draft/history/attachment cache. A blocked popup is not a successful switch. */
-function openEnvironment(catalogue, id, open) {
-    const target = catalogue.entries.find(e => e.id === id);
-    if (target === undefined || id === catalogue.current)
-        return false;
-    return open(target.href) !== null;
 }
 
 },
@@ -238,7 +273,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.zh = exports.en = exports.NS = void 0;
 exports.NS = 'runtime.environment';
 exports.en = {
-    separate: 'Open another environment in a new tab. This task and draft stay here.',
+    separate: 'Start a new chat in the selected environment. Existing chats and drafts stay here.',
     popupBlocked: 'Browser blocked the new environment tab. Allow popups and try again.',
     connected: 'Cloud Host connected', disconnected: 'Cloud connection unavailable',
     notSynced: 'Independent workspace · session transfer and file sync are not enabled',
@@ -248,7 +283,7 @@ exports.en = {
     unknown: 'Conversation history has not been confirmed. Its environment cannot be changed.',
 };
 exports.zh = {
-    separate: '在新标签页打开另一环境；当前任务和草稿保持不变。',
+    separate: '在所选环境新建聊天；已有聊天和草稿保持不变。',
     popupBlocked: '新环境标签页被浏览器拦截，请允许弹出窗口后重试。',
     connected: '云端 Host 已连接', disconnected: '云端连接不可用',
     notSynced: '独立工作区 · 尚未启用会话迁移与文件同步',
@@ -260,7 +295,7 @@ exports.zh = {
 
 }
 };
-const __dependencies = {"src/modules/runtime-environment/index.js":{"./GatewayEnvironment":"src/modules/runtime-environment/GatewayEnvironment.js","./locales":"src/modules/runtime-environment/locales.js"},"src/modules/runtime-environment/GatewayEnvironment.js":{"./EnvironmentPicker":"src/modules/runtime-environment/EnvironmentPicker.js","./gateway":"src/modules/runtime-environment/gateway.js"},"src/modules/runtime-environment/EnvironmentPicker.js":{"./policy":"src/modules/runtime-environment/policy.js"},"src/modules/runtime-environment/policy.js":{},"src/modules/runtime-environment/gateway.js":{},"src/modules/runtime-environment/locales.js":{}};
+const __dependencies = {"src/modules/runtime-environment/index.js":{"./GatewayEnvironment":"src/modules/runtime-environment/GatewayEnvironment.js","./locales":"src/modules/runtime-environment/locales.js"},"src/modules/runtime-environment/GatewayEnvironment.js":{"./EnvironmentPicker":"src/modules/runtime-environment/EnvironmentPicker.js","./gateway":"src/modules/runtime-environment/gateway.js"},"src/modules/runtime-environment/EnvironmentPicker.js":{"./policy":"src/modules/runtime-environment/policy.js"},"src/modules/runtime-environment/policy.js":{},"src/modules/runtime-environment/gateway.js":{"../client-connection/contracts/environment-catalogue":"src/modules/client-connection/contracts/environment-catalogue.js"},"src/modules/client-connection/contracts/environment-catalogue.js":{},"src/modules/runtime-environment/locales.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

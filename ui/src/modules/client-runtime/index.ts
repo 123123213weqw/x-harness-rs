@@ -18,6 +18,8 @@ import type { UseProjection } from './sessions/projection-store'
 import { ConversationEventRegistry } from './conversation/event-registry'
 import { ConversationViewRegistry } from './conversation/view-registry'
 import {WorkCatalog} from './work/catalog'
+import { consumeNewTaskIntent } from './new-task-intent'
+import { parseCatalogue } from '../client-connection/contracts/environment-catalogue'
 
 export { isAppendSurfaceEvent, isReplacementSurfaceEvent } from '../client-connection/contracts/core/session/surface'
 
@@ -168,6 +170,8 @@ export function apply(ctx: Context): void {
   const connection = ctx.get('connection')
   if (connection === undefined) throw new Error('runtime: connection service is unavailable')
   const sessions = new SessionRuntime(ctx, connection.api, ctx.remote, conversation)
+  const newTaskLanding = typeof location !== 'undefined' && typeof history !== 'undefined'
+    && consumeNewTaskIntent(location, history, () => { sessions.clear() })
   ctx.typert.contexts.registerClient('agent', {
     identity: candidate => sessions.scopeOf(candidate),
   })
@@ -175,10 +179,29 @@ export function apply(ctx: Context): void {
   const workCatalog = new WorkCatalog(connection.api, sessions, workspaces)
   ctx.reflect.provide('workCatalog', workCatalog, undefined)
   ctx.effect(() => () => workCatalog.dispose(), 'runtime: Work catalog projection')
-  ctx.effect(
-    () => workspaces.startInitialSelection(),
-    'runtime: initial Workspace selection',
-  )
+  // Hold automatic blank-session creation while optional real Gateway discovery
+  // resolves. A configured Gateway chooses an environment before allocating a
+  // Session; direct Local startup keeps its original default selection policy.
+  workspaces.configureEnvironmentCreation(newTaskLanding || connection.environmentCatalogue !== undefined)
+  ctx.effect(() => {
+    let disposed = false
+    let stop = (): void => {}
+    const controller = new AbortController()
+    const timer = setTimeout(() => { controller.abort() }, 5_000)
+    void (async () => {
+      let configured = false
+      try {
+        if (connection.environmentCatalogue !== undefined && typeof location !== 'undefined') {
+          configured = parseCatalogue(await connection.environmentCatalogue.read(controller.signal), location.origin) !== undefined
+        }
+      } catch { /* Optional discovery: no Gateway on an ordinary direct Host. Never changes the immutable API target or submits a task. */ }
+      finally { clearTimeout(timer) }
+      if (disposed) return
+      workspaces.configureEnvironmentCreation(newTaskLanding || configured)
+      stop = workspaces.startInitialSelection()
+    })()
+    return () => { disposed = true; clearTimeout(timer); controller.abort(); stop() }
+  }, 'runtime: initial Workspace selection')
   const loop = connection.start({
     onMuxEnvelope: (envelope) => {
       sessions.handleMuxEnvelope(envelope)
