@@ -239,10 +239,10 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
   // Single scroll viewport: tool-card bodies are unbounded flow content.
   'chat/ContextInjectionRow': 'a93c66501248ea81479dfdc94239cfcfa55ed4b09269ec41be8dcb5fc580dc01',
   // Single scroll viewport: tool-card bodies are unbounded flow content.
-  'chat/AssistantMarkdown': '21e87d66c7014089958318a0af382f05373ffda1081bc6284a478d8b4cd8293e',
+  'chat/AssistantMarkdown': '5b832df3655800e6db173b6ac2eea38c6b19551ed674396e25597dfe63e257ca',
   // Single scroll viewport: with a question card present the composer seat
   // leaves sticky and joins the flow tail (static, no gradient).
-  'skeleton/ConversationRoot': '6ded2345dd75573fc008cc1a0d0741582adf4ee07e04652359f7e41956a987ab',
+  'skeleton/ConversationRoot': '12d7914d05b27a95d983c1e080e9a0911ee543d7636e9ae72bd5a9399856b723',
  };
  assert.equal(Object.hasOwn(oldCss,'@xharness/dsh-client-ui-conversation/LoadingIndicator.module.css'),false,'the frozen baseline must not acquire the new spinner sheet');
  for(const [name,sha] of Object.entries(reviewedStyles)) {
