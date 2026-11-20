@@ -5,6 +5,7 @@ import {ownedViewModuleTestInput} from './owned-view-module-test-input.mjs'
 import assert from 'node:assert/strict'
 import {createHash} from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 
@@ -13,28 +14,53 @@ const require = createRequire(resolve(deps, 'package.json'))
 const { chromium, webkit } = require('playwright')
 const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
 const browser = await ({ chromium, webkit })[engine].launch({ headless: true })
+// GTK WebKit hands native downloads to a separate network path. A mocked
+// route on a .test hostname is not evidence of an actual downloaded file.
+const logRequests = []
+let exportStatus = 403
+const archiveName = 'dsh-session-toolbar-test.zip'
+const fixtureZip = Buffer.from('504b0506000000000000000000000000000000000000', 'hex')
+const exportServer = createServer((request, response) => {
+  const url = new URL(request.url, 'http://127.0.0.1')
+  if (url.pathname !== '/api/session.export' || !['HEAD', 'GET'].includes(request.method)) {
+    response.writeHead(404).end()
+    return
+  }
+  logRequests.push({method: request.method, query: url.searchParams.toString()})
+  if (exportStatus !== 200) {
+    response.writeHead(exportStatus, {'content-length': 0}).end()
+    return
+  }
+  response.writeHead(200, {'content-type': 'application/zip', 'content-length': fixtureZip.length,
+    'content-disposition': `attachment; filename="${archiveName}"`})
+  response.end(request.method === 'HEAD' ? undefined : fixtureZip)
+})
 try {
+  await new Promise((resolve, reject) => {
+    exportServer.once('error', reject)
+    exportServer.listen(0, '127.0.0.1', resolve)
+  })
+  const exportOrigin = `http://127.0.0.1:${exportServer.address().port}`
+
   const layoutSource=ownedViewModuleTestInput('@xharness/dsh-client-ui-layout')
   const page = await browser.newPage({ viewport: { width: 1280, height: 780 } })
   const errors = []
   page.on('pageerror', error => {if(error.message!=='owned feature fixture: stop Host boot')errors.push(error.message)})
   // Host boot is intercepted before theme activation. The platform's global
   // keyboard-focus rule needs the same primary-label token as the real shell.
-  await installOwnedViewHtml(page,process.env.UI_TEST_IMPL??'canonical','<html><head></head><body style="margin:0;--dsw-alias-label-primary:#0f1115"><div id="root" style="position:fixed;inset:0"></div></body></html>')
+  await installOwnedViewHtml(page,process.env.UI_TEST_IMPL??'canonical','<html><head></head><body style="margin:0;--dsw-alias-label-primary:#0f1115"><div id="root" style="position:fixed;inset:0"></div></body></html>',
+    process.env.UI_TEST_IMPL === 'legacy' ? undefined : {origin: exportOrigin})
+  if (process.env.UI_TEST_IMPL !== 'legacy') {
+    // Bypass the platform asset route for this same-origin HTTP endpoint only.
+    // Keep both the preflight and native attachment response real.
+    await page.route(url => url.origin === exportOrigin && url.pathname === '/api/session.export', route => route.continue())
+  }
   await page.addScriptTag({ content: 'window.__ModuleLoader__={load:x=>{window.registrations??={};registrations[x.id]=x}}' })
   await page.addScriptTag({ content: layoutSource })
   await page.addScriptTag({ content: ownedViewModuleTestInput('@xlang/xharness-client-ui-browser') })
   await page.addScriptTag({ content: ownedViewModuleTestInput('@xharness/dsh-client-runtime') })
   if (process.env.UI_TEST_IMPL !== 'legacy') await page.addScriptTag({content:ownedViewModuleTestInput('@xharness/dsh-session-log-export')})
   await installShellSessionsFixture(page)
-  const logRequests = []
-  let exportStatus = 403
-  await page.route('**/api/session.export?*', route => {
-    const request = route.request()
-    logRequests.push({method: request.method(), query: new URL(request.url()).searchParams.toString()})
-    return route.fulfill({status: exportStatus, contentType: 'application/zip',
-      headers: {'content-disposition': 'attachment; filename="dsh-session-toolbar-test.zip"'}})
-  })
   await page.evaluate(includeSessionLog => {
     const engine=registrations['@xharness/dsh-client-runtime'].factory(id=>{if(id in staticModules)return staticModules[id];throw Error(id)})
     const runtime=id=>{if(id==='@xharness/dsh-client-runtime/client')return engine;if(id in staticModules)return staticModules[id];throw Error(id)}
@@ -200,7 +226,11 @@ try {
     exportStatus=200
     await help.click()
     const [archive]=await Promise.all([page.waitForEvent('download'),exportLogs.click()])
-    assert.equal(archive.suggestedFilename(),'dsh-session-toolbar-test.zip')
+    assert.equal(archive.suggestedFilename(),archiveName)
+    assert.deepEqual(readFileSync(await archive.path()),fixtureZip,'the downloaded attachment has exact ZIP bytes')
+    const query = 'sessionId=toolbar-test&includeDescendants=true'
+    assert.deepEqual(logRequests, ['HEAD','HEAD','HEAD','GET'].map(method=>({method,query})),
+      'only a successful explicit export hands the scoped archive to the browser')
     await page.getByRole('dialog',{name:'对话日志已开始下载',exact:true}).waitFor()
     await page.keyboard.press('Escape')
     await page.getByRole('dialog').waitFor({state:'detached'})
@@ -339,4 +369,7 @@ try {
   assert.deepEqual(errors, [])
   console.log(JSON.stringify({engine,implementation:process.env.UI_TEST_IMPL??'canonical',actualPlatform:true,actualRuntimeEngine:true,initialPixelsSha256,pageErrors:errors}))
   console.log(`${engine}: browser layout fallback passed`)
-} finally { await browser.close() }
+} finally {
+  await browser.close()
+  if (exportServer.listening) await new Promise(resolve=>exportServer.close(resolve))
+}
