@@ -1,5 +1,5 @@
 {
-  "rev": "bd9765ea215a648c",
+  "rev": "bb839018a8cc5204",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -43,8 +43,8 @@
     },
     {
       "id": "@xharness/dsh-session-log-export",
-      "url": "/plugins/@xharness/dsh-session-log-export/client.js?rev=c36aea83c437033a",
-      "rev": "c36aea83c437033a",
+      "url": "/plugins/@xharness/dsh-session-log-export/client.js?rev=09f46b0512e208be",
+      "rev": "09f46b0512e208be",
       "inject": [
         "@xharness/dsh-client-locale",
         "@xharness/dsh-client-runtime",
@@ -54,6 +54,7 @@
       "external": [
         "@xharness/dsh-client-runtime/client",
         "@xharness/dsh-client-ui-primitives",
+        "react",
         "react/jsx-runtime"
       ]
     },

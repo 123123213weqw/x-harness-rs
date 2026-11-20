@@ -32957,7 +32957,7 @@ function isLabel(entry) {
   return "type" in entry && entry.type === "label";
 }
 var MEASURE_STYLE = { visibility: "hidden", left: 0, top: 0 };
-function Menu({ id, open: open3, anchor: anchor2, items, selectedId, selectedIds, onSelect, onClose, align = "start", side = "bottom", portal = false, closeOnPointerLeave = false, dense = false, compact = false, getAnchorRect, footer, className }) {
+function Menu({ id, label, open: open3, anchor: anchor2, items, selectedId, selectedIds, onSelect, onClose, align = "start", side = "bottom", portal = false, closeOnPointerLeave = false, dense = false, compact = false, getAnchorRect, footer, className, listClassName }) {
   const rootRef = (0, import_react2.useRef)(null);
   const listRef = (0, import_react2.useRef)(null);
   const [openSubmenuId, setOpenSubmenuId] = (0, import_react2.useState)(null);
@@ -33118,9 +33118,10 @@ function Menu({ id, open: open3, anchor: anchor2, items, selectedId, selectedIds
     {
       ref: listRef,
       id,
-      className: clsx_default(Menu_default.list, dense && Menu_default.denseList, compact && Menu_default.compactList, scrollable && Menu_default.scrollable, portal && Menu_default.portal, side === "top" && !portal && Menu_default.sideTop, align === "end" && !portal && Menu_default.alignEnd),
+      className: clsx_default(Menu_default.list, dense && Menu_default.denseList, compact && Menu_default.compactList, scrollable && Menu_default.scrollable, portal && Menu_default.portal, side === "top" && !portal && Menu_default.sideTop, align === "end" && !portal && Menu_default.alignEnd, listClassName),
       style: portal ? fixedPos ?? MEASURE_STYLE : void 0,
       role: "menu",
+      "aria-label": label,
       onClick: (e) => {
         e.stopPropagation();
       },
@@ -59796,4 +59797,4 @@ init_define_process_execArgv();
 var el = document.getElementById("root");
 if (el === null) throw new Error("web app: missing #root");
 void new AppWebEntry(el).run();
-//# sourceMappingURL=platform-HMBWJUKF.js.map
+//# sourceMappingURL=platform-W44XZXEZ.js.map

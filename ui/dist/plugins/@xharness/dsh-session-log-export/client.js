@@ -16,7 +16,7 @@ const HeaderAction_1 = require("./HeaderAction");
 const locales_1 = require("./locales");
 exports.inject = ['slots', 'locale'];
 /**
- * Provide the download controller and mount its modal into the Session Header.
+ * Provide the download controller and the Session Header help menu/result modal.
  * @param ctx - browser context carrying slots and locale services.
  */
 function apply(ctx) {
@@ -173,25 +173,97 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SessionLogDownloadHeaderAction = SessionLogDownloadHeaderAction;
 const jsx_runtime_1 = require("react/jsx-runtime");
+const react_1 = require("react");
 const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
 const Dialog_1 = require("./Dialog");
 const HeaderAction_styles_1 = __importDefault(require("./HeaderAction.styles"));
-/**
- * Render the Session Header export capsule and its shared result dialog.
- * @param props - Session runtime, download controller, and localized dialog copy.
- * @returns the persistent Header action and Session-scoped dialog.
- */
-function SessionLogDownloadHeaderAction(_props) {
-    // UI retired by product decision: the header capsule was rarely used and the
-    // journal remains readable via session APIs and workspace tools. The slot
-    // registration and download controller stay intact for contracts.
-    return null;
+const DOCUMENTATION = 'https://github.com/123123213weqw/XHarness#readme';
+const REPORT_ISSUE = 'https://github.com/123123213weqw/XHarness/issues/new/choose';
+function openSupportLink(href) {
+    // Fixed destinations, never populated with Session IDs, logs or user data.
+    const link = document.createElement('a');
+    link.href = href;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.click();
 }
-function __RetiredSessionLogDownloadHeaderAction(props) {
-    const { sessionId, useSessionLogDownload, request } = props;
-    const entry = useSessionLogDownload(state => state.bySession[String(sessionId)]);
+/** The menu belongs to one Session. Its result dialog also serves /export. */
+function SessionLogDownloadHeaderAction(props) {
+    return (0, jsx_runtime_1.jsx)(SessionHelpMenu, { ...props }, props.sessionId);
+}
+function SessionHelpMenu(props) {
+    const { sessionId, useSessionLogDownload, request, t } = props;
+    const [open, setOpen] = (0, react_1.useState)(false);
+    const menuId = (0, react_1.useId)();
+    const trigger = (0, react_1.useRef)(null);
+    const focusLast = (0, react_1.useRef)(false);
+    const entry = useSessionLogDownload(state => state.bySession[sessionId]);
     const busy = entry?.status === 'downloading';
-    return ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", className: HeaderAction_styles_1.default.sessionLogButton, disabled: busy, "aria-busy": busy, onClick: () => { void request(sessionId); }, children: [(0, jsx_runtime_1.jsx)("span", { children: "Session log" }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconDownloadOutline16, { size: 16 })] }), (0, jsx_runtime_1.jsx)(Dialog_1.SessionLogDownloadDialog, { ...props })] }));
+    const showMenu = open && entry?.open !== true;
+    const close = (0, react_1.useCallback)(() => { setOpen(false); }, []);
+    const choices = (0, react_1.useCallback)(() => Array.from(document.getElementById(menuId)?.querySelectorAll('button[role="menuitem"]:not(:disabled)') ?? []), [menuId]);
+    (0, react_1.useEffect)(() => {
+        if (!showMenu)
+            return;
+        // The portaled menu measures itself hidden first; wait until it is placed.
+        const frame = window.requestAnimationFrame(() => {
+            const rows = choices();
+            rows.at(focusLast.current ? -1 : 0)?.focus({ preventScroll: true });
+        });
+        return () => { window.cancelAnimationFrame(frame); };
+    }, [showMenu, choices]);
+    (0, react_1.useEffect)(() => { if (entry?.open === true)
+        close(); }, [entry?.open, close]);
+    const onKeyDown = (event) => {
+        if (!open && event.target === trigger.current && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+            event.preventDefault();
+            focusLast.current = event.key === 'ArrowUp';
+            setOpen(true);
+            return;
+        }
+        if (!open)
+            return;
+        if (event.key === 'Tab') {
+            close();
+            trigger.current?.focus({ preventScroll: true });
+            return;
+        }
+        const rows = choices();
+        if (rows.length === 0)
+            return;
+        const current = rows.findIndex(row => row === document.activeElement);
+        let next;
+        if (event.key === 'ArrowDown')
+            next = (current + 1) % rows.length;
+        else if (event.key === 'ArrowUp')
+            next = current < 0 ? rows.length - 1 : (current - 1 + rows.length) % rows.length;
+        else if (event.key === 'Home')
+            next = 0;
+        else if (event.key === 'End')
+            next = rows.length - 1;
+        else
+            return;
+        event.preventDefault();
+        rows[next]?.focus();
+    };
+    return (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("span", { className: HeaderAction_styles_1.default.root, onKeyDown: onKeyDown, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { id: menuId, label: t('help.label'), listClassName: HeaderAction_styles_1.default.helpMenu, open: showMenu, portal: true, dense: true, align: "end", onClose: close, items: [
+                        { id: 'docs', label: t('help.docs'), icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconBrowseOutline16, {}) },
+                        { id: 'issue', label: t('help.issue'), icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconListPenOutline16, {}) },
+                        { type: 'separator', id: 'diagnostics' },
+                        { id: 'export', label: t('help.export'), icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconDownloadOutline16, {}), disabled: busy },
+                    ], onSelect: id => {
+                        close();
+                        trigger.current?.focus({ preventScroll: true });
+                        if (id === 'docs')
+                            openSupportLink(DOCUMENTATION);
+                        else if (id === 'issue')
+                            openSupportLink(REPORT_ISSUE);
+                        else if (id === 'export' && !busy)
+                            void request(sessionId);
+                    }, anchor: (0, jsx_runtime_1.jsx)("button", { ref: trigger, type: "button", className: HeaderAction_styles_1.default.helpButton, title: t('help.label'), "aria-label": t('help.label'), "aria-haspopup": "menu", "aria-expanded": showMenu, "aria-controls": showMenu ? menuId : undefined, onClick: () => {
+                            focusLast.current = false;
+                            setOpen(value => !value);
+                        }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconQuestionOutline14, { size: 16 }) }) }) }), (0, jsx_runtime_1.jsx)(Dialog_1.SessionLogDownloadDialog, { ...props })] });
 }
 
 },
@@ -269,7 +341,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const foundation_styles_1 = require("../shared/foundation-styles");
 const HeaderAction_css_1 = __importDefault(require("./HeaderAction.css"));
 (0, foundation_styles_1.installStyles)('@xharness/dsh-session-log-export/HeaderAction.module.css', '@xharness/dsh-session-log-export', HeaderAction_css_1.default);
-exports.default = { sessionLogButton: 'SPhQuq_sessionLogButton' };
+exports.default = { root: 'SPhQuq_helpRoot', helpButton: 'SPhQuq_helpButton', helpMenu: 'SPhQuq_helpMenu' };
 
 },
 "src/modules/shared/foundation-styles.js": function(module, exports, require) {
@@ -294,7 +366,7 @@ function installStyles(tagId, plugin, css) {
 // source: src/modules/session-log-export/HeaderAction.css
 
 Object.defineProperty(exports, '__esModule', { value: true });
-exports.default = ".SPhQuq_sessionLogButton {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  min-width: 111px;\n  height: 32px;\n  padding: 6px 12px;\n  gap: 4px;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: 18px;\n  color: var(--dsw-alias-label-primary);\n  background: transparent;\n  font-family: var(--dsw-font-family);\n  font-size: 13px;\n  font-weight: 400;\n  line-height: 20px;\n  cursor: pointer;\n}\n\n.SPhQuq_sessionLogButton:hover:not(:disabled) {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.SPhQuq_sessionLogButton:disabled {\n  color: var(--dsw-alias-label-dimmed);\n  cursor: wait;\n}\n\n.SPhQuq_sessionLogButton span,\n.SPhQuq_sessionLogButton svg {\n  flex: none;\n}\n\n.SPhQuq_sessionLogButton span {\n  white-space: nowrap;\n}\n";
+exports.default = ".SPhQuq_helpRoot {\n  display: inline-flex;\n  flex: none;\n}\n\n.SPhQuq_helpButton {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 32px;\n  height: 32px;\n  padding: 0;\n  border: 0;\n  border-radius: 8px;\n  background: transparent;\n  color: var(--dsw-alias-label-secondary);\n  cursor: pointer;\n}\n\n.SPhQuq_helpButton:hover,\n.SPhQuq_helpButton[aria-expanded='true'] {\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-primary);\n}\n\n.SPhQuq_helpButton:focus-visible {\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n  outline-offset: 2px;\n}\n\n/* The support card must remain distinct from either chat surface. The\n   scrolling menu viewport clips outside outlines, so focus stays inside. */\n.SPhQuq_helpMenu[role='menu'] {\n  border-color: var(--dsw-alias-border-l2);\n  box-shadow: var(--dsw-shadow-lv3, 0 5px 18px rgb(0 0 0 / 14%));\n}\n\n.SPhQuq_helpMenu [role='menuitem']:focus-visible {\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n  outline-offset: -2px;\n}\n";
 
 },
 "src/modules/session-log-export/locales.js": function(module, exports, require) {
@@ -307,21 +379,29 @@ exports.en = exports.zh = exports.NS = void 0;
 exports.NS = 'session-log-download';
 /** Simplified-Chinese Session export strings. */
 exports.zh = {
-    'dialog.preparingTitle': '正在导出 Session',
-    'dialog.preparingDescription': '正在准备包含当前 Session、子 Session 和附件的 ZIP 文件。',
-    'dialog.successTitle': 'Session 导出已开始下载',
-    'dialog.successDescription': '浏览器正在下载 Session ZIP 文件。',
-    'dialog.errorTitle': 'Session 导出失败',
+    'help.label': '帮助与诊断',
+    'help.docs': '产品文档',
+    'help.issue': '反馈问题',
+    'help.export': '导出当前对话日志',
+    'dialog.preparingTitle': '正在导出对话日志',
+    'dialog.preparingDescription': '正在准备包含当前对话、子会话 和附件的 ZIP 文件。',
+    'dialog.successTitle': '对话日志已开始下载',
+    'dialog.successDescription': '浏览器正在下载对话日志 ZIP 文件。',
+    'dialog.errorTitle': '对话日志导出失败',
     'dialog.close': '关闭',
-    'dialog.commandFailed': '无法启动 Session 导出。',
+    'dialog.commandFailed': '无法开始导出对话日志。',
 };
 /** English Session export strings. */
 exports.en = {
-    'dialog.preparingTitle': 'Exporting Session',
+    'help.label': 'Help and diagnostics',
+    'help.docs': 'Product docs',
+    'help.issue': 'Report an issue',
+    'help.export': 'Export current chat logs',
+    'dialog.preparingTitle': 'Exporting chat logs',
     'dialog.preparingDescription': 'Preparing a ZIP containing this Session, its sub-Sessions, and attachments.',
-    'dialog.successTitle': 'Session download started',
+    'dialog.successTitle': 'Chat log download started',
     'dialog.successDescription': 'The browser is downloading the Session ZIP.',
-    'dialog.errorTitle': 'Session export failed',
+    'dialog.errorTitle': 'Chat log export failed',
     'dialog.close': 'Close',
     'dialog.commandFailed': 'Could not start the Session export.',
 };
