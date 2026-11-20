@@ -16,6 +16,8 @@ import { turnProcessCounts } from './turn-process-summary'
 export interface ChatNodeSeatProps extends ChatNodeOwnerProps {
   readonly nodeKey: string
   readonly keepMounted?: boolean
+  readonly liveSummaryTurn?: number | undefined
+  readonly isFoldReaderAnchor?: (key: string) => boolean
   readonly useSession: ChatViewSlotProps['useSession']
   readonly renderSlot: ChatViewSlotProps['renderSlot']
   readonly t: ChatViewSlotProps['t']
@@ -51,7 +53,7 @@ export const TurnProcessSummarySeat = memo(function TurnProcessSummarySeat({ nod
   const [tools = 0, thoughts = 0] = counts.split(':').map(Number)
   if (tail === undefined && tools === 0 && thoughts === 0) return null
   return <TranscriptWindowRow estimatedHeight={32} className={css.flowItem} data-chat-anchor-key={`turn-process:${currentTurn.turn}`} data-chat-anchor-seq={currentTurn.start?.seq ?? node?.anchorSeq}>
-    {tail === undefined ? <AdaptiveToolSummary useSession={useSession} turn={currentTurn.turn} count={tools} thoughts={thoughts} startTime={currentTurn.start?.time} t={t}
+    {tail === undefined ? <AdaptiveToolSummary turn={currentTurn.turn} count={tools} thoughts={thoughts} startTime={currentTurn.start?.time} t={t}
       expanded={expandedTurns?.has(currentTurn.turn) ?? false} onToggle={() => { toggleTurnProcess(currentTurn.turn) }} />
       : <TurnProcessSummary turn={currentTurn} data={tail} tools={tools} thoughts={thoughts} t={t}
         collapsed={!(expandedTurns?.has(currentTurn.turn) ?? false)} onToggle={() => { toggleTurnProcess(currentTurn.turn) }} />}
@@ -61,7 +63,7 @@ export const TurnProcessSummarySeat = memo(function TurnProcessSummarySeat({ nod
 /** Subscribe and dispatch one stable Context key without observing sibling Nodes. */
 export const ChatNodeSeat = memo(function ChatNodeSeat({
   nodeKey, selectedCallId, cwd, openFile, inspectCall, forkAt, editMessage, forkMessage, editAvailable, keepMounted,
-  renderMessageImages, fileMentions, useSession, renderSlot, t, expandedTurns, foldedTools, invalidateFoldedTool,
+  renderMessageImages, fileMentions, useSession, renderSlot, t, expandedTurns, foldedTools, invalidateFoldedTool, liveSummaryTurn, isFoldReaderAnchor,
 }: ChatNodeSeatProps) {
   const node = useSession(snapshot => snapshot.chat.nodes.get(nodeKey))
   const routedNode = isChatNode(node) ? node : undefined
@@ -69,12 +71,10 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
   const turn = location?.kind === 'turn' || location?.kind === 'step' ? location.turn.turn : undefined
   const rawTail = useSession(snapshot => turn === undefined ? undefined : snapshot.chat.timeline.turns.get(turn)?.data.get('turn-tail'))
   const tail = useMemo(() => isChatData('turn-tail', rawTail) && rawTail.turn === turn ? rawTail : undefined, [rawTail, turn])
-  const presentation = routedNode === undefined ? { collapsed: false, hidden: false }
-    : turnProcessPresentation(routedNode, tail, expandedTurns?.has(turn ?? -1) ?? false,
-      (location?.kind === 'turn' || location?.kind === 'step') && location.turn.status === 'open')
+  const rowElement = useRef<HTMLDivElement>(null)
+  const [presentationState] = useState<TranscriptValues>(() => new Map<string, unknown>())
   // This seat, not its heavy/windowed child, owns display choices. Whole-turn
   // folding must not erase Think/Tool/Compaction/native-details expansion.
-  const [presentationState] = useState<TranscriptValues>(() => new Map<string, unknown>())
   const processMode = useProcessMode()
   const previousMode = useRef(processMode)
   // Lightweight seats remain resident even when their heavy child is folded.
@@ -84,6 +84,19 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
     presentationState.clear()
     previousMode.current = processMode
   }
+  const element = rowElement.current
+  const selection = element === null ? null : element.ownerDocument.getSelection()
+  const range = selection && !selection.isCollapsed && selection.rangeCount ? selection.getRangeAt(0) : null
+  // Recovering rows can still own keyboard focus, selected text or an open
+  // detail. Check before unmounting, not in the next geometry-observer frame.
+  const protectedRow = tail === undefined && !foldedTools?.get(turn ?? -1)?.has(nodeKey)
+    && ([...presentationState.values()].some(value => value === true)
+      || element !== null && (element.querySelector('details[open], [aria-expanded=true]') !== null || element.contains(element.ownerDocument.activeElement) || !!(range && range.intersectsNode(element)) || isFoldReaderAnchor?.(nodeKey) === true))
+  const presentation = routedNode === undefined ? { collapsed: false, hidden: false }
+    : turnProcessPresentation(routedNode, tail, expandedTurns?.has(turn ?? -1) ?? false,
+      (location?.kind === 'turn' || location?.kind === 'step') && location.turn.status === 'open',
+      liveSummaryTurn !== undefined && liveSummaryTurn === turn)
+  if (protectedRow) presentation.hidden = false
   const owner = useMemo<ChatNodeOwnerProps | null>(() => node === undefined
     ? null
     : {
@@ -113,6 +126,7 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
   const routedOwner = routedNode === undefined ? undefined : ownerFor(owner, routedNode)
   return (
     <TranscriptWindowRow
+      elementRef={rowElement}
       keepMounted={keepMounted === true || (!editAvailable && transcriptHasPendingTool(node))}
       presentationState={presentationState}
       className={css.flowItem}

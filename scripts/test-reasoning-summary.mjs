@@ -12,8 +12,18 @@ function load(file, globals = {}) {
   vm.runInNewContext(code, { module, exports: module.exports, Date, setTimeout, clearTimeout, ...globals })
   return module.exports
 }
-const { ReasoningSummaryPresentation: Pager, REASONING_PAGE_MS, REASONING_FLIP_MS, firstReasoningLine, latestReasoningLine } = load('reasoning-summary.ts')
+const { ReasoningSummaryPresentation: Pager, REASONING_PAGE_MS, REASONING_FLIP_MS, firstReasoningLine, latestReasoningLine, reasoningTailWindow } = load('reasoning-summary.ts')
 const plain = value => JSON.parse(JSON.stringify(value))
+
+test('reasoning tail window: bounded latest characters, whitespace, Unicode and full input retained', () => {
+  assert.equal(reasoningTailWindow('first\n\tlast'), 'first last')
+  assert.equal(reasoningTailWindow('a'.repeat(73)), '…' + 'a'.repeat(72))
+  assert.equal(reasoningTailWindow('😀'.repeat(72)), '😀'.repeat(72))
+  const text = 'old'.repeat(10000) + '😀' + 'x'.repeat(71)
+  assert.equal(reasoningTailWindow(text), '…😀' + 'x'.repeat(71))
+  assert.doesNotMatch(reasoningTailWindow(text), /^…?[\uDC00-\uDFFF]/)
+  assert.equal(text.length, 30073)
+})
 
 test('reasoning preview: history does not count as throughput; first/latest line semantics remain', () => {
   const text = 'Old reasoning'.repeat(10000)
@@ -158,10 +168,11 @@ test('reasoning hook: reduced motion keeps pacing but never produces an animated
 test('reasoning integration: full body unchanged; fixed-height, two-line motion and original sweep retained', () => {
   const read = path => readFileSync(new URL('../' + path, import.meta.url), 'utf8')
   const row = read('ui/src/modules/conversation/chat/ReasoningRow.tsx')
-  assert.match(row, /useReasoningSummary\(text, running && !expanded\)/)
+  assert.doesNotMatch(row, /useReasoningSummary|scrollLeft|data-paging/)
   assert.match(row, /<div className=\{css.thinkBody\}>\{text\}<\/div>/)
   assert.match(row, /firstReasoningLine\(text\)/)
-  assert.match(row, /css.pageOut\} aria-hidden/)
+  assert.match(row, /reasoningTailWindow\(text\)/)
+  assert.match(row, /\[processMode, appliedMode, setAppliedMode, setExpanded\]/)
   const css = read('ui/src/modules/conversation/chat/ReasoningRow.css')
   assert.match(css, /reasoning-row-sweep/)
   assert.match(css, /--xh-duration-reasoning-flip,180ms/)

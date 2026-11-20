@@ -535,6 +535,7 @@ impl SessionRecord {
     pub(crate) fn summary(&self) -> Value {
         let mut value = json!({
             "sessionId": self.session_id,
+            "createdAt": self.created_at,
             "updatedAt": self.updated_at,
             "running": self.running,
             "driverHealth": if !self.running { "idle" } else if self.control.as_ref().is_some_and(|c| !c.is_closed()) { "attached" } else { "unavailable" },

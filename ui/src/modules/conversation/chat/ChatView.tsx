@@ -1,3 +1,4 @@
+import { liveToolSummaryTurn as selectLiveToolSummaryTurn } from './tool-activity'
 import { useAdaptiveToolFold } from './use-adaptive-tool-fold'
 import { useProcessMode } from './process-mode'
 // ChatView: the default conversation view — one stable keyed parent list over
@@ -156,6 +157,7 @@ export function ChatView({
   const inbox = useSession(s => s.queue)
   // Workspace root off the session list row: path summaries display relative to it.
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
+  const liveSummaryTurn = useSession(selectLiveToolSummaryTurn)
   const running = useSession(s => s.running)
   const openState = useSession(s => s.openState)
   const openError = useSession(s => s.openError)
@@ -299,7 +301,7 @@ export function ChatView({
     if (commit && row !== null && key !== undefined) processAnchorRef.current = { key, top: flowTop(row, port) }
     return key
   }
-  const { foldedTools, invalidateFoldedTool, collapseTurn } = useAdaptiveToolFold(sessionId, listRef, expandedTurns, captureAutoFoldAnchor, nodeStore)
+  const { foldedTools, invalidateFoldedTool, collapseTurn, isFoldReaderAnchor, toolSummaryViewportReady } = useAdaptiveToolFold(sessionId, listRef, expandedTurns, captureAutoFoldAnchor, nodeStore)
 
   const toggleTurnProcess = useCallback((turn: number): void => {
     if (expandedTurns.has(turn)) collapseTurn(turn)
@@ -694,8 +696,8 @@ export function ChatView({
               </button>
             </div>
           )}
-          <ChatFlow order={order} processHeads={processHeads} sessionId={sessionId} lastKey={lastKey}
-            expandedTurns={expandedTurns} foldedTools={foldedTools} invalidateFoldedTool={invalidateFoldedTool}
+          <ChatFlow liveSummaryTurn={toolSummaryViewportReady ? liveSummaryTurn : undefined} order={order} processHeads={processHeads} sessionId={sessionId} lastKey={lastKey}
+            expandedTurns={expandedTurns} foldedTools={foldedTools} invalidateFoldedTool={invalidateFoldedTool} isFoldReaderAnchor={isFoldReaderAnchor}
             editMessage={editMessage} forkMessage={forkMessage} editAvailable={!running}
             useSession={useSession} selectedCallId={selectedCallId} cwd={cwd} openFile={requestOpenFile}
             inspectCall={inspectCall} forkAt={forkAt} renderMessageImages={renderMessageImages}

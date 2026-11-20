@@ -3,7 +3,9 @@
   position: absolute;
   z-index: 6;
   top: 50%;
-  left: 8px;
+  /* Ride the message column's left edge (8px gap) so tool output and turn
+     process sit directly beside the rail, like the terminal timeline. */
+  left: max(8px, calc(50% - var(--dsh-chat-content-width) / 2 - 32px));
   transform: translateY(-50%);
   display: flex;
   flex-direction: column;

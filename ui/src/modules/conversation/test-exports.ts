@@ -48,7 +48,7 @@ export { permissionFeedback, PermissionSelect } from './skeleton/PermissionSelec
 
 export { ConversationSession, ConversationSessionHeader } from './skeleton/ConversationSession'
 
-export { planToolFold, toolCanAutoFold } from './chat/adaptive-tool-fold'
+export { planToolFold, toolCanAutoFold, toolCanSummarizeLive } from './chat/adaptive-tool-fold'
 export { turnProcessCounts } from './chat/turn-process-summary'
 
-export { selectToolActivity, decodeToolActivity, ToolActivityPresentation, TOOL_ACTIVITY_PAGE_MS, TOOL_ACTIVITY_FLIP_MS } from './chat/tool-activity'
+export { selectToolActivity, liveToolSummaryTurn, decodeToolActivity, ToolActivityPresentation, TOOL_ACTIVITY_HOLD_MS, TOOL_ACTIVITY_FLIP_MS } from './chat/tool-activity'

@@ -1,11 +1,11 @@
 import { z } from 'zod'
-import type { ChatConversationViewNode, ToolCallBlock } from '../types/runtime'
+import type { ChatConversationViewNode, ConversationSnapshot, ToolCallBlock } from '../types/runtime'
 import { isChatNode } from '../contract/chat-node-codec'
 import { isObjectRecord } from '../../shared/runtime-types'
 import { toolDisplayName } from '../../shared/ToolGlyph'
 
-export const TOOL_ACTIVITY_PAGE_MS = 1000
-export const TOOL_ACTIVITY_FLIP_MS = 180
+export const TOOL_ACTIVITY_HOLD_MS = 800
+export const TOOL_ACTIVITY_FLIP_MS = 300
 const itemSchema = z.object({ key: z.string().max(160), name: z.string().max(80), title: z.string().max(64), summary: z.string().max(320), glyphArgs: z.string().max(2048).optional() })
 const selectionSchema = z.object({ items: z.array(itemSchema).max(8), parallel: z.number().int().nonnegative(), blocked: z.boolean() })
 export type ToolActivityItem = z.infer<typeof itemSchema>
@@ -82,6 +82,18 @@ export function selectToolActivity(keys: readonly string[], get: (key: string) =
   const blocked = waiting || barrier >= 0 && barrier >= dispatch
   return JSON.stringify({ items: blocked ? [] : active.size ? [...active.values()].slice(-8) : recent === undefined ? [] : [recent], parallel: active.size, blocked })
 }
+/** One owner decides whether a real visible summary can replace ordinary live rows.
+ * Returning only the turn keeps the structural list independent of token updates. */
+export function liveToolSummaryTurn(snapshot: ConversationSnapshot): number | undefined {
+  if (!snapshot.running || snapshot.stopRequested || snapshot.openState !== 'open' || (snapshot.pending?.length ?? 0) > 0) return undefined
+  let turn = snapshot.chat.timeline.turnOrder?.at(-1)
+  if (turn === undefined) for (const id of snapshot.chat.timeline.turns.keys()) turn = id
+  if (turn === undefined || snapshot.chat.timeline.turns.get(turn)?.status !== 'open') return undefined
+  const keys = snapshot.chat.locations?.getTurn(turn)
+  if (keys === undefined) return undefined
+  const input = decodeToolActivity(selectToolActivity(keys, key => snapshot.chat.nodes.get(key)))
+  return input.blocked || input.items.length === 0 ? undefined : turn
+}
 export function decodeToolActivity(value: string): ToolActivitySelection {
   if (value === '' || value.length > 16_384) return EMPTY_TOOL_ACTIVITY
   try { const parsed: unknown = JSON.parse(value); return selectionSchema.safeParse(parsed).data ?? EMPTY_TOOL_ACTIVITY } catch { return EMPTY_TOOL_ACTIVITY }
@@ -90,35 +102,46 @@ export interface ToolActivityFrame { readonly current: ToolActivityItem | undefi
 function same(a: ToolActivityItem | undefined, b: ToolActivityItem | undefined): boolean {
   return a?.name === b?.name && a?.title === b?.title && a?.summary === b?.summary && a?.glyphArgs === b?.glyphArgs
 }
-/** One latest input, two short faces, no event queue and no execution-state ownership. */
+/** Event-driven latest summary, never a cyclic recent-tool carousel.
+ * Keep two faces and one coalesced latest input; no unbounded playback queue. */
 export class ToolActivityPresentation {
   frame: ToolActivityFrame = { current: undefined, previous: undefined, revision: 0, at: 0 }
-  private input: ToolActivitySelection = EMPTY_TOOL_ACTIVITY
+  private pending: ToolActivityItem | undefined
   private deadline: number | undefined
+  private holdUntil = 0
   private now = 0
   reset(input: ToolActivitySelection, now: number): ToolActivityFrame {
-    this.now = now; this.input = input.blocked ? EMPTY_TOOL_ACTIVITY : input
-    this.frame = { current: this.input.items.at(-1), previous: undefined, revision: this.frame.revision + 1, at: now }
-    this.deadline = this.input.items.length > 1 ? now + TOOL_ACTIVITY_PAGE_MS : undefined
+    this.now = now; this.pending = undefined; this.deadline = undefined; this.holdUntil = now
+    this.frame = { current: input.blocked ? undefined : input.items.at(-1), previous: undefined, revision: this.frame.revision + 1, at: now }
     return this.frame
   }
-  freeze(): ToolActivityFrame { this.deadline = undefined; this.frame = { ...this.frame, previous: undefined }; return this.frame }
+  freeze(): ToolActivityFrame {
+    this.pending = undefined; this.deadline = undefined
+    this.frame = { ...this.frame, previous: undefined }
+    return this.frame
+  }
   update(input: ToolActivitySelection, now: number, animate: boolean): ToolActivityFrame {
-    if (input.blocked || input.items.length === 0 || this.frame.current === undefined) return this.reset(input, now)
-    this.input = input; this.now = Math.max(this.now, now)
-    const target = input.items.length > 1 ? input.items.find(item => item.key === this.frame.current?.key) : input.items.at(-1)
-    if (input.items.length > 1 || target?.key !== this.frame.current.key || !same(target, this.frame.current)) this.deadline ??= Math.max(this.now, this.frame.at + TOOL_ACTIVITY_PAGE_MS)
-    else this.deadline = undefined
+    if (input.blocked || input.items.length === 0 || this.frame.current === undefined || !animate) return this.reset(input, now)
+    this.now = Math.max(this.now, now)
+    const target = input.items.at(-1)
+    if (target === undefined) return this.reset(input, now)
+    if (target.key === this.frame.current.key || same(target, this.frame.current)) {
+      // Same-call streamed arguments refresh in place, not one animation per token.
+      this.frame = { ...this.frame, current: target }
+      this.pending = undefined; this.deadline = undefined
+    } else {
+      this.pending = target
+      this.deadline ??= Math.max(this.now, this.holdUntil)
+    }
     return this.advance(this.now, animate)
   }
   advance(now: number, animate: boolean): ToolActivityFrame {
     this.now = Math.max(this.now, now)
-    if (this.deadline !== undefined && this.now >= this.deadline) {
-      const items = this.input.items, index = items.findIndex(item => item.key === this.frame.current?.key)
-      const current = items.length > 1 && index >= 0 ? items[(index + 1) % items.length] : items.at(-1)
-      const changed = !same(current, this.frame.current)
-      this.frame = { current, previous: animate && changed ? this.frame.current : undefined, revision: this.frame.revision + (changed ? 1 : 0), at: this.now }
-      this.deadline = items.length > 1 ? this.now + TOOL_ACTIVITY_PAGE_MS : undefined
+    if (this.pending !== undefined && this.deadline !== undefined && this.now >= this.deadline) {
+      // Busy/hidden renderers must not animate stale playback after a late callback.
+      const onTime = this.now - this.deadline <= 250
+      this.frame = { current: this.pending, previous: animate && onTime ? this.frame.current : undefined, revision: this.frame.revision + 1, at: this.now }
+      this.pending = undefined; this.deadline = undefined; this.holdUntil = this.now + TOOL_ACTIVITY_HOLD_MS
     }
     if (this.frame.previous !== undefined && (!animate || this.now - this.frame.at >= TOOL_ACTIVITY_FLIP_MS)) this.frame = { ...this.frame, previous: undefined }
     return this.frame
