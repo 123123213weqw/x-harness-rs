@@ -242,6 +242,47 @@ for(const engine of engines){
     // owning-theme typography (including unchanged body/H1 font tokens).
     for(const name of ['base.css','design-platform.css','scrollbar.css','gradient-shadow-text.css','typography.css','shiki.css'])
      await page.addStyleTag({content:readFileSync(join(ui,'src/modules/theme',name),'utf8')})
+    // Test the actual theme and owning shell/summary styles, not merely the
+    // source text. Missing semicolons used to corrupt the unrelated tip token.
+    const darkProbeSheets=await Promise.all([
+     'layout/AppFrame.css','conversation/chat/TurnTailNodeView.css',
+    ].map(name=>page.addStyleTag({content:readFileSync(join(ui,'src/modules',name),'utf8')})))
+    const contrast=await page.evaluate(()=>{
+     const root=document.createElement('div')
+     root.className='_84hhiq_frame'
+     root.innerHTML='<div class="_84hhiq_sidebarCol"><div class="_84hhiq_regionSurface"></div></div><button class="Aov_lG_summary">Tools</button><div data-tip style="background:var(--dsw-specific-tip)"></div>'
+     document.body.append(root)
+     const side=root.querySelector('._84hhiq_regionSurface'), summary=root.querySelector('button'), tip=root.querySelector('[data-tip]')
+     const skim=()=>({
+      bodyWeight:getComputedStyle(document.body).fontWeight,
+      weightToken:getComputedStyle(document.body).getPropertyValue('--dsw-weight-body').trim(),
+      summaryWeight:getComputedStyle(summary).fontWeight,cursor:getComputedStyle(summary).cursor,
+      tip:getComputedStyle(tip).backgroundColor,frame:getComputedStyle(root).backgroundColor,
+      image:getComputedStyle(root).backgroundImage,
+      blur:getComputedStyle(side).getPropertyValue('backdrop-filter')||getComputedStyle(side).getPropertyValue('-webkit-backdrop-filter'),
+     })
+     document.body.removeAttribute('data-ds-dark-theme')
+     const light=skim()
+     document.body.setAttribute('data-ds-dark-theme','')
+     const dark=skim()
+     root.setAttribute('data-sidebar-collapsed','')
+     const collapsed=skim()
+     document.body.removeAttribute('data-ds-dark-theme')
+     root.remove()
+     return {light,dark,collapsed}
+    })
+    for(const [theme,weight] of [['light','400'],['dark','500']]){
+     const v=contrast[theme]
+     assert.deepEqual([v.bodyWeight,v.weightToken,v.summaryWeight,v.cursor],[weight,weight,weight,'pointer'],engine+'/'+theme)
+    }
+    assert.equal(contrast.light.image,'none','light shell keeps its plain surface')
+    assert.equal(contrast.light.frame,'rgb(250, 250, 250)','the light sidebar gutter keeps its original color')
+    assert.equal(contrast.light.tip,'rgb(247, 247, 247)','unrelated light tip token is not corrupted')
+    assert.equal(contrast.dark.tip,'rgb(53, 53, 53)','unrelated dark tip token is not corrupted')
+    assert.match(contrast.dark.image,/radial-gradient/)
+    assert.match(contrast.dark.blur,/blur\(24px\)/)
+    assert.ok(['','none'].includes(contrast.collapsed.blur),'no blur on collapsed sidebar')
+    for(const sheet of darkProbeSheets)await sheet.evaluate(node=>node.remove())
     const text='# **H1**\n\n## **H2**\n\n### **H3**\n\n#### **H4**\n\n##### **H5**\n\n###### **H6**\n\n正文 **强调** English $x^2$\n\n```text\ncode value\n```\n\n| Head |\n| --- |\n| body |\n\n末尾'
     for(const theme of ['light','dark'])for(const width of [960,390]){
      await page.setViewportSize({width,height:720})
