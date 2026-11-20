@@ -62,7 +62,7 @@ function summarize(argsRaw: string, t: TodoRowProps['t']): RowSummary | null {
 export function TodoRow({ toolName, block, inspect, t }: TodoRowProps) {
   const model = toolRowModel(toolName, block)
   const argsRaw = ('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? ''
-  const summary = summarize(argsRaw, t) ?? { text: model.summary, extra: 0 }
+  const summary = (toolName === 'todolist' ? summarizeTodoList(argsRaw, t) : summarize(argsRaw, t)) ?? { text: model.summary, extra: 0 }
   return (
     <ToolRow
       stateKey={block.callId}
@@ -70,7 +70,7 @@ export function TodoRow({ toolName, block, inspect, t }: TodoRowProps) {
       variant={model.variant}
       toolName={toolName}
       icon={<IconChecklistOutline14 />}
-      title={t('todo.rowTitle')}
+      title={toolName === 'todolist' ? 'TodoList' : t('todo.rowTitle')}
       summary={summary.text}
       summarySuffix={summary.extra > 0 ? `+${summary.extra}` : null}
       body={model.body}
@@ -80,6 +80,21 @@ export function TodoRow({ toolName, block, inspect, t }: TodoRowProps) {
       inspect={inspect}
     />
   )
+}
+
+/** The new tool edits titles, not runtime-owned completion statuses. Never turn
+ * an update request, item count or successful tool return into a completion. */
+export function summarizeTodoList(argsRaw: string, t: TodoRowProps['t']): RowSummary | null {
+  if (argsRaw.length > 262_144) return null
+  let parsed: unknown
+  try { parsed = JSON.parse(argsRaw) } catch { return null }
+  if (!isRecord(parsed)) return null
+  if (parsed.action === 'get') return Object.keys(parsed).length === 1 ? { text: t('todo.readList'), extra: 0 } : null
+  if (parsed.action !== 'update' || Object.keys(parsed).some(key => !['action','revision','items'].includes(key))
+    || typeof parsed.revision !== 'number' || !Number.isSafeInteger(parsed.revision) || parsed.revision < 0
+    || !isUnknownArray(parsed.items) || parsed.items.length > 128
+    || !parsed.items.every(item => isRecord(item) && Object.keys(item).length === 2 && typeof item.id === 'string' && item.id !== '' && typeof item.title === 'string' && item.title !== '')) return null
+  return { text: t('todo.listItems', { count: parsed.items.length }), extra: 0 }
 }
 
 /**
@@ -94,7 +109,9 @@ export const todoToolview = {
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.inject('tool.call.toolview', () =>
-      ctx.slots.register({ name: 'tool.call.toolview', key: 'todo_write', locale: NS }, TodoRow))
+    ctx.slots.inject('tool.call.toolview', function* () {
+      yield ctx.slots.register({ name: 'tool.call.toolview', key: 'todo_write', locale: NS }, TodoRow)
+      yield ctx.slots.register({ name: 'tool.call.toolview', key: 'todolist', locale: NS }, TodoRow)
+    })
   },
 }

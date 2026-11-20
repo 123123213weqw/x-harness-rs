@@ -1,16 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { frozenRuntime, frozenConversation, runtimeTestApi, runFrozenSourceDifferential } from './runtime-source-test-harness.mjs';
-import { patchAtomicHistory, patchHistoryRetry } from './patch-atomic-history.mjs';
+import { runtimeTestApi, runFrozenSourceDifferential } from './runtime-source-test-harness.mjs';
 
 const source = readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-runtime/client.js', import.meta.url), 'utf8');
 const chatSource = readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js', import.meta.url), 'utf8');
-assert.equal(patchAtomicHistory(Buffer.from(frozenRuntime)).toString(), frozenRuntime);
-assert.equal(patchHistoryRetry(Buffer.from(frozenConversation)).toString(), frozenConversation);
-assert.equal(patchAtomicHistory(Buffer.from(frozenRuntime.replaceAll('\n', '\r\n'))).toString(), frozenRuntime);
-assert.throws(() => patchAtomicHistory(Buffer.from('upstream changed')), /anchor changed/);
-assert.throws(() => patchHistoryRetry(Buffer.from('upstream changed')), /anchor changed/);
 const graph = JSON.parse(readFileSync(new URL('../ui/dist/client-graph.json', import.meta.url)));
 for (const [id, bytes] of [['@xharness/dsh-client-runtime', source], ['@xharness/dsh-client-ui-conversation', chatSource]]) {
   const entry = graph.entries.find(row => row.id === id);

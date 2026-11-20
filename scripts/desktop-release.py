@@ -38,6 +38,15 @@ PLATFORMS = {
 # Deliberately NO linux-x86_64 fallback: Tauri deb/rpm clients also fall back to
 # that key, and must never receive an AppImage as their native package update.
 MANIFEST_NOTES = 'Signed unified desktop update. Save work before restarting.'
+# Stable feeds published before the repository rename (x-harness-rs -> XHarness)
+# keep the legacy owner/path in their signed download URLs; GitHub serves both
+# names identically. Only the repository segment may differ; every tag, asset
+# name and signature check stays strict.
+LEGACY_REPOSITORY_ALIASES = {'123123213weqw/XHarness': ('123123213weqw/x-harness-rs',)}
+
+
+def repository_aliases(repository):
+    return (repository, *LEGACY_REPOSITORY_ALIASES.get(repository, ()))
 MACOS_PREVIEW_SCOPE = 'all-macos-preview'
 MACOS_PREVIEW_POLICY = 'ad-hoc-unnotarized-preview'
 MACOS_SELFSIGNED_SCOPE = 'all-macos-selfsigned'
@@ -528,7 +537,7 @@ def validate_live(plan, live_root, candidate_manifest, public_key_path):
         url = urlsplit(entry['url'])
         parts = url.path.split('/')
         require(url.scheme == 'https' and url.netloc == 'github.com' and not url.query and not url.fragment
-                and len(parts) == 7 and '/'.join(parts[1:3]) == plan['repository']
+                and len(parts) == 7 and '/'.join(parts[1:3]) in repository_aliases(plan['repository'])
                 and parts[3:5] == ['releases', 'download'], 'Untrusted live package URL')
         tag, name = parts[5:]
         safe_name(name)

@@ -4,7 +4,9 @@ use objc2_app_kit::{
     NSBitmapImageFileType, NSBitmapImageRep, NSEvent, NSEventModifierFlags, NSEventType, NSImage,
     NSTrackingAreaOptions, NSWindowStyleMask,
 };
-use objc2_foundation::{NSDictionary, NSError, NSPoint, NSProcessInfo, NSRect, NSSize, NSString};
+use objc2_foundation::{
+    NSDictionary, NSError, NSNumber, NSPoint, NSProcessInfo, NSRect, NSSize, NSString,
+};
 use objc2_web_kit::{WKSnapshotConfiguration, WKWebView};
 use tauri::webview::PlatformWebview;
 use tokio::sync::oneshot::Sender;
@@ -204,7 +206,11 @@ pub fn input(
         }
     }
 }
-pub fn snapshot(handle: PlatformWebview, reply: Sender<Result<Vec<u8>, String>>) {
+pub fn snapshot(
+    handle: PlatformWebview,
+    plan: super::capture::CapturePlan,
+    reply: Sender<Result<Vec<u8>, String>>,
+) {
     let Ok(view) = view(&handle) else {
         let _ = reply.send(Err("WKWebView unavailable".into()));
         return;
@@ -228,6 +234,11 @@ pub fn snapshot(handle: PlatformWebview, reply: Sender<Result<Vec<u8>, String>>)
     };
     // SAFETY: snapshot configuration is initialized on its required main thread.
     let configuration = unsafe { WKSnapshotConfiguration::new(mtm) };
+    let scale = view.window().map(|window| window.backingScaleFactor());
+    let Some(scale) = scale.filter(|scale| scale.is_finite() && *scale > 0.0) else {
+        let _ = reply.send(Err("native snapshot backing scale unavailable".into()));
+        return;
+    };
     // WK software snapshots start at CSS content origin even when native input
     // starts below an obscured inset. Crop the extra bottom extent, NOT the top:
     // CI pixels put the CSS marker at y=120 in a 560px image/532px CSS viewport.
@@ -237,6 +248,10 @@ pub fn snapshot(handle: PlatformWebview, reply: Sender<Result<Vec<u8>, String>>)
             NSPoint::new(0.0, 0.0),
             NSSize::new(bounds.size.width, height),
         ));
+        // snapshotWidth is in points, while the shared evidence budget is in
+        // image pixels. WebKit paints at this resolution without resizing the
+        // view or changing page zoom/DOM geometry. Do not enlarge an old bitmap.
+        configuration.setSnapshotWidth(Some(&NSNumber::new_f64(f64::from(plan.width) / scale)));
     }
     let reply = std::sync::Mutex::new(Some(reply));
     let block = RcBlock::new(move |image: *mut NSImage, error: *mut NSError| {

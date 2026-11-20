@@ -98,9 +98,22 @@ test('a genuinely empty legacy session becomes reusable after authoritative cata
 test('configured Gateway New Session clears selection before allocating any Host session', async () => {
   const f = fixture({ blank: false }); await f.manager.refreshList(); f.manager.select('old')
   f.workspace.configureEnvironmentCreation(true)
-  f.workspace.startSession('w'); await tick()
+  f.workspace.startSession(); await tick()
   assert.equal(f.manager.getListSnapshot().current, undefined)
   assert.deepEqual(f.created, []); assert.deepEqual(f.opened, [])
+})
+
+test('selecting a specific Gateway workspace preserves that Host and workspace, not the most recent one', async () => {
+  const f = fixture({ blank: false }); await f.manager.refreshList(); f.manager.select('old')
+  f.workspace.handleHostEnvelope({ rpcId: 'other-project', payload: { type: 'host/workspace-changed', workspace: {
+    workspaceId: 'other', path: '/other', title: 'Other', sessionIds: [], createdAt: '2', updatedAt: '2',
+  } } })
+  f.workspace.configureEnvironmentCreation(true)
+  f.workspace.list.update(state => { state.recentWorkspaceId = 'other' })
+  f.workspace.startSession('w'); await tick()
+  assert.equal(f.created.length, 1)
+  assert.equal(f.created[0].workspaceId, 'w')
+  assert.deepEqual(f.opened, ['fresh'])
 })
 
 test('configured Gateway startup does not auto-create a blank on the preselected Host', async () => {

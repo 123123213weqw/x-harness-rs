@@ -17,3 +17,6 @@ export {XHReviewDiffBlock} from './tool/components/ReviewDiffBlock'
 export * from './tool/models/agent-communication-model'
 
 export * from './tool/models/shell-error-summary'
+export { ToolGlyph, toolGlyphKind } from '../shared/ToolGlyph'
+export { TodoRow, summarizeTodoList, todoToolview } from './tool/toolviews/todo-row'
+export { toolFailurePreview } from './tool/models/tool-failure-preview'

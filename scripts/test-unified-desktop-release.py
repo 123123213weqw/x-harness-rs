@@ -569,6 +569,19 @@ process.stdout.write(JSON.stringify({primary: signer(1), other: signer(2)}));
         self.assertEqual(result['previous_live_version'], '0.2.5')
         self.assertEqual(set(result['acceptance_sha256']), set(contract.PLATFORMS))
 
+    def test_promotion_accepts_pre_rename_repository_alias_in_live_feeds(self):
+        # Live feeds signed before the repository rename keep the legacy owner/path
+        # in their download URLs; promotion under the current name must accept them
+        # while unrelated repositories stay rejected.
+        self.assemble()
+        manifest, _ = contract.validate_release(self.plan, self.output, self.pub)
+        live = self.live()
+        renamed = {**self.plan, 'repository': '123123213weqw/XHarness'}
+        contract.validate_live(renamed, live, manifest, self.pub)
+        for wrong in ['123123213weqw/x-harness-rs-old', '123123213weqw/other', 'x-harness-rs/123123213weqw']:
+            with self.subTest(wrong=wrong), self.assertRaises(ValueError):
+                contract.validate_live({**renamed, 'repository': wrong}, live, manifest, self.pub)
+
     def scoped_artifacts(self):
         self.plan = plan(release_scope='windows-linux')
         for platform in contract.PLATFORMS:

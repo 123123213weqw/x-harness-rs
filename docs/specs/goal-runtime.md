@@ -168,7 +168,7 @@ ToolResult + TurnEnd → Goal 报告结算 → 继续 / 等待 / 暂停 / 待确
 
 发布前需要：
 
-1. 本分支跨平台 CI 通过，并确认 UI 重建包含 `patch-goal-runtime.mjs`。
+1. 本分支跨平台 CI 通过，并确认 UI 重建直接编译 `ui/src/modules/goal/`。
 2. 安装前备份整个旧数据目录，再更新后端和 UI 配套包。
 3. 已安装实例验证旧 v1 Goal 不自启动、新 Goal 能恢复、待确认仍显示。
 4. 若必须降级，使用升级前完整备份或独立数据目录，不能自动删除 goal/execution 事件。

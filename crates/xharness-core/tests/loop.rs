@@ -10373,6 +10373,8 @@ include!("cases/multimodal_metering.rs");
 
 include!("cases/budget_verification.rs");
 
+include!("cases/working_set_verification.rs");
+
 include!("cases/compaction_recovery.rs");
 
 #[tokio::test]

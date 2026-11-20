@@ -59,3 +59,19 @@ test('browser typography acceptance loads the complete production theme stack',(
  assert.match(fixture,/assert\.deepEqual\(actualPixels,expectedPixels/)
  assert.match(fixture,/heading emphasis inherits hierarchy/)
 })
+
+test('assistant prose and table cells use the ordinary system UI font',()=>{
+ const assistant=read('ui/src/modules/conversation/chat/AssistantMarkdown.tsx')
+ assert.match(assistant,/<div className=\{css\.body\} data-xh-assistant-prose="">/)
+ const prose=tokens.match(/\[data-xh-assistant-prose\] > \.MarkdownText_markdown\s*\{([^}]+)\}/)?.[1]
+ assert.ok(prose,'direct-child semantic boundary is required')
+ assert.match(prose,/--xh-assistant-reading-family: var\(--dsw-font-family\);/)
+ assert.doesNotMatch(tokens,/Georgia|"Songti SC"|"Noto Serif CJK SC"|"Source Han Serif SC"|,\s*serif\b/)
+ assert.match(prose,/--xh-markdown-emphasis-weight: 600;/)
+ assert.match(prose,/font-family: var\(--xh-assistant-reading-family\);/)
+ assert.doesNotMatch(prose,/font-size:|line-height:|font-weight:|color:|background:/)
+ assert.match(tokens,/\[data-xh-assistant-prose\] > \.MarkdownText_markdown td\s*\{\s*font-family: var\(--xh-assistant-reading-family\);\s*\}/)
+ const global=tokens.match(/body\s*\{([^}]+)\}/)?.[1]
+ assert.doesNotMatch(global,/--xh-assistant-reading-family|font-family:|--dsw-font-family:/)
+ assert.match(global,/--xh-markdown-emphasis-weight: 700;/,'other consumers retain original emphasis')
+})

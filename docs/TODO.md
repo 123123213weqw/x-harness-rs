@@ -318,7 +318,7 @@ provider 仍是 `active: true`。三条互不相关的路径都会产生这一�
 - [x] `LIVE-ANSWER-01` 排除 Host：新增 `failed_turn_projection_tests.rs`，覆盖「失败已结束后再发」与
   「失败进行中就排队」两种顺序，断言该 Prompt 会真正起轮且 `assistant/message` 经 mux 发到浏览器。
   master 树 WZU_Server 上两项通过；此前 Host 侧无失败路径投影回归。
-- [x] `LIVE-ANSWER-02` 修复 `ui/overrides/live-answer-recovery.js`：当前会话在 `error` 态收到已接纳
+- [x] `LIVE-ANSWER-02` 修复 `ui/src/modules/client-runtime/sessions/`：当前会话在 `error` 态收到已接纳
   Prompt 或 `running=true` 上报时复用错误横幅的只读重试路径重开窗口；Prompt 触发覆盖已运行会话
   排队时不会产生第二个状态沿的路径，使缓冲的实时回答得以发布；限速 5 秒、仅从
   `error` 起步、仅当前选中会话，避免拉取循环与后台自发请求。补丁接入

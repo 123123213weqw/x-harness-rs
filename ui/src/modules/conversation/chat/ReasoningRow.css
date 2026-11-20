@@ -9,3 +9,5 @@
 @keyframes U8JO7q_page-enter{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 @keyframes U8JO7q_page-leave{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(-8px)}}
 @media(prefers-reduced-motion:reduce){.U8JO7q_pageIn,.U8JO7q_pageOut{animation:none!important}.U8JO7q_pageOut{display:none}}
+.xh-thought-chevron{display:inline-flex;flex:none;margin-left:auto;width:12px;height:12px;color:var(--dsw-alias-label-tertiary)}
+[data-open]>.U8JO7q_row .xh-thought-chevron{transform:rotate(90deg)}

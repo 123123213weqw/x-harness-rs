@@ -110,6 +110,22 @@ async fn plugin_center_wire_contract() {
         !initial.enabled && !initial.mcp_enabled,
         "installation grants no authority"
     );
+    let legacy = serde_json::to_value(&initial).unwrap();
+    assert!(
+        legacy.get("uiConfigSha256").is_none(),
+        "legacy replies retain the exact v1 field set"
+    );
+    let mut pinned = initial.clone();
+    pinned.ui_config_sha256 = Some("c".repeat(64));
+    let serialized = serde_json::to_value(&pinned).unwrap();
+    assert_eq!(serialized["uiConfigSha256"], "c".repeat(64));
+    let restored: InstalledPlugin = serde_json::from_value(serialized).unwrap();
+    assert_eq!(
+        restored.ui_config_sha256, pinned.ui_config_sha256,
+        "UI trust pin survives persistence"
+    );
+    let restored_legacy: InstalledPlugin = serde_json::from_value(legacy).unwrap();
+    assert!(restored_legacy.ui_config_sha256.is_none());
     // Shared InstalledPlugin DTO for install. Network installation is not used.
     calls.push(json!({"endpoint":"plugins/install","args":{"name":"wire-test"},"result":RpcResult::success(json!({"plugin":initial})),"producer":"shared-installed-dto"}));
     for (endpoint, args) in [

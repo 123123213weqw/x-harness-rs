@@ -129,7 +129,9 @@ choose a workspace belonging to that Host. Workspace/session/model/tool/terminal
 traffic stays on that environment's immutable origin. Creating a chat fixes its
 backend even when the chat is still empty; existing-chat headers show a read-only
 environment label, not a switch menu. The global New Session action returns to
-the choice page without creating an unused Session on the previous Host. Direct
+the choice page without creating an unused Session on the previous Host. A
+project-scoped New Session action has already selected a registered workspace
+on this Host and keeps that exact target. Direct
 Local startup without a configured Gateway retains its existing behavior.
 
 A cross-environment choice opens the registered origin with the navigation-only

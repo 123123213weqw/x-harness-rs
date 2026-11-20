@@ -9,24 +9,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { frozenRuntime, runtimeTestApi, runFrozenSourceDifferential } from './runtime-source-test-harness.mjs';
-import { patchLiveAnswerRecovery } from './patch-live-answer-recovery.mjs';
+import { runtimeTestApi, runFrozenSourceDifferential } from './runtime-source-test-harness.mjs';
 
 const path = new URL('../ui/dist/plugins/@xharness/dsh-client-runtime/client.js', import.meta.url);
 const source = readFileSync(path, 'utf8');
-assert.equal(patchLiveAnswerRecovery(Buffer.from(frozenRuntime)).toString(), frozenRuntime);
-assert.equal(patchLiveAnswerRecovery(Buffer.from(frozenRuntime.replaceAll('\n', '\r\n'))).toString(), frozenRuntime);
-assert.throws(() => patchLiveAnswerRecovery(Buffer.from('upstream changed')), /anchor changed/);
-// The recovery is installed on the transactional layer it depends on.
-assert.ok(frozenRuntime.indexOf('xh-live-answer-recovery:start') < frozenRuntime.indexOf('xh-atomic-history:start'));
-// Assembly applies the patches in that order to the upstream bundle, so the
-// install anchor must exist by the time this patch runs.
-const upstream = 'const Session = 1;\n// xh-session-history-cache:start\ninstallSessionHistoryCache(Session);\n// xh-session-history-cache:end\n// xh-atomic-history:start\ninstallAtomicHistory(ConversationNodeAssembler, Session);\n// xh-atomic-history:end\n';
-const assembled = patchLiveAnswerRecovery(Buffer.from(upstream)).toString();
-assert.ok(assembled.indexOf('xh-live-answer-recovery:start') < assembled.indexOf('xh-atomic-history:start'),
-  'the recovery must be installed ahead of the transactional layer');
-assert.ok(assembled.includes('installLiveAnswerRecovery(Session);'));
-assert.throws(() => patchLiveAnswerRecovery(Buffer.from('const Session = 1;')), /anchor changed/);
 const graph = JSON.parse(readFileSync(new URL('../ui/dist/client-graph.json', import.meta.url)));
 const entry = graph.entries.find(row => row.id === '@xharness/dsh-client-runtime');
 assert.equal(entry.rev, createHash('sha256').update(source).digest('hex').slice(0, 16));

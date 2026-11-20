@@ -189,6 +189,11 @@ impl ComputerRequest {
                 }
             }
             ComputerAction::Scroll => {
+                if self.x.is_some() != self.y.is_some() {
+                    return Err(ComputerError::invalid(
+                        "positioned scroll requires both x and y",
+                    ));
+                }
                 if self.delta_x.unwrap_or(0) == 0 && self.delta_y.unwrap_or(0) == 0 {
                     return Err(ComputerError::invalid(
                         "scroll requires non-zero delta_x or delta_y",
@@ -481,15 +486,15 @@ fn validate_argument_shape(value: &Value) -> Result<(), ToolHandlerError> {
 pub fn definition() -> ToolDefinition {
     ToolDefinition::new(
         COMPUTER_TOOL_NAME,
-        "Observe and operate the local desktop. Use observe before coordinate or node actions and reuse its frame_id. Use the coordinate_space and display bounds returned by observe: macOS uses logical points; Windows uses physical desktop pixels. Prefer node_id for click, scroll, and type when available. Actions are serialized; do not issue overlapping computer calls. detail=semantic returns the accessibility tree without a screenshot; other observations return screenshots only for vision-capable models.",
+        "Observe and operate the local desktop. Use observe before coordinate or node actions and reuse its frame_id. Use the coordinate_space and display bounds returned by observe: macOS uses logical points (negative origins are valid); Windows uses physical desktop pixels. For macOS screenshots map image pixels using screenshot.pixel_to_desktop before input; the default screenshot covers only the main display. A macOS region crop must fit one display; capture separate crops for multiple displays. Prefer node_id for click, scroll, and type when available. Actions are serialized; do not issue overlapping computer calls. A dispatched event is not proof of effect: verify the resulting UI before declaring success. detail=semantic returns the accessibility tree without a screenshot; other observations return screenshots only for vision-capable models.",
         json!({
             "type": "object",
             "additionalProperties": false,
             "properties": {
                 "action": {"type":"string","description":"observe reads the desktop; move moves the pointer without clicking; click activates a target; drag follows path; scroll scrolls at the target; type inserts text; keypress sends keys; wait pauses; window controls windows. Clicking a control may trigger its action, not just focus it.","enum":["observe","move","click","drag","scroll","type","keypress","wait","window"]},
-                "surface_id": {"type":"string"},
-                "frame_id": {"type":"string","description":"Use the frame_id from the latest successful observation for input actions. Do not include it in observe. If expired, observe again; never guess or silently replay an uncertain action."},
-                "node_id": {"type":"string","description":"Target from the latest observation. Match its label to your intent; IDs from earlier layouts are not interchangeable."},
+                "surface_id": {"type":"string","description":"Window actions only: use a surface_id from observe or window/list. Do not substitute node_id or include frame_id in a window action."},
+                "frame_id": {"type":"string","description":"Use the frame_id from the latest successful observation for input actions, including macOS typing, keypress and unpositioned scroll. Do not include it in observe or window actions. If expired, observe again; never guess or silently replay an uncertain action."},
+                "node_id": {"type":"string","description":"Target from the latest observation. Match its label to your intent; IDs from earlier layouts are not interchangeable. Do not include node_id in window actions."},
                 "x": {"type":"number"}, "y": {"type":"number"},
                 "button": {"type":"string","enum":["left","right","middle"]},
                 "count": {"type":"integer"},
@@ -500,7 +505,7 @@ pub fn definition() -> ToolDefinition {
                 "keys": {"type":"array","description":"Key names such as Enter, Tab, PageDown, PageUp, Down or a; no underscores. Put ctrl/cmd/shift in modifiers.","items":{"type":"string"}},
                 "delta_x": {"type":"integer","description":"Horizontal native scroll delta. Windows: positive right, negative left; 120 is one wheel notch, not pixels. macOS uses native pixel deltas."}, "delta_y": {"type":"integer","description":"Vertical native scroll delta. Windows: positive down, negative up; 120 is one wheel notch, not pixels. macOS uses native pixel deltas; signs are platform-specific. Check the resulting view."},
                 "detail": {"type":"string","enum":["auto","low","high","semantic"]},
-                "region": {"type":"object","description":"Physical desktop rectangle on Windows (logical points on macOS). On Windows this filters accessibility content as well as cropping the screenshot; context-only ancestors have no actionable target. Truncated trees are partial, not proof content is absent.","additionalProperties":false,"properties":{"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number"},"height":{"type":"number"}},"required":["x","y","width","height"]},
+                "region": {"type":"object","description":"Physical desktop rectangle on Windows (logical points on macOS). On macOS it selects intersecting AX windows and a single-display screenshot crop; without a region AX controls cover the frontmost app, with a bounded background window inventory (use window/list for other surfaces). On Windows this filters accessibility content as well as cropping the screenshot; context-only ancestors have no actionable target. Truncated trees are partial, not proof content is absent.","additionalProperties":false,"properties":{"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number"},"height":{"type":"number"}},"required":["x","y","width","height"]},
                 "include_screenshot": {"type":"boolean"},
                 "include_accessibility": {"type":"boolean"},
                 "observe_after": {"type":"string","enum":["never","auto","always"]},
@@ -653,6 +658,18 @@ mod tests {
         let result = execute(r#"{"action":"type","text":"safe","x":1,"y":2}"#).await;
         assert!(!result.is_ok());
         assert!(result.failure.unwrap().message.contains("not valid"));
+    }
+
+    #[tokio::test]
+    async fn partial_scroll_positions_fail_before_driver_dispatch() {
+        for args in [
+            r#"{"action":"scroll","delta_y":120,"frame_id":"f","x":1}"#,
+            r#"{"action":"scroll","delta_y":120,"frame_id":"f","y":1}"#,
+        ] {
+            let result = execute(args).await;
+            assert!(!result.is_ok());
+            assert!(result.failure.unwrap().message.contains("both x and y"));
+        }
     }
 
     #[tokio::test]

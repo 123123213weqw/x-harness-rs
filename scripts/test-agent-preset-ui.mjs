@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import vm from 'node:vm'
-import { patchAgentPresetUi } from './patch-agent-preset-ui.mjs'
 import { assertRebuildInput } from './fixtures/repository-ui-input.mjs'
 
 const dist = resolve(process.env.UI_TEST_DIST ?? 'ui/dist')
@@ -17,14 +16,9 @@ const entry = graph.entries.find(item => item.id === id)
 assert.ok(entry, 'Agent runtime bundle remains loaded')
 assert.equal(entry.rev, hash(bytes))
 assert.equal(graph.rev, hash(Buffer.from(JSON.stringify(graph.entries))))
-// The frozen product remains a golden patch-idempotence/fail-closed fixture.
-// Native source is executed below: it must not pass merely because its new
-// transpiler output no longer matches the old double-quoted slot regexes.
+// Execute the independent frozen product and current source below; absence of
+// an old transpiler's slot strings is not proof that native behavior is correct.
 const frozen = readFileSync(resolve('ui/reference/master-a613970/plugins', id, 'client.js'))
-assert.equal(patchAgentPresetUi(id, frozen).toString(), frozen.toString(), 'frozen product patch is idempotent')
-assert.throws(() => patchAgentPresetUi(id, Buffer.from('// changed anchor')), /hero chooser anchor/, 'golden patch remains fail-closed')
-assert.equal(patchAgentPresetUi('@xharness/other', frozen), frozen, 'unrelated module is untouched')
-if (!source.startsWith('// Generated from src/modules/')) assert.equal(patchAgentPresetUi(id, bytes).toString(), source, 'classic patch is idempotent')
 assert.doesNotMatch(source, /scope\.slots\.register\(\{\s*name: "conversation\.hero\.agentPreset"/)
 assert.doesNotMatch(source, /scope\.slots\.register\(\{\s*name: "conversation\.session\.header\.actions",\s*id: "agent-preset"/)
 assert.doesNotMatch(source, /ctx\.slots\.inject\("settings\.general\.item"/)
@@ -71,4 +65,4 @@ const golden=await hiddenModeReceipt(materialize(frozen.toString()))
 const native=await hiddenModeReceipt(materialize(source))
 assert.deepEqual(native,golden,'native hidden-mode behavior matches frozen product, not raw bundle text')
 assertRebuildInput(id)
-console.log('agent preset UI: frozen golden patch guards + native hidden-mode slots/events/Host selection/roster/cleanup and repository rebuild input passed')
+console.log('agent preset UI: native/frozen hidden-mode slots/events/Host selection/roster/cleanup and repository rebuild input passed')

@@ -1399,6 +1399,7 @@ exports.toolRowModel = toolRowModel;
 // that produces the values).
 const value_guards_1 = require("../../value-guards");
 const shell_error_summary_1 = require("./shell-error-summary");
+const tool_failure_preview_1 = require("./tool-failure-preview");
 const runtime_1 = require("../../runtime");
 /** Figma row titles per variant (design literals, not translatable copy). */
 exports.VARIANT_TITLES = {
@@ -1619,7 +1620,7 @@ function toolRowModel(toolName, block, cwd, home) {
     const output = done ? (resultText(block) || null) : null;
     const errorSummary = done
         ? (0, shell_error_summary_1.shellErrorSummary)(toolName, block, output ?? '')
-            ?? (state === 'error' && output !== null ? firstLine(output) : null) : null;
+            ?? (state === 'error' && output !== null ? (0, tool_failure_preview_1.toolFailurePreview)(output) : null) : null;
     return {
         variant,
         title: toolTitle ?? exports.VARIANT_TITLES[variant],
@@ -1771,6 +1772,48 @@ function isView(value, kind) {
 }
 
 },
+"src/modules/tool/tool/models/tool-failure-preview.js": function(module, exports, require) {
+// source: src/modules/tool/tool/models/tool-failure-preview.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.toolFailurePreview = toolFailurePreview;
+/** The disclosure retains full output; its one-line preview must not be a raw
+ * JSON envelope or an unbounded transcript. Parsing is strictly size-bounded. */
+function toolFailurePreview(output, fallback = 'Tool execution failed') {
+    const line = (value) => {
+        let text = '', count = 0;
+        for (const character of value.trim()) {
+            if (character === '\n' || count++ >= 240)
+                break;
+            text += character;
+        }
+        return text.trimEnd();
+    };
+    const raw = output.trim();
+    if (!raw.startsWith('{') && !raw.startsWith('['))
+        return line(raw) || fallback;
+    if (raw.length > 16384)
+        return fallback;
+    try {
+        const value = JSON.parse(raw);
+        if (typeof value !== 'object' || value === null)
+            return fallback;
+        for (const key of ['message', 'error']) {
+            if (!(key in value))
+                continue;
+            const field = Reflect.get(value, key);
+            if (typeof field === 'string' && field.trim() !== '' && !/^[\[{]/.test(field.trim()))
+                return line(field);
+            if (typeof field === 'object' && field !== null && 'message' in field && typeof field.message === 'string' && field.message.trim() !== '')
+                return line(field.message);
+        }
+    }
+    catch { /* A malformed error still has its verbatim expanded output. */ }
+    return fallback;
+}
+
+},
 "src/modules/tool/runtime.js": function(module, exports, require) {
 // source: src/modules/tool/runtime.ts
 
@@ -1784,7 +1827,7 @@ Object.defineProperty(exports, "resolveWorkspacePath", { enumerable: true, get: 
 
 }
 };
-const __dependencies = {"src/modules/schedule/index.js":{"./Schedule.css":"src/modules/schedule/Schedule.css","../shared/runtime-types":"src/modules/shared/runtime-types.js","./automation-data":"src/modules/schedule/automation-data.js","./AutomationNavigation":"src/modules/schedule/AutomationNavigation.js","./AutomationNavigation.css":"src/modules/schedule/AutomationNavigation.css","./AutomationToolCard.css":"src/modules/schedule/AutomationToolCard.css","./AutomationToolCard":"src/modules/schedule/AutomationToolCard.js","./automation-card-client":"src/modules/schedule/automation-card-client.js","../jobs/client":"src/modules/jobs/client.js","../jobs/RunPanel":"src/modules/jobs/RunPanel.js","../jobs/ToolCard":"src/modules/jobs/ToolCard.js"},"src/modules/schedule/Schedule.css":{},"src/modules/shared/runtime-types.js":{},"src/modules/schedule/automation-data.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/schedule/AutomationNavigation.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./automation-data":"src/modules/schedule/automation-data.js"},"src/modules/schedule/AutomationNavigation.css":{},"src/modules/schedule/AutomationToolCard.css":{},"src/modules/schedule/AutomationToolCard.js":{"./automation-card-model":"src/modules/schedule/automation-card-model.js","../jobs/RunPanel":"src/modules/jobs/RunPanel.js"},"src/modules/schedule/automation-card-model.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./automation-data":"src/modules/schedule/automation-data.js"},"src/modules/jobs/RunPanel.js":{"./RunPanel.css":"src/modules/jobs/RunPanel.css","../views-types":"src/modules/views-types.js","./model":"src/modules/jobs/model.js"},"src/modules/jobs/RunPanel.css":{},"src/modules/views-types.js":{},"src/modules/jobs/model.js":{},"src/modules/schedule/automation-card-client.js":{"./automation-card-model":"src/modules/schedule/automation-card-model.js"},"src/modules/jobs/client.js":{"./model":"src/modules/jobs/model.js"},"src/modules/jobs/ToolCard.js":{"../tool/tool/models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","./RunPanel":"src/modules/jobs/RunPanel.js"},"src/modules/tool/tool/models/tool-call-model.js":{"../../value-guards":"src/modules/tool/value-guards.js","./shell-error-summary":"src/modules/tool/tool/models/shell-error-summary.js","../../runtime":"src/modules/tool/runtime.js"},"src/modules/tool/value-guards.js":{},"src/modules/tool/tool/models/shell-error-summary.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js"},"src/modules/tool/tool/models/view-codec.js":{},"src/modules/tool/runtime.js":{}};
+const __dependencies = {"src/modules/schedule/index.js":{"./Schedule.css":"src/modules/schedule/Schedule.css","../shared/runtime-types":"src/modules/shared/runtime-types.js","./automation-data":"src/modules/schedule/automation-data.js","./AutomationNavigation":"src/modules/schedule/AutomationNavigation.js","./AutomationNavigation.css":"src/modules/schedule/AutomationNavigation.css","./AutomationToolCard.css":"src/modules/schedule/AutomationToolCard.css","./AutomationToolCard":"src/modules/schedule/AutomationToolCard.js","./automation-card-client":"src/modules/schedule/automation-card-client.js","../jobs/client":"src/modules/jobs/client.js","../jobs/RunPanel":"src/modules/jobs/RunPanel.js","../jobs/ToolCard":"src/modules/jobs/ToolCard.js"},"src/modules/schedule/Schedule.css":{},"src/modules/shared/runtime-types.js":{},"src/modules/schedule/automation-data.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/schedule/AutomationNavigation.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./automation-data":"src/modules/schedule/automation-data.js"},"src/modules/schedule/AutomationNavigation.css":{},"src/modules/schedule/AutomationToolCard.css":{},"src/modules/schedule/AutomationToolCard.js":{"./automation-card-model":"src/modules/schedule/automation-card-model.js","../jobs/RunPanel":"src/modules/jobs/RunPanel.js"},"src/modules/schedule/automation-card-model.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./automation-data":"src/modules/schedule/automation-data.js"},"src/modules/jobs/RunPanel.js":{"./RunPanel.css":"src/modules/jobs/RunPanel.css","../views-types":"src/modules/views-types.js","./model":"src/modules/jobs/model.js"},"src/modules/jobs/RunPanel.css":{},"src/modules/views-types.js":{},"src/modules/jobs/model.js":{},"src/modules/schedule/automation-card-client.js":{"./automation-card-model":"src/modules/schedule/automation-card-model.js"},"src/modules/jobs/client.js":{"./model":"src/modules/jobs/model.js"},"src/modules/jobs/ToolCard.js":{"../tool/tool/models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","./RunPanel":"src/modules/jobs/RunPanel.js"},"src/modules/tool/tool/models/tool-call-model.js":{"../../value-guards":"src/modules/tool/value-guards.js","./shell-error-summary":"src/modules/tool/tool/models/shell-error-summary.js","./tool-failure-preview":"src/modules/tool/tool/models/tool-failure-preview.js","../../runtime":"src/modules/tool/runtime.js"},"src/modules/tool/value-guards.js":{},"src/modules/tool/tool/models/shell-error-summary.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js"},"src/modules/tool/tool/models/view-codec.js":{},"src/modules/tool/tool/models/tool-failure-preview.js":{},"src/modules/tool/runtime.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

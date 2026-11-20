@@ -5,7 +5,7 @@ import { AssistantMarkdown } from './AssistantMarkdown'
 
 /** Streaming, settled, and interrupted Assistant states share one keyed renderer instance. */
 export const AssistantNodeView = memo(function AssistantNodeView({
-  node, useTurnData, openFile, renderMessageImages, fileMentions, t, processCollapsed,
+  node, useTurnData, openFile, renderMessageImages, fileMentions, t,
 }: ChatNodeViewProps<'assistant-step'>) {
   const data = node.data
   const turn = node.location.kind === 'turn' || node.location.kind === 'step'
@@ -27,7 +27,8 @@ export const AssistantNodeView = memo(function AssistantNodeView({
       blocks={data.blocks}
       streaming={data.status === 'running'}
       interrupted={data.status === 'interrupted'}
-      hideReasoning={processCollapsed}
+      // The Think disclosure owns its own collapsed presentation; a folded
+      // turn process must not erase reasoning rows from the transcript.
       renderMessageImages={renderMessageImages}
       mentions={mentions}
       t={t}

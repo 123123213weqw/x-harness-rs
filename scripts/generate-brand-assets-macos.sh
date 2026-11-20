@@ -55,7 +55,7 @@ with Image.open(source) as image:
 PY
 
 if [[ -f "$repo_root/ui/dist/index.html" ]]; then
-  node "$repo_root/scripts/patch-favicon.mjs" "$repo_root/ui/dist"
+  node "$repo_root/scripts/assemble-static-ui.mjs"
 fi
 
 echo "Generated XHarness brand exports from $master_png"

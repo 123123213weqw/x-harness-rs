@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Enroll the optional editor control seam in existing compiler-enforced business-error guards; no guard is removed.",
+  "compatibility": "Keep existing RPCs and permission presets unchanged. New panels are opt-in; module enrollment only expands checks.",
+  "paths": {
+    "scripts/regression/check-architecture.py": {
+      "before": "88bae732d2c2e61c8a345153004ff650047bda61dbc3669799ee78eb93b6780a",
+      "after": "7dc97a66e4033e41fd49b1ba78a8efb027e3ea56acfb96910ed4c27921adfc64"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}

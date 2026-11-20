@@ -9,6 +9,9 @@ mod direct;
 #[cfg(test)]
 mod extension_e2e;
 mod media;
+mod native_output;
+#[cfg(test)]
+mod panel_tests;
 
 use std::{sync::Arc, time::Duration};
 
@@ -34,6 +37,7 @@ pub(crate) struct Binding {
 struct InvocationPolicy {
     full_access: bool,
     builtin_ui_available: bool,
+    manager: Option<Arc<PluginManager>>,
 }
 
 fn is_builtin_ui_request(args: &Value) -> bool {
@@ -72,8 +76,33 @@ impl MonotonicGuard for InvocationPolicy {
                 "unknown or unavailable builtin UI invocation",
             ));
         }
+        // Only metadata-only branches may bypass approval. In particular,
+        // ordinary foreign server discovery can execute a process and must not.
+        let static_discovery = if context.tool_name() == "plugin_mcp"
+            && contract::validate_envelope(&context.arguments).is_ok()
+            && matches!(
+                context.arguments["action"].as_str(),
+                Some("list" | "describe")
+            ) {
+            if let (Some(manager), Some(plugin)) =
+                (&self.manager, context.arguments["plugin"].as_str())
+            {
+                manager.has_panel(plugin).await
+                    && manager.panel(plugin).await.is_ok_and(|panel| {
+                        match context.arguments.get("server").and_then(Value::as_str) {
+                            None => context.arguments["action"] == "list",
+                            Some(server) => panel.manifest.server == server,
+                        }
+                    })
+            } else {
+                false
+            }
+        } else {
+            false
+        };
         if context.tool_name() != "plugin_mcp" && !direct::is_direct(context.tool_name())
             || self.full_access
+            || static_discovery
             || self.builtin_ui_available && is_builtin_ui_request(&context.arguments)
         {
             Ok(GuardDecision::Allow)
@@ -85,6 +114,7 @@ impl MonotonicGuard for InvocationPolicy {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn bind(
     manager: Option<Arc<PluginManager>>,
     runtime: Option<Arc<McpRuntime>>,
@@ -94,16 +124,37 @@ pub(crate) fn bind(
     full_access: bool,
     media: Option<Arc<dyn xharness_computer::ComputerMediaSink>>,
 ) -> Binding {
+    bind_with_workspace(
+        manager,
+        runtime,
+        native,
+        ui,
+        (owner, None),
+        full_access,
+        media,
+    )
+}
+pub(crate) fn bind_with_workspace(
+    manager: Option<Arc<PluginManager>>,
+    runtime: Option<Arc<McpRuntime>>,
+    native: Option<Arc<crate::native_browser::NativeBrowser>>,
+    ui: Option<Arc<BuiltinUi>>,
+    scope: (String, Option<String>),
+    full_access: bool,
+    media: Option<Arc<dyn xharness_computer::ComputerMediaSink>>,
+) -> Binding {
+    let (owner, workspace) = scope;
     let guard = Arc::new(InvocationPolicy {
         full_access,
         builtin_ui_available: ui.is_some(),
+        manager: manager.clone(),
     });
     Binding {
         native_specs: native
             .as_ref()
             .map(|native| direct::specs(native.clone(), owner.clone(), media.clone()))
             .unwrap_or_default(),
-        spec: spec(manager, runtime, native, ui, owner, media),
+        spec: scoped_spec(manager, runtime, native, ui, owner, media, workspace),
         guard,
     }
 }
@@ -170,13 +221,14 @@ fn config(
     })
 }
 
-fn spec(
+fn scoped_spec(
     manager: Option<Arc<PluginManager>>,
     runtime: Option<Arc<McpRuntime>>,
     native: Option<Arc<crate::native_browser::NativeBrowser>>,
     ui: Option<Arc<BuiltinUi>>,
     owner: String,
     media: Option<Arc<dyn xharness_computer::ComputerMediaSink>>,
+    workspace: Option<String>,
 ) -> ToolSpec {
     ToolSpec::new(
         ToolDefinition::new(
@@ -190,8 +242,12 @@ fn spec(
             let runtime = runtime.clone();
             let ui = ui.clone();
             let owner = owner.clone();
+            let workspace=workspace.clone();
             let media = media.clone();
             async move {
+                let native_projection = context.arguments.get("plugin").and_then(Value::as_str)
+                    == Some(crate::native_browser::PLUGIN);
+                let result = async {
                 let args = &context.arguments;
                 contract::validate_envelope(args)?;
                 let action = args.get("action").and_then(Value::as_str).ok_or_else(|| error("action required"))?;
@@ -232,7 +288,7 @@ fn spec(
                             let server = capability["server"].clone();
                             capability["tools"] = json!(contract::definitions(server == crate::native_browser::HEADLESS_SERVER).iter().map(|d| d["name"].clone()).collect::<Vec<_>>());
                             capability["next_call"] = json!({"action":"describe","plugin":crate::native_browser::PLUGIN,"server":server,"tool":"control"});
-                            capability["direct_tools"] = json!(["browser_control","browser_observe","browser_perform","browser_input","browser_screenshot"]);
+                            capability["direct_tools"] = json!(["browser_control","browser_observe","browser_perform","browser_evaluate","browser_input","browser_screenshot"]);
                         }
                     }
                     return Ok(ToolOutput::text(json!({"plugins":plugins,"capabilities":capabilities}).to_string()));
@@ -309,7 +365,28 @@ fn spec(
                         return Ok(ToolOutput::text(json!({"plugin":plugin,"servers":previews.iter().map(|p| &p.server).collect::<Vec<_>>()}).to_string()));
                     }
                     let server = server.ok_or_else(|| error("server required"))?;
-                    let config = config(manager.mcp_server(plugin, server).await.map_err(error)?, &owner, manager.storage_root())?;
+                    if manager.has_panel(plugin).await {
+                        let panel=manager.panel(plugin).await.map_err(error)?;
+                        if panel.manifest.server==server {
+                            // This path never starts or contacts an MCP server, including
+                            // while the editor is hidden, closed or disconnected.
+                            let tools=manager.panel_tools(plugin,server).await.map_err(error)?;
+                            if action=="describe" {
+                                let name=args["tool"].as_str().ok_or_else(||error("tool required"))?;
+                                let tool=tools.iter().find(|t|t.name==name).ok_or_else(||error("unknown server tool"))?;
+                                return Ok(ToolOutput::text(json!({"tool":tool}).to_string()));
+                            }
+                            return Ok(ToolOutput::text(json!({"tools":tools.iter().map(|t|json!({"name":t.name,"description":t.description.chars().take(160).collect::<String>()})).collect::<Vec<_>>(),"execution":"Open the document panel explicitly; model calls require a visible, ready editor and the existing approval policy."}).to_string()));
+                        }
+                    }
+                    let mut config = config(manager.mcp_server(plugin, server).await.map_err(error)?, &owner, manager.storage_root())?;
+                    if manager.has_panel(plugin).await {
+                        let panel=manager.panel(plugin).await.map_err(error)?;
+                        if panel.manifest.server==server {
+                            let cwd=workspace.as_ref().ok_or_else(||error("session workspace unavailable for editor"))?;
+                            config.env.insert("XHARNESS_PLUGIN_WORKSPACE".into(),cwd.clone());
+                        }
+                    }
                     let tools = runtime.list_tools_with_lease(&owner, &config, &lease).await.map_err(error)?;
                     if action == "describe" {
                         let name = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
@@ -326,7 +403,30 @@ fn spec(
                 let server = args.get("server").and_then(Value::as_str).ok_or_else(|| error("server required"))?;
                 let tool = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
                 let parameters = args.get("arguments").and_then(Value::as_object).cloned().unwrap_or_else(Map::new);
-                let config = config(manager.mcp_server(plugin, server).await.map_err(error)?, &owner, manager.storage_root())?;
+                if manager.has_panel(plugin).await {
+                        let panel=manager.panel(plugin).await.map_err(error)?;
+                        if panel.manifest.server==server && tool==panel.manifest.open_tool {
+                            return Err(error("open documents through the explicit editor UI; model calls cannot replace a panel document"));
+                        }
+                        if panel.manifest.server==server && !runtime.panel_is_interactive(&owner,plugin,server).await {
+                            return Err(error("editor is unavailable; explicitly open its file panel and keep it visible and ready"));
+                        }
+                    }
+                    let mut config = config(manager.mcp_server(plugin, server).await.map_err(error)?, &owner, manager.storage_root())?;
+                    if manager.has_panel(plugin).await {
+                        let panel=manager.panel(plugin).await.map_err(error)?;
+                        if panel.manifest.server==server {
+                            let cwd=workspace.as_ref().ok_or_else(||error("session workspace unavailable for editor"))?;
+                            config.env.insert("XHARNESS_PLUGIN_WORKSPACE".into(),cwd.clone());
+                        }
+                    }
+                if manager.has_panel(plugin).await {
+                    let panel=manager.panel(plugin).await.map_err(error)?;
+                    if panel.manifest.server==server {
+                        let result=runtime.call_panel_tool_with_lease(&owner,&config,tool,parameters,&lease,&context.cancellation).await.map_err(error)?;
+                        return media::project(result,media.as_deref(),&context.cancellation).await;
+                    }
+                }
                 let call = runtime.call_tool_with_lease(&owner, &config, tool, parameters, &lease);
                 tokio::select! {
                     result = call => media::project(result.map_err(error)?, media.as_deref(), &context.cancellation).await,
@@ -335,6 +435,8 @@ fn spec(
                         Err(error("MCP call cancelled"))
                     }
                 }
+                }.await;
+                if native_projection { native_output::finish(result) } else { result }
             }
         },
     )

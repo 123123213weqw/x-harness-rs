@@ -4,8 +4,8 @@
 
 只改变前端重组件的挂载，不删除历史、不裁剪模型上下文、不改变工具执行。
 每个消息保留稳定的轻量锚点与订阅，继续复用 ChatView 的加载历史、底部跟随和分页锚点。
-实现位于 `ui/overrides/transcript-windowing.js`，工具呈现状态接线由
-`scripts/patch-transcript-row-state.mjs` 维护，并纳入重建与静态资源指纹。
+实现位于 `ui/src/modules/conversation/chat/TranscriptWindowRow.tsx`；工具呈现状态由
+各自的自有源码模块维护，并纳入统一重建与静态资源指纹，不再依赖旧补丁注入。
 
 ## 首次渲染与宽度变化
 

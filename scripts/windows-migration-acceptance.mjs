@@ -23,6 +23,14 @@ const oldRepo = e.BASE_REPOSITORY || e.GITHUB_REPOSITORY, upstream = e.UPSTREAM_
 const probeOnly = e.PROBE_ONLY === 'true'
 const directLatest = e.DIRECT_LATEST === 'true'
 const sameChannel = oldRepo === upstream
+// The repository was renamed (x-harness-rs -> XHarness) after the current stable
+// baseline shipped: that installer has the legacy owner/path compiled in as its
+// update endpoint and polls the legacy feed path. GitHub serves both names
+// identically, so only baseline (pre-migration) feed paths may use the legacy
+// name; migrated builds stay strictly bound to this repository.
+const legacyBaseRepo = oldRepo === '123123213weqw/XHarness' ? '123123213weqw/x-harness-rs' : null
+const baseFeedPaths = [`/${oldRepo}/releases/latest/download/latest.json`]
+if (legacyBaseRepo) baseFeedPaths.push(`/${legacyBaseRepo}/releases/latest/download/latest.json`)
 for (const repo of [oldRepo, upstream]) assert.match(repo, /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/)
 for (const v of [e.BASE_VERSION, e.BRIDGE_VERSION, e.UPSTREAM_VERSION]) assert.match(v, /^\d+\.\d+\.\d+$/)
 const baseTags = sameChannel
@@ -140,7 +148,7 @@ async function run() {
   let rejectPackage = !probeOnly
   let corruptPackageRejected = false
   const mappings = new Map(probeOnly ? [] : [
-    [`/${oldRepo}/releases/latest/download/latest.json`, join(root, 'bridge', 'latest.json')],
+    ...baseFeedPaths.map(path => [path, join(root, 'bridge', 'latest.json')]),
     [`/${upstream}/releases/latest/download/latest.json`, join(root, 'next', 'latest.json')],
     [new URL(manifest('bridge').platforms['windows-x86_64'].url).pathname, location('bridge', e.BRIDGE_VERSION)],
     [new URL(manifest('next').platforms['windows-x86_64'].url).pathname, location('next', e.UPSTREAM_VERSION)],
@@ -287,9 +295,12 @@ async function run() {
     const executable = join(installDir, 'xharness-desktop.exe')
     const image = readFileSync(executable)
     const migrated = version !== e.BASE_VERSION
-    const compiledEndpoint = `https://github.com/${migrated ? upstream : oldRepo}/releases/latest/download/latest.json`
+    const compiledEndpoints = migrated
+      ? [`https://github.com/${upstream}/releases/latest/download/latest.json`]
+      : baseFeedPaths.map(path => `https://github.com${path}`)
     const compiledKey = (migrated ? e.UPSTREAM_PUBLIC_KEY : e.OLD_PUBLIC_KEY).trim()
-    assert.ok(image.includes(Buffer.from(compiledEndpoint)), `${version}: installed update endpoint missing`)
+    const compiledEndpoint = compiledEndpoints.find(value => image.includes(Buffer.from(value)))
+    assert.ok(compiledEndpoint, `${version}: installed update endpoint missing`)
     assert.ok(image.includes(Buffer.from(compiledKey)), `${version}: installed trusted public key missing`)
     if (migrated && !sameChannel) assert.ok(!image.includes(Buffer.from(e.OLD_PUBLIC_KEY.trim())), `${version}: still contains old updater trust key`)
     checkpoints.push({ version, status, retained, compiledEndpoint, compiledKeySha256: createHash('sha256').update(compiledKey).digest('hex'),
@@ -392,7 +403,7 @@ async function run() {
       page = await attached(version)
       await checkpoint(page, version)
     }
-    assert.ok(requests.some(r => r.pathname === `/${oldRepo}/releases/latest/download/latest.json`))
+    assert.ok(requests.some(r => baseFeedPaths.includes(r.pathname)))
     // NSIS restart may discard the test process's proxy environment. The second
     // native check/download/install then uses public upstream directly. Verify
     // installed endpoint AND new trust key above, as well as the real newer

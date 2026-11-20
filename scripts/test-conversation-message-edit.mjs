@@ -7,12 +7,11 @@ import {runFrozenSourceDifferential} from './runtime-source-test-harness.mjs';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import vm from 'node:vm';
-import {patchConversationMessageEdit,patchMessageEditConnection,patchMessageEditRuntime} from './patch-conversation-message-edit.mjs';
 const root=new URL('../',import.meta.url);
-const source=readFileSync(new URL('ui/overrides/conversation-message-edit.js',root),'utf8');
-const sandbox={File,Blob,URL,Promise,console};
-vm.runInNewContext(source+'\nglobalThis.Editor=XHarnessMessageEditor;globalThis.forkMessage=xhForkMessage;',sandbox);
-const goldenEditor=sandbox.Editor,goldenFork=sandbox.forkMessage;
+// Keep the full independent frozen factory as the lifecycle oracle.
+const golden=harness(exposeConversation(legacyConversation().toString(),['xhForkMessage'])).plugin;
+const sandbox={};
+const goldenEditor=golden.XHarnessMessageEditor,goldenFork=golden.xhForkMessage;
 const actualSource=verifyConversationArtifact();
 const actual=harness(exposeConversation(actualSource,['xhForkMessage','zh','deriveAncestry'])).plugin;
 let Editor;
@@ -159,14 +158,13 @@ for(const part of attachments)for(const mode of ['queue','steer'])for(const with
 const ordinary=new runtimeClasses.Session('ordinary',guardApi,{});assert.equal((await ordinary.prompt(attachments,'steer',undefined,{requireIdle:true})).ok,true);assert.deepEqual(JSON.parse(JSON.stringify(guardCalls[0].content)),attachments);assert.equal(guardCalls[0].requireIdle,true);
 runFrozenSourceDifferential('native before-user fork|native continuable subagent');
 
-for(const [id,patch] of [['dsh-client-ui-conversation',patchConversationMessageEdit],['dsh-client-connection',patchMessageEditConnection],['dsh-client-runtime',patchMessageEditRuntime]]){
+for(const id of ['dsh-client-ui-conversation','dsh-client-connection','dsh-client-runtime']){
  const bytes=readFileSync(new URL(`ui/dist/plugins/@xharness/${id}/client.js`,root));new vm.Script(bytes.toString());
- const golden=readFileSync(new URL(`ui/reference/master-a613970/plugins/@xharness/${id}/client.js`,root));assert.equal(patch(golden).toString(),golden.toString());assert.equal(graph.entries.find(e=>e.id===`@xharness/${id}`).rev,createHash('sha256').update(bytes).digest('hex').slice(0,16));
- assert.throws(()=>patch(Buffer.from('upstream changed')),/signature changed/);
+ assert.equal(graph.entries.find(e=>e.id===`@xharness/${id}`).rev,createHash('sha256').update(bytes).digest('hex').slice(0,16));
 }
 const html=readFileSync(new URL('ui/dist/index.html',root),'utf8');assert.deepEqual(JSON.parse(html.match(/window\.__DSH_BOOT__ = (.*?)<\/script>/)[1]),graph);
 for(const id of ['dsh-client-ui-conversation','dsh-client-connection','dsh-client-runtime']) {
  const entry=graph.entries.find(e=>e.id===`@xharness/${id}`);
- assert.ok(html.includes(entry.url),`index.html must preload the patched ${id} revision`);
+ assert.ok(html.includes(entry.url),`index.html must preload the shipped ${id} revision`);
 }
 console.log(`message editor: ${checks} native + golden lifecycle assertions plus 3 golden/schema/hash/boot/source-freshness contracts passed`);

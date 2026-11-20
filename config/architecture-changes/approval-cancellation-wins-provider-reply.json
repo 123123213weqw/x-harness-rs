@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "A cancelled approval provider can settle in the same poll or wakeup as its cancellation token. Normalize that terminal state to Cancelled instead of randomly reporting provider unavailability or denial.",
+  "compatibility": "No tool schema, RPC, approval requirement, configured deadline or persistence change. Uncancelled provider errors, denials and deadlines retain fail-closed behavior, and cancelled invocations never run a handler.",
+  "paths": {
+    "crates/xharness-tools/src/executor.rs": {
+      "before": "a503b0e9686cbc53609861c3fe2b3128e9248f8793fd627dfc32a4600c5bdfb8",
+      "after": "47e3f169e623f52a49d9c0a791754e87f3360ce1840cbfacd06fbf5b327f3620"
+    },
+    "crates/xharness-tools/tests/pipeline.rs": {
+      "before": "85f364bd67e40a75798ec093d40c781ebf3d0c020ee9d702fb61846c106979d1",
+      "after": "d6a18f9ba7b9abdda81057790b63f7225f01e6db4bbd558861dc70151326683c"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}

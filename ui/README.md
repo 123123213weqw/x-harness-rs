@@ -119,12 +119,11 @@ textarea contracts. Terminal shortcuts use `data-xh-terminal-trigger` and
 `data-xh-terminal-open`, not localized labels, and never close an already-open
 dock. An unavailable target reports an error without closing the browser.
 
-`scripts/sync-browser-ui.mjs` refreshes the checked-in layout, browser and terminal plugins for a
-preview; `scripts/assemble-static-ui.mjs` applies the same patch on a fresh UI
-build. Both require the source, generated plugin, graph, and HTML to be committed
-together. Run `node scripts/test-browser-ui.mjs` plus both Chromium and WebKit
-`test-browser-*-browser.mjs` / `test-browser-native-bridge.mjs`. Rust checks and
-tests run on the configured remote build server per `AGENTS.md`.
+`scripts/sync-browser-ui.mjs [OUTPUT_DIRECTORY]` is a compatibility entry for the complete
+owned-source UI build. It no longer refreshes individual cached bundles; graph, boot and
+all product modules are regenerated together. Run `node scripts/test-browser-ui.mjs`, the existing
+Chromium/WebKit browser ownership/native-bridge regressions, and `npm run check:build --prefix ui`.
+Rust checks remain remote-only per `AGENTS.md`.
 
 ## Harness inspector
 
@@ -197,13 +196,12 @@ UI_TEST_BROWSER=webkit node scripts/test-computer-ui-browser.mjs
 
 ## 会话模型控制（Web / Tauri 共用）
 
-`ui/overrides/model-controls.js` 将上下文表单接入上游模型菜单的二级页面；思考档位
-复用已有菜单，输入区只保留一个模型按钮。复用上游 ModelSelect 与 ModelDirectory。
-`scripts/patch-model-controls.mjs` 同时适配客户端的容量字段校验，
-重建脚本会自动应用。只修改产品组件时可执行：
+`ui/src/modules/model-selection/` 维护上下文表单、思考档位、ModelSelect 与
+ModelDirectory；输入区只保留一个模型按钮。`ui/src/modules/client-connection/` 维护容量
+字段校验。统一构建直接编译自有源码，不再注入旧 bundle。修改后执行：
 
 ```bash
-node scripts/patch-model-controls.mjs
+npm run build --prefix ui
 node scripts/test-model-controls.mjs
 ```
 
@@ -228,9 +226,9 @@ node scripts/test-model-controls.mjs
 
 ### 上游交互的选择性迁移
 
-`scripts/patch-upstream-ui-experience.mjs` 将 DeepSeek Harness
-`dsh-v0.1.7-rc.2` 的纯展示交互移植到现有 XHarness 客户端，不替换 Rust Host
-协议：工作步骤的四种展示密度、文件差异的行内/并排视图与同步滚动、
+源自 DeepSeek Harness `dsh-v0.1.7-rc.2` 的选择性展示交互现由
+`ui/src/modules/{tool,conversation,model-selection,experience}/` 直接维护，
+统一构建编译源码，不替换 Rust Host 协议：工作步骤的四种展示密度、文件差异的行内/并排视图与同步滚动、
 WebFetch URL 入口、模型切换状态，以及“设置 → 显示与快捷键”中的本机快捷键。
 迁移后的控件采用下述黑白灰语义色；错误和警告仍使用状态色。
 
@@ -253,22 +251,23 @@ UI_TEST_BROWSER=webkit node scripts/test-upstream-ui-experience-browser.mjs
 
 `ui/overrides/monochrome.css` 统一覆盖上游语义 Token：浅色黑色强调、深色白色强调，
 背景与气泡使用中性灰。保留错误、警告、成功色，以及图片与代码高亮，不使用整页灰度滤镜。
-执行 `node scripts/patch-monochrome-theme.mjs` 更新静态包；完整重建也会自动应用。
-执行 `node scripts/test-monochrome-theme.mjs` 检查幂等注入、资源一致性和主色对比度。
+执行 `npm run build --prefix ui` 从声明的源码和资产完整重建静态包。
+执行 `node scripts/test-monochrome-theme.mjs` 检查资源、页面引用、双主题语义色和主色对比度。
 Web 与 Tauri 使用同一资源；已安装的软件须重新打包更新后才能使用新配色。
 
 侧栏和欢迎页使用透明的折叠 X，与桌面图标同一造型但不带图标的黑色方框，
-通过 `currentColor` 在浅/深主题下自动反色。源码为 `overrides/FishLogo.tsx` 和 `BrandWordmark.tsx`；现有打包产物
-用 `node scripts/patch-brand-mark.mjs` 更新，完整重建直接编译 TSX 源码。
+通过 `currentColor` 在浅/深主题下自动反色。源码为
+`ui/src/modules/platform/primitives/FishLogo.tsx` 和 `BrandWordmark.tsx`；
+执行 `npm run build --prefix ui` 完整构建，直接编译 TSX 源码，不再单独修补打包产物。
 验证：`node scripts/test-logo-gradient.mjs`（沿用 CI 中的历史测试名）。
 
-Logo 透明度高光由 `overrides/logo-motion.css/js` 控制，每 5 秒短暂变化一次，
+Logo 透明度高光由 `ui/overrides/logo-motion.css` 和 `ui/src/desktop/logo-motion.ts` 控制，每 5 秒短暂变化一次，
 其余时间静止；不驱动 React 更新，也不使用 JS 帧循环或定时器。页面隐藏时暂停，
 减少动态效果时停止动画但保持标志可见。测试 `node scripts/test-logo-motion.mjs`。
 侧栏收起时显示 X；展开时 X 缩入、名称接位，不在展开状态并排显示两者。
 该过渡复用设计令牌，减少动态效果时直接显示最终状态。
 
-首页光场使用 `overrides/hero-glow.js` 的静态装饰节点和黑白主题中的 radial-gradient，
+首页光场使用 `ui/src/modules/conversation/skeleton/EmptyHero.tsx` 的静态装饰节点和黑白主题中的 radial-gradient，
 不再渲染上游蓝色 SVG 模糊光晕。输入框仅增加渐变边缘，保留工作区选择器的虚线状态，
-不使用遮挡点击的叠层。支持浅/深色和强制高对比模式。重建通过产品补丁自动应用；
+不使用遮挡点击的叠层。支持浅/深色和强制高对比模式，统一从自有源码构建；
 验证 `node scripts/test-silver-surface.mjs`。

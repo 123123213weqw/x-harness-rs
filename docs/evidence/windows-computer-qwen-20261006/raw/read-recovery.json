@@ -1,6 +1,0 @@
-{
-  "reset_inputs_replayed": false,
-  "read_only_recovery": true,
-  "fresh_page_verified": "scroll-detail",
-  "reason": "Single transport disconnect after confirmed navigation; retry GET only"
-}

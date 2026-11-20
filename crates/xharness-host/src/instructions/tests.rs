@@ -234,7 +234,7 @@ async fn browser_routing_is_a_single_stable_audited_policy_not_a_capability_clai
         .filter(|s| s.id == "tool/browser")
         .collect::<Vec<_>>();
     assert_eq!(audit.len(), 1);
-    assert_eq!(audit[0].version, "3");
+    assert_eq!(audit[0].version, "4");
     let sections = host
         .state
         .read()
@@ -247,7 +247,7 @@ async fn browser_routing_is_a_single_stable_audited_policy_not_a_capability_clai
         .unwrap()
         .content;
     assert_eq!(first.system().matches(policy).count(), 1);
-    assert_eq!(policy, "For website browsing and interaction, prefer the typed browser_control/browser_observe tools when available; their schemas need no plugin_mcp discovery. Choose backend=browser for a new background task and backend=webview only for an explicitly requested visible page or existing login. Otherwise discover available browsers through plugin_mcp; never guess tool names. Respect explicit browser choices and never silently switch backends.");
+    assert_eq!(policy, "For website browsing and interaction, prefer the typed browser_control/browser_observe tools when available; their schemas need no plugin_mcp discovery. Choose backend=browser for a new background task and backend=webview only for an explicitly requested visible page or existing login. Otherwise discover available browsers through plugin_mcp; never guess tool names. Respect explicit browser choices and never silently switch backends. A stale_frame requires a fresh browser observation; do not bypass a browser error with shell-based system input.");
     for detail in [
         "zero open tabs",
         "web_fetch",

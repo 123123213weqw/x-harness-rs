@@ -340,8 +340,15 @@ async fn run(
             xharness_host_app::github_service::NativeGitHub::default(),
         ))?;
     }
+    let plugin_panels = plugins.as_ref().map(|plugins| {
+        xharness_host_app::plugin_panels::PluginPanels::new(plugins.clone(), mcp.clone(), &host)
+    });
     if let Some(plugins) = plugins {
-        host.install_plugins(Arc::new(NativePluginBackend::new(plugins, mcp)))?;
+        let mut backend = NativePluginBackend::new(plugins, mcp);
+        if let Some(panels) = &plugin_panels {
+            backend = backend.with_panels(panels.clone());
+        }
+        host.install_plugins(Arc::new(backend))?;
     }
     tools.bind_agent_host(&host)?;
     let job_continuations = tools.enable_job_continuations(store.clone(), &host)?;
@@ -435,7 +442,7 @@ async fn run(
         extensions =
             extensions.merge(xharness_host_app::remote_admin::remote_admin_disabled_routes());
     }
-    let router = web_router_full(
+    let mut router = web_router_full(
         backend.clone(),
         args.static_dir,
         debug.clone(),
@@ -443,6 +450,10 @@ async fn run(
         readiness.clone(),
         extensions,
     );
+    // Capability-only, opaque-origin asset carrier has no Host API authority.
+    if let Some(panels) = plugin_panels {
+        router = router.merge(xharness_server::plugin_assets::routes(panels));
+    }
     *failure_code = Some(StartupFailureCode::NetworkBind);
     startup_progress.stage(StartupStage::NetworkBind);
     let listener = TcpListener::bind(args.bind).await?;

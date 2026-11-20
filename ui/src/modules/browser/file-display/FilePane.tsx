@@ -1,3 +1,5 @@
+import {objectValue} from '../../shared/runtime-types'
+import {openPluginEditor} from '../plugin-panel'
 import {useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react'
 import type {ReactNode} from 'react'
 import {MarkdownText,CodeBlock,writeClipboard,imageReadQueue,imageUrlPool} from '@xharness/dsh-client-ui-primitives'
@@ -111,6 +113,23 @@ export function FilePane({item,open,sessionId,client}:WorkspaceItemOwner&{client
     return()=>{controller.abort();if(objectUrl)URL.revokeObjectURL(objectUrl)}
   },[owner,item.source,item.relativeTo,item.gitDiff,revision,client])
   const path=file?.path??item.source
+  const [editor,setEditor]=useState<{installed:boolean;enabled:boolean}>({installed:false,enabled:false})
+  useEffect(()=>{
+    if(!/\.docx$/i.test(path)||!open)return
+    let active=true
+    void client.panelCall('plugins/installed',{}).then(value=>{
+      const raw=objectValue(value)
+      const entries:unknown[]=Array.isArray(raw.plugins)?raw.plugins:[]
+      const plugin=entries.map(objectValue).find(item=>item.name==='wordcraft'&&Array.isArray(item.capabilities)&&item.capabilities.some((capability:unknown)=>capability==='ui'))
+      if(active)setEditor({installed:plugin!==undefined,enabled:plugin?.mcpEnabled===true})
+    }).catch(()=>{if(active)setEditor({installed:false,enabled:false})})
+    return()=>{active=false}
+  },[path,open,client])
+  const editDocument=async():Promise<void>=>{
+    if(!owner)return
+    setNativeBusy(true);setActionError('')
+    try{await openPluginEditor(client,owner,path)}catch(e){setActionError(e instanceof Error?e.message:'Editor unavailable')}finally{setNativeBusy(false)}
+  }
   const html=useMemo(()=>file?.kind==='text'&&isHtmlPath(file.path)?staticHtmlDocument(file.text):undefined,[file])
   const nativeAction=async(mode:'open'|'reveal'):Promise<void>=>{
     const generation=actionGeneration.current
@@ -122,6 +141,7 @@ export function FilePane({item,open,sessionId,client}:WorkspaceItemOwner&{client
   return <section className="xhfile-pane" data-file-page-state={open?'visible':'retained'} aria-label={label('文件预览','File preview')}>
     <header className="xhfile-toolbar">
       <span className="xhfile-path" title={path}>{path}</span>
+      {editor.installed&&/\.docx$/i.test(path)&&<button type="button" disabled={nativeBusy||!editor.enabled} title={editor.enabled?'':label('先在插件设置中允许 WordCraft MCP','Allow WordCraft MCP in plugin settings first')} onClick={()=>{void editDocument()}}>{label('用 WordCraft 编辑','Edit with WordCraft')}</button>}
       {!item.gitDiff&&client.canReveal(path)&&<button type="button" disabled={nativeBusy} onClick={()=>{void nativeAction('reveal')}}>{label('在文件夹中显示','Show in folder')}</button>}
       {!item.gitDiff&&client.canOpenExternal(path)&&<button type="button" disabled={nativeBusy} onClick={()=>{void nativeAction('open')}}>{label('默认应用打开','Open with default app')}</button>}
       <button type="button" onClick={()=>{void writeClipboard(path).then(ok=>{setCopied(ok);setActionError(ok?'':label('路径复制失败','Could not copy path'))})}}>{copied?label('路径已复制','Path copied'):label('复制路径','Copy path')}</button>

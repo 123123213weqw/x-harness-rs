@@ -8515,7 +8515,10 @@ class WorkspaceRuntime {
      * @param workspaceId - explicit target Workspace for scoped actions.
      */
     startSession(workspaceId) {
-        if (this.environmentCreationOnly) {
+        // The unscoped action opens backend selection. An explicit Workspace
+        // already belongs to this immutable Host, so it must not be discarded or
+        // replaced by a recent Workspace on a different creation path.
+        if (this.environmentCreationOnly && workspaceId === undefined) {
             this.sessions.clear();
             return;
         }

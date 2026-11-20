@@ -312,6 +312,20 @@ class DraftAndLive(unittest.TestCase):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 build.live_names({'platforms': {'windows-x86_64': {'url': url}}}, REPO, 'friends-v0.2.5')
 
+    def test_live_assets_accept_pre_rename_repository_alias(self):
+        # Baselines signed before the repository rename keep the legacy owner/path
+        # in their manifests; only the repository segment may differ.
+        current, legacy = '123123213weqw/XHarness', '123123213weqw/x-harness-rs'
+        url = f'https://github.com/{legacy}/releases/download/friends-v0.2.5/XHarness_0.2.5_x64-setup.exe'
+        names = build.live_names({'platforms': {'windows-x86_64': {'url': url}}}, current, 'friends-v0.2.5')
+        self.assertIn('XHarness_0.2.5_x64-setup.exe', names)
+        for wrong in [url + '?token=x', url.replace('github.com', 'evil.invalid'),
+                      url.replace('friends-v0.2.5', 'friends-v0.2.4'),
+                      url.replace('x-harness-rs', 'x-harness-rs-old'),
+                      url.replace(legacy, '123123213weqw/other')]:
+            with self.subTest(url=wrong), self.assertRaises(ValueError):
+                build.live_names({'platforms': {'windows-x86_64': {'url': wrong}}}, current, 'friends-v0.2.5')
+
     def test_byte_drift_extra_files_and_symlinks_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             a, b = Path(temporary) / 'a', Path(temporary) / 'b'

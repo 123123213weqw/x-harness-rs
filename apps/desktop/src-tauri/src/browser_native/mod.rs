@@ -15,6 +15,8 @@ use std::{
 use tauri::{Manager, Webview};
 use tokio::sync::oneshot;
 
+mod capture;
+
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -270,7 +272,21 @@ pub async fn screenshot(state: &BrowserState, tab: &str, owner: &str) -> Result<
         .await?,
     )?;
     state.verify_viewport(tab, &viewport)?;
-    let png = dispatch(&view, &inspector, owner, false, platform::snapshot).await?;
+    let plan = capture::CapturePlan::new(
+        (
+            viewport["width"]
+                .as_f64()
+                .ok_or("missing CSS viewport width")?,
+            viewport["height"]
+                .as_f64()
+                .ok_or("missing CSS viewport height")?,
+        ),
+        (width, height),
+    )?;
+    let png = dispatch(&view, &inspector, owner, false, move |handle, reply| {
+        platform::snapshot(handle, plan, reply)
+    })
+    .await?;
     if png.len() < 24 || png.len() > MAX_PNG || &png[..8] != b"\x89PNG\r\n\x1a\n" {
         return Err("invalid or oversized native PNG".into());
     }
@@ -295,7 +311,7 @@ pub async fn screenshot(state: &BrowserState, tab: &str, owner: &str) -> Result<
     let snapshot = json!({"frame_id":frame,"nodes":[],"viewport":viewport});
     inspector.remember(&snapshot, epoch)?;
     Ok(
-        json!({"frame_id":frame,"viewport":viewport,"image":{"width":image_width,"height":image_height},"coordinate_space":"CSS viewport pixels; use viewport dimensions to map the attached image","source":{"engine":"tauri-webview","untrusted":true,"native_origin":view.url().map_err(|_|"browser URL unavailable")?.origin().ascii_serialization()},"png_base64":base64::engine::general_purpose::STANDARD.encode(png)}),
+        json!({"frame_id":frame,"viewport":viewport,"image":{"width":image_width,"height":image_height},"capture_target":{"width":plan.width,"height":plan.height},"coordinate_space":"CSS viewport pixels; use final attachment dimensions to map the attached image","source":{"engine":"tauri-webview","untrusted":true,"native_origin":view.url().map_err(|_|"browser URL unavailable")?.origin().ascii_serialization()},"png_base64":base64::engine::general_purpose::STANDARD.encode(png)}),
     )
 }
 

@@ -68,6 +68,11 @@ const React = {
   useRef() { return { current: null } },
   useState(value) { return [value, () => {}] },
 }
+// The dock renders through a body portal; this stub keeps the same shape as
+// createElement so panel assertions can unwrap .props.children.
+const ReactDOM = {
+  createPortal(children, container) { return { type: '#portal', props: { children, container } } },
+}
 let documentState = { lang: 'zh-CN' }
 sandbox.getComputedStyle = () => ({ getPropertyValue: () => '' })
 sandbox.document = {
@@ -97,6 +102,7 @@ sandbox.fetch = async (url, options) => {
 
 const plugin = registration.factory((id) => {
   if (id === 'react') return React
+  if (id === 'react-dom') return ReactDOM
   throw new Error(`unexpected module dependency: ${id}`)
 })
 
@@ -127,8 +133,9 @@ const storeB = plugin.getDockStore('chat-b')
 assert.notEqual(storeA, storeB, 'a new conversation must not inherit another terminal dock')
 assert.equal(plugin.getDockStore('chat-a'), storeA)
 assert.equal(plugin.getDockStore(undefined), null)
-assert.match(source, /\.xhterm-dock\{order:1;display:flex/)
-assert.doesNotMatch(source, /\.xhterm-dock\{position:fixed/)
+assert.match(source, /\.xhterm-dock\{position:fixed/)
+assert.doesNotMatch(source, /\.xhterm-dock\{order:1/)
+assert.match(source, /\.xhterm-dock\{[^}]*max-height:var\(--xhterm-dock-h,calc\(100vh - 220px\)\)/)
 assert.match(source, /\.xhterm-viewport \.xterm-viewport\{overscroll-behavior-y:contain\}/)
 
 // Browser shortcuts consume stable markers, never localized titles.
@@ -151,10 +158,14 @@ storeA.open = true
 assert.equal(storeB.open, false, 'opening chat A must leave chat B closed')
 storeA.setHeight(320)
 const dockRoot = slotRegistrations[1].registration.component({ sessionId: 'chat-a' })
-const dock = dockRoot.type(dockRoot.props)
+const renderDock = () => {
+  const rendered = dockRoot.type(dockRoot.props)
+  return rendered.type === '#portal' ? rendered.props.children : rendered
+}
+const dock = renderDock()
 assert.equal(dock.props.style.height, 320)
 storeA.setHeight(90)
-assert.equal(dockRoot.type(dockRoot.props).props.style.height, 160)
+assert.equal(renderDock().props.style.height, 160)
 storeA.open = false
 
 // CSS animation completion, not a parallel 190ms timer, owns unmount.
@@ -162,7 +173,7 @@ storeA.open = true
 storeA.setOpen(false)
 assert.equal(storeA.closing, true)
 assert.equal(closeDelay, 1000, 'the default close watchdog keeps a one-second minimum')
-const closingDock = dockRoot.type(dockRoot.props)
+const closingDock = renderDock()
 const ownTarget = {}
 closingDock.props.onAnimationEnd({ target: {}, currentTarget: ownTarget, animationName: 'xhterm-dock-out' })
 assert.equal(storeA.closing, true, 'child animations cannot close the dock')
@@ -315,3 +326,22 @@ leaveChatB()
 assert.equal(keydownListeners.size, 0)
 
 console.log('terminal plugin: assertions passed')
+
+// The actual shipped fitTo method: no guessed line-height, no hidden-box resize.
+{
+ const sizes=[],tab=new plugin.TerminalTab('fit',{name:'fit',running:true},storeA)
+ const term={cols:80,rows:24,_core:{_renderService:{dimensions:{css:{cell:{width:8,height:18}}}},viewport:{scrollBarWidth:15}},resize(cols,rows){sizes.push([cols,rows]);this.cols=cols;this.rows=rows}}
+ tab.term=term
+ const original=sandbox.getComputedStyle
+ sandbox.getComputedStyle=()=>({paddingLeft:'8px',paddingRight:'8px',paddingTop:'4px',paddingBottom:'8px'})
+ const host={clientWidth:700,clientHeight:466}
+ tab.fitTo(host);assert.deepEqual(sizes,[[83,25]],'subtract measured renderer scrollbar and actual padding')
+ tab.fitTo(host);assert.equal(sizes.length,1,'stable output never resizes the PTY again')
+ for(const cell of [{width:0,height:0},{width:NaN,height:18},{width:8,height:Infinity}]){
+  term._core._renderService.dimensions.css.cell=cell;tab.fitTo(host);assert.equal(sizes.length,1,'unmeasured cells are not guessed')
+ }
+ term._core._renderService.dimensions.css.cell={width:8,height:18}
+ tab.fitTo({clientWidth:0,clientHeight:466});tab.fitTo({clientWidth:700,clientHeight:0});assert.equal(sizes.length,1)
+ tab.fitTo({clientWidth:96,clientHeight:90});assert.deepEqual(sizes.at(-1),[8,4],'narrow panes fit rather than forcing twenty clipped columns')
+ sandbox.getComputedStyle=original
+}

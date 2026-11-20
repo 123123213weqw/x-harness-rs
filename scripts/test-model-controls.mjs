@@ -4,7 +4,6 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import { verifyConnectionArtifact, exposeConnection } from './connection-artifact-test.mjs'
-import { patchModelControls } from './patch-model-controls.mjs'
 const bundle = readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-ui-model-selection/client.js', import.meta.url))
 assertRebuildInput('@xharness/dsh-client-ui-model-selection')
 let registration
@@ -96,8 +95,4 @@ assert.equal(wire.sessionModelsValueSchema.parse(withCapability).groups[0].model
 const refreshCalls=[];
 const refreshed=new api.ModelDirectory({models:async args=>{refreshCalls.push(args);return {result:{ok:true,value:input}}}},'refresh-session',()=>true);
 await refreshed.load(true);assert.equal(refreshCalls[0].refreshCapabilities,true);
-const {patchReasoningSettings,patchModelConnection}=await import('./patch-model-controls.mjs');
-for (const [id,patch] of [['dsh-client-ui-model-selection',patchModelControls],['dsh-client-connection',patchModelConnection],['dsh-client-ui-settings-models',patchReasoningSettings]]) {
- const bytes=readFileSync(new URL(`../ui/reference/master-a613970/plugins/@xharness/${id}/client.js`,import.meta.url));const patched=patch(bytes);assert.deepEqual(patch(patched),patched,'patch must be repeatable: '+id);
-}
-console.log('Reasoning unknown/disabled/stale state, discovery refresh and repeatable asset patches passed');
+console.log('Reasoning unknown/disabled/stale state and discovery refresh passed');

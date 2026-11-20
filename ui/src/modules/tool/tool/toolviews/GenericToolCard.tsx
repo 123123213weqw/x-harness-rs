@@ -56,6 +56,7 @@ export function GenericToolCard({ toolName, block, cwd, home, openFile, inspect,
       t={t}
       variant={model.variant}
       toolName={toolName}
+      {...(toolName === 'plugin_mcp' ? { glyphArgsRaw: ('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? '' } : {})}
       icon={VARIANT_ICONS[model.variant]}
       title={communicationCopy?.title ?? model.title}
       // A terminal presenter's description is the contract's above-card text, so

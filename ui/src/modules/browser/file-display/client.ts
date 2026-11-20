@@ -10,6 +10,11 @@ export const MAX_TEXT_BYTES=512*1024
 export class FileDisplayClient {
   private readonly inspections:FileInspectionCache
   constructor(private readonly rpc:ClientConnectionRpc,private readonly external?:{available():boolean;open(path:string):Promise<void>;canReveal?():boolean;reveal?(path:string):Promise<void>}){this.inspections=new FileInspectionCache(rpc)}
+  async panelCall(endpoint:string,args:Record<string,unknown>,signal?:AbortSignal):Promise<unknown>{
+    const response=await this.rpc.call('/api',endpoint,{args},signal??AbortSignal.timeout(60000))
+    if(!response.ok)throw Error(response.error.message)
+    return response.value
+  }
   inspect(sessionId:string,path:string,signal:AbortSignal,relativeTo?:string,revision=0):Promise<DisplayInspection|undefined>{return this.inspections.read(sessionId,relativeTo?resolveWorkspacePath(parentPath(relativeTo),path):path,revision,false,signal)}
   canOpenExternal(path:string):boolean{return this.external?.available()===true&&!path.includes('\0')&&(path.startsWith('/')||/^[a-z]:[\\/]/i.test(path)||path.startsWith('\\\\'))}
   async openExternal(path:string):Promise<void>{if(!this.external||!this.canOpenExternal(path))throw new Error("System opener requires a resolved absolute path");await this.external.open(path)}

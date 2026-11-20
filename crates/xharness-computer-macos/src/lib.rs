@@ -6,6 +6,15 @@
 #[cfg(any(target_os = "macos", test))]
 mod observation;
 
+#[cfg(any(target_os = "macos", test))]
+mod geometry;
+
+#[cfg(any(target_os = "macos", test))]
+mod input_guard;
+
+#[cfg(any(target_os = "macos", test))]
+mod process_identity;
+
 #[cfg(target_os = "macos")]
 mod macos;
 

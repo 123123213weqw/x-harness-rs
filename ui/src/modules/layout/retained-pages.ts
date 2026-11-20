@@ -8,7 +8,7 @@ export const pageKey = (owner: string, id: string): string => JSON.stringify([ow
 /** Only existing read-only file panes and settled browser tabs opt in. Tools
  * and provisional model rendezvous retain their original teardown contract. */
 export function canRetainPage(item: WorkspaceItem): boolean {
-  return item.kind === 'file' || item.kind === 'browser' && !item.modelRequestId
+  return item.kind === 'plugin' || item.kind === 'file' || item.kind === 'browser' && !item.modelRequestId
 }
 
 /** Presentation cache only: never invent tabs, persist content, grant browser
@@ -19,7 +19,7 @@ export function planRetainedPages(previous: readonly RetainedPage[], spaces: Bro
   const activeKey = active === undefined ? undefined : pageKey(owner, active.id)
   const kept = previous.filter(page => {
     const item = spaces[page.owner]?.items.find(item => item.id === page.id)
-    return item !== undefined && (page.key === activeKey || canRetainPage(item)
+    return item !== undefined && (item.kind === 'plugin' || page.key === activeKey || canRetainPage(item)
       && (page.visible || now - page.usedAt < RETAINED_PAGE_IDLE_MS))
   }).map(page => {
     const visible = page.key === activeKey
@@ -28,7 +28,7 @@ export function planRetainedPages(previous: readonly RetainedPage[], spaces: Bro
   if (active !== undefined && !kept.some(page => page.key === activeKey)) {
     kept.push({ key: pageKey(owner, active.id), owner, id: active.id, usedAt: now, visible: true })
   }
-  const evicted = new Set([...kept].filter(page => page.key !== activeKey)
+  const evicted = new Set([...kept].filter(page => page.key !== activeKey && spaces[page.owner]?.items.find(item=>item.id===page.id)?.kind!=='plugin')
     .sort((a, b) => b.usedAt - a.usedAt).slice(RETAINED_PAGE_LIMIT - (active === undefined ? 0 : 1)).map(page => page.key))
   const next = kept.filter(page => !evicted.has(page.key))
   return next.length === previous.length && next.every((page, index) => {

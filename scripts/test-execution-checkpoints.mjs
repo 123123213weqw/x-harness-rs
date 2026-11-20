@@ -1,16 +1,10 @@
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-import vm from 'node:vm';
-import {patchExecutionCheckpoints} from './patch-execution-checkpoints.mjs';
 import {verifyConversationArtifact,exposeConversation,legacyConversation} from './conversation-artifact-test.mjs';
 import {harness,json} from './conversation-test-harness.mjs';
-const golden=legacyConversation();assert.deepEqual(patchExecutionCheckpoints(golden),golden);
-assert.throws(()=>patchExecutionCheckpoints(Buffer.from('changed upstream')),/anchor changed/);
-const helper=readFileSync(new URL('../ui/overrides/execution-checkpoints.js',import.meta.url),'utf8');
-assert.ok(golden.toString().includes(helper.trim()));
-const env={react:{memo:x=>x},chatNode:(_c,kind,seq,data)=>({kind,seq,data})};vm.runInNewContext(helper+'\nglobalThis.definition=xhCheckpointDefinition;',env);
+// Execute the independent frozen product, not a copied pre-migration helper.
+const frozen=harness(exposeConversation(legacyConversation().toString(),['xhCheckpointDefinition'])).plugin;
 const api=harness(exposeConversation(verifyConversationArtifact(),['xhCheckpointDefinition'])).plugin;
-for(const d of [env.definition,api.xhCheckpointDefinition]) {
+for(const d of [frozen.xhCheckpointDefinition,api.xhCheckpointDefinition]) {
  const event={seq:42,time:1,type:'run/checkpoint',data:{turn:0,notice:{kind:'issued',message:'阶段及重复提醒',phase:1}}};
  assert.equal(d.match(event).id,'42');
  const live=d.start({}, {event}),restored=d.start({}, {event:JSON.parse(JSON.stringify(event))});assert.deepEqual(json(live),json(restored));

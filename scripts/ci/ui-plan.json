@@ -4381,6 +4381,121 @@
         "UI_TEST_BROWSER": "webkit"
       },
       "weight": 7
+    },
+    {
+      "id": "browser-254",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-plugin-panel-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 15
+    },
+    {
+      "id": "browser-255",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-plugin-panel-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 15
+    },
+    {
+      "id": "contract-177",
+      "suite": "contract",
+      "argv": [
+        "python3",
+        "-B",
+        "scripts/plugins/test_package_wordcraft.py"
+      ],
+      "env": {},
+      "weight": 2
+    },
+    {
+      "id": "browser-256",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-turn-tool-timeline-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 35
+    },
+    {
+      "id": "browser-257",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-turn-tool-timeline-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 35
+    },
+    {
+      "id": "browser-258",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-terminal-fit-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 35
+    },
+    {
+      "id": "browser-259",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-terminal-fit-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 35
+    },
+    {
+      "id": "contract-178",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "scripts/test-agent-preset-ui.mjs"
+      ],
+      "env": {},
+      "weight": 16
+    },
+    {
+      "id": "contract-179",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "scripts/test-ui-refresh-entrypoints.mjs"
+      ],
+      "env": {},
+      "weight": 80
+    },
+    {
+      "id": "browser-260",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-chat-reading-width.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 15
     }
   ]
 }

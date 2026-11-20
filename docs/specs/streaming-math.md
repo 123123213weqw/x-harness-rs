@@ -18,9 +18,9 @@
 
 ## 接入与测试
 
-`ui/overrides/streaming-math.js` 保存维护源码，`scripts/patch-streaming-math.mjs` 按解析函数和增量 parser 的结构定位打包入口（不绑定压缩变量名），不匹配则报错。
+数学解析与 Markdown 渲染由 `ui/src/modules/platform/primitives/markdown/` 中的自有源码维护，经统一构建编译；历史 helper 和打包入口注入器已移除，冻结样本仅用于独立行为对照。
 
-`rebuild-ui.sh` 自动应用；静态入口生成新的内容哈希并更新 index.html，防止客户端继续命中旧缓存。测试从 index.html 读取实际使用的入口，不能任取目录里另一个旧 index 文件。
+`rebuild-ui.sh` 完整构建；静态入口生成新的内容哈希并更新 index.html，防止客户端继续命中旧缓存。测试从 index.html 读取实际使用的入口，不能任取目录里另一个旧 index 文件。
 
 `scripts/test-streaming-math.mjs` 加载真实打包 MarkdownText，逐字符输入：四类分隔符、矩阵、中文/希腊字母、代码隔离、转义、未闭合公式、前完整后不完整、完成前后等价、冻结节点身份、替换重置和非法 TeX。
 

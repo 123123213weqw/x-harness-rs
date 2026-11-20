@@ -2,6 +2,7 @@
  * Host facts are controllable observables, not a fake primitive/component layer. */
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
+import {sourceDeclaration} from './fixtures/source-declaration.mjs'
 import {createHash} from 'node:crypto'
 import {createRequire} from 'node:module'
 import {resolve} from 'node:path'
@@ -13,8 +14,7 @@ const engine=process.env.UI_TEST_BROWSER??'chromium',implementation=process.env.
 const computerId='@xlang/xharness-client-ui-computer'
 const compiled=implementation==='source'?compileSourceModules('ui',[{id:id+'/test',source:'src/modules/cordis/test-exports.ts'},{id:id+'/transcript-seat',source:'src/modules/conversation/chat/TranscriptWindowRow.tsx'},{id:computerId,source:'src/modules/computer/index.tsx'}]):undefined
 const code=compiled?compiled.get(id+'/test').bytes.toString():readFileSync(`ui/reference/master-a613970/plugins/${id}/client.js`,'utf8').replace('return module.exports;','Object.assign(exports,{CordisPanel,CordisRunRow,CordisDefineRow});return module.exports;')
-const frozenTranscriptHelper=readFileSync('ui/overrides/transcript-windowing.js','utf8')
-assert.ok(readFileSync('ui/reference/master-a613970/plugins/@xharness/dsh-client-ui-conversation/client.js','utf8').includes(frozenTranscriptHelper),'exact frozen transcript seat helper')
+const frozenTranscriptHelper=sourceDeclaration(readFileSync('ui/reference/master-a613970/plugins/@xharness/dsh-client-ui-conversation/client.js','utf8'),'createTranscriptWindowing')
 const browser=await({chromium,webkit}[engine]).launch({headless:true})
 try{
  const page=await browser.newPage({viewport:{width:1100,height:800}}),errors=[]

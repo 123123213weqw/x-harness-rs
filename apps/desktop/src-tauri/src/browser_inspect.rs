@@ -17,6 +17,9 @@ use crate::browser::{ensure_main, BrowserState};
 #[path = "browser_observation_error.rs"]
 mod observation_error;
 
+#[path = "browser_evaluate.rs"]
+pub(crate) mod execution;
+
 pub(super) const SCRIPT: &str = include_str!("browser_observe.js");
 pub(super) const MAX_CALLBACK_BYTES: usize = 32 * 1024;
 const MAX_OBSERVATION_BYTES: usize = 8 * 1024;

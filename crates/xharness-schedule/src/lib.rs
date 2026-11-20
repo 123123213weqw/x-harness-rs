@@ -41,9 +41,6 @@ use xharness_session::{
 };
 use xharness_tools::{ToolConcurrency, ToolDefinition, ToolHandlerError, ToolOutput, ToolSpec};
 
-#[cfg(test)]
-use xharness_tools::ToolExecutionContext;
-
 pub const MIN_EVERY_INTERVAL_SECONDS: u64 = 300;
 pub const MAX_TIMER_DELAY_MS: u64 = 2_147_483_647;
 const MAX_CAS_RETRIES: usize = 16;
@@ -362,249 +359,6 @@ impl ScheduleManager {
     /// legacy tool names are deliberately not projected into new requests.
     pub fn specs(self: &Arc<Self>, session_id: impl Into<String>) -> Vec<ToolSpec> {
         vec![self.automation_spec(Arc::<str>::from(session_id.into()))]
-    }
-    #[cfg(test)]
-    fn legacy_specs(self: &Arc<Self>, session_id: &str) -> Vec<ToolSpec> {
-        let id = Arc::<str>::from(session_id);
-        vec![
-            self.schedule_create_spec(id.clone()),
-            self.schedule_list_spec(id.clone()),
-            self.schedule_delete_spec(id),
-        ]
-    }
-    #[cfg(test)]
-    fn schedule_create_spec(self: &Arc<Self>, session_id: Arc<str>) -> ToolSpec {
-        let manager = Arc::clone(self);
-        ToolSpec::new(
-            ToolDefinition::new(
-                "schedule_create",
-                format!(
-                    "Create one durable reminder in the current session. Supply a non-empty prompt and exactly one selector: positive after_seconds, at as an explicit-offset RFC 3339 string or {{date,time,time_zone}}, or every_seconds of at least {MIN_EVERY_INTERVAL_SECONDS}. Use this when the user asks to be reminded later; never emulate a timer with bash, sleep or a background job. Delivery is session-local: it runs on time only while this session is live and otherwise becomes overdue until resume."
-                ),
-                json!({
-                    "type": "object",
-                    "properties": {
-                        "prompt": {"type": "string"},
-                        "after_seconds": {"type": "integer"},
-                        "at": {
-                            "type": ["string", "object"],
-                            "properties": {
-                                "date": {"type": "string"},
-                                "time": {"type": "string"},
-                                "time_zone": {"type": "string"}
-                            },
-                            "required": ["date", "time", "time_zone"],
-                            "additionalProperties": false
-                        },
-                        "every_seconds": {"type": "integer"}
-                    },
-                    "required": ["prompt"],
-                    "additionalProperties": false
-                }),
-            ),
-            move |context| {
-                let manager = Arc::clone(&manager);
-                let session_id = Arc::clone(&session_id);
-                async move {
-                    if context.cancellation.is_cancelled() {
-                        return Err(ToolHandlerError::new("schedule_create cancelled"));
-                    }
-                    let prompt = string_argument(&context, "prompt")?;
-                    let selector = match parse_selector(&context) {
-                        Ok(selector) => selector,
-                        Err(value) => return Ok(json_output(value)),
-                    };
-                    let value = manager.create_value(&session_id, prompt, selector).await;
-                    Ok(json_output(value))
-                }
-            },
-        )
-        .with_concurrency(ToolConcurrency::Parallel)
-        .with_timeout(TOOL_TIMEOUT)
-    }
-
-    #[cfg(test)]
-    fn schedule_list_spec(self: &Arc<Self>, session_id: Arc<str>) -> ToolSpec {
-        let manager = Arc::clone(self);
-        ToolSpec::new(
-            ToolDefinition::new(
-                "schedule_list",
-                "List every active reminder in the current session in creation order, including its exact id, UTC target, scheduled or overdue state, and session-local delivery mode.",
-                empty_schema(),
-            ),
-            move |context| {
-                let manager = Arc::clone(&manager);
-                let session_id = Arc::clone(&session_id);
-                async move {
-                    if context.cancellation.is_cancelled() {
-                        return Err(ToolHandlerError::new("schedule_list cancelled"));
-                    }
-                    Ok(json_output(manager.list_value(&session_id).await))
-                }
-            },
-        )
-        .with_concurrency(ToolConcurrency::Parallel)
-        .with_timeout(TOOL_TIMEOUT)
-    }
-
-    #[cfg(test)]
-    fn schedule_delete_spec(self: &Arc<Self>, session_id: Arc<str>) -> ToolSpec {
-        let manager = Arc::clone(self);
-        ToolSpec::new(
-            ToolDefinition::new(
-                "schedule_delete",
-                "Delete one active reminder in the current session by the exact id returned by schedule_create or schedule_list. Unknown or already-finished ids return deleted false.",
-                json!({
-                    "type": "object",
-                    "properties": {"id": {"type": "string"}},
-                    "required": ["id"],
-                    "additionalProperties": false
-                }),
-            ),
-            move |context| {
-                let manager = Arc::clone(&manager);
-                let session_id = Arc::clone(&session_id);
-                async move {
-                    if context.cancellation.is_cancelled() {
-                        return Err(ToolHandlerError::new("schedule_delete cancelled"));
-                    }
-                    let id = string_argument(&context, "id")?;
-                    Ok(json_output(manager.delete_value(&session_id, id).await))
-                }
-            },
-        )
-        .with_concurrency(ToolConcurrency::Parallel)
-        .with_timeout(TOOL_TIMEOUT)
-    }
-
-    #[cfg(test)]
-    async fn create_value(&self, session_id: &str, prompt: String, selector: Selector) -> Value {
-        let owner = match self.owner(session_id).await {
-            Ok(owner) => owner,
-            Err(error) => return internal_error(error),
-        };
-        let _guard = owner.transaction.lock().await;
-        if let Err(error) = owner.store.flush(session_id).await {
-            return persistence_error("create", None, error);
-        }
-        let now = owner.clock.now_ms();
-        for _ in 0..MAX_CAS_RETRIES {
-            let session = match load_session(&owner.store, session_id).await {
-                Ok(session) => session,
-                Err(error) => return internal_error(error),
-            };
-            let folded = match fold_schedule_events(&session) {
-                Ok(folded) => folded,
-                Err(error) => return corrupt_error(error),
-            };
-            let id = allocate_id(&folded);
-            let record = match create_record(id, prompt.clone(), selector.clone(), now) {
-                Ok(record) => record,
-                Err(value) => return value,
-            };
-            let event = SessionEvent::new(EventData::ScheduleChange {
-                change: ScheduleChange::Create {
-                    version: 1,
-                    schedule: record.clone(),
-                },
-            });
-            match owner
-                .store
-                .append(session_id, session.revision(), vec![event])
-                .await
-            {
-                Ok(_) => {
-                    if let Err(error) = owner.store.flush(session_id).await {
-                        return persistence_error("create", Some(&record.id), error);
-                    }
-                    owner.notify.notify_one();
-                    return schedule_view(&record, now);
-                }
-                Err(StoreError::RevisionConflict { .. }) => continue,
-                Err(error) => return persistence_error("create", Some(&record.id), error),
-            }
-        }
-        internal_error(ScheduleError::Contended)
-    }
-
-    #[cfg(test)]
-    async fn list_value(&self, session_id: &str) -> Value {
-        let owner = match self.owner(session_id).await {
-            Ok(owner) => owner,
-            Err(error) => return internal_error(error),
-        };
-        let _guard = owner.transaction.lock().await;
-        if let Err(error) = owner.store.flush(session_id).await {
-            return persistence_error("list", None, error);
-        }
-        let session = match load_session(&owner.store, session_id).await {
-            Ok(session) => session,
-            Err(error) => return internal_error(error),
-        };
-        let folded = match fold_schedule_events(&session) {
-            Ok(folded) => folded,
-            Err(error) => return corrupt_error(error),
-        };
-        Value::Array(
-            folded
-                .active
-                .iter()
-                .map(|record| schedule_view(record, owner.clock.now_ms()))
-                .collect(),
-        )
-    }
-
-    #[cfg(test)]
-    async fn delete_value(&self, session_id: &str, id: String) -> Value {
-        if id.is_empty() || id.trim() != id {
-            return public_error(
-                "invalid_rule",
-                "id must be non-empty without surrounding whitespace.",
-            );
-        }
-        let owner = match self.owner(session_id).await {
-            Ok(owner) => owner,
-            Err(error) => return internal_error(error),
-        };
-        let _guard = owner.transaction.lock().await;
-        if let Err(error) = owner.store.flush(session_id).await {
-            return persistence_error("delete", Some(&id), error);
-        }
-        for _ in 0..MAX_CAS_RETRIES {
-            let session = match load_session(&owner.store, session_id).await {
-                Ok(session) => session,
-                Err(error) => return internal_error(error),
-            };
-            let folded = match fold_schedule_events(&session) {
-                Ok(folded) => folded,
-                Err(error) => return corrupt_error(error),
-            };
-            if !folded.active.iter().any(|record| record.id == id) {
-                return json!({"id": id, "deleted": false, "code": "schedule_not_found"});
-            }
-            let event = SessionEvent::new(EventData::ScheduleChange {
-                change: ScheduleChange::Delete {
-                    version: 1,
-                    id: id.clone(),
-                },
-            });
-            match owner
-                .store
-                .append(session_id, session.revision(), vec![event])
-                .await
-            {
-                Ok(_) => {
-                    if let Err(error) = owner.store.flush(session_id).await {
-                        return persistence_error("delete", Some(&id), error);
-                    }
-                    owner.notify.notify_one();
-                    return json!({"id": id, "deleted": true});
-                }
-                Err(StoreError::RevisionConflict { .. }) => continue,
-                Err(error) => return persistence_error("delete", Some(&id), error),
-            }
-        }
-        internal_error(ScheduleError::Contended)
     }
 }
 
@@ -1127,54 +881,6 @@ enum Selector {
     Every(u64),
 }
 
-#[cfg(test)]
-fn parse_selector(context: &ToolExecutionContext) -> Result<Selector, Value> {
-    let arguments = context
-        .arguments
-        .as_object()
-        .expect("tool arguments are objects");
-    let present = ["after_seconds", "at", "every_seconds"]
-        .into_iter()
-        .filter(|name| arguments.contains_key(*name))
-        .collect::<Vec<_>>();
-    if present.len() != 1 {
-        return Err(public_error(
-            "invalid_selector",
-            "schedule_create requires exactly one of after_seconds, at, or every_seconds.",
-        ));
-    }
-    match present[0] {
-        "after_seconds" => selector_integer(context, "after_seconds").map(Selector::After),
-        "at" => Ok(Selector::At(arguments["at"].clone())),
-        "every_seconds" => selector_integer(context, "every_seconds").map(Selector::Every),
-        _ => unreachable!(),
-    }
-}
-
-#[cfg(test)]
-fn string_argument(context: &ToolExecutionContext, name: &str) -> Result<String, ToolHandlerError> {
-    context
-        .arguments
-        .get(name)
-        .and_then(Value::as_str)
-        .map(ToOwned::to_owned)
-        .ok_or_else(|| ToolHandlerError::new(format!("{name} must be a string")))
-}
-
-#[cfg(test)]
-fn selector_integer(context: &ToolExecutionContext, name: &str) -> Result<u64, Value> {
-    context
-        .arguments
-        .get(name)
-        .and_then(Value::as_u64)
-        .ok_or_else(|| {
-            public_error(
-                "invalid_rule",
-                &format!("{name} must be a non-negative safe integer."),
-            )
-        })
-}
-
 fn create_record(
     id: String,
     prompt: String,
@@ -1605,18 +1311,6 @@ fn fold_schedule_events(session: &Session) -> Result<FoldedSchedules, ScheduleEr
     })
 }
 
-#[cfg(test)]
-fn allocate_id(folded: &FoldedSchedules) -> String {
-    let mut sequence = folded.seen_ids.len().saturating_add(1);
-    loop {
-        let candidate = format!("schedule-{sequence}");
-        if !folded.seen_ids.contains(&candidate) {
-            return candidate;
-        }
-        sequence = sequence.saturating_add(1);
-    }
-}
-
 fn inherited_automation_ids(session: &Session) -> HashSet<String> {
     let Some(fork_seq) = session
         .events()
@@ -1831,11 +1525,6 @@ fn json_output(value: Value) -> ToolOutput {
 }
 
 #[cfg(test)]
-fn empty_schema() -> Value {
-    json!({"type": "object", "properties": {}, "additionalProperties": false})
-}
-
-#[cfg(test)]
 mod tests {
     mod flush_retry;
 
@@ -1856,7 +1545,6 @@ mod tests {
         ProviderRequest, ProviderStream,
     };
     use xharness_session::{MemorySessionStore, SessionHeader};
-    use xharness_tools::{ToolExecutor, ToolRegistry, ToolRequest};
 
     use super::*;
 
@@ -1876,110 +1564,6 @@ mod tests {
         fn now_ms(&self) -> i64 {
             self.0.load(Ordering::Acquire)
         }
-    }
-
-    async fn executor(manager: Arc<ScheduleManager>, session_id: &str) -> ToolExecutor {
-        let registry = Arc::new(ToolRegistry::new());
-        for spec in manager
-            .legacy_specs(session_id)
-            .into_iter()
-            .chain(manager.specs(session_id))
-        {
-            registry.register(spec).await.unwrap();
-        }
-        ToolExecutor::new(registry)
-    }
-
-    fn output_value(result: xharness_tools::ToolResult) -> Value {
-        assert!(result.is_ok(), "{result:?}");
-        serde_json::from_str(&result.output.unwrap().content).unwrap()
-    }
-
-    #[tokio::test]
-    async fn tools_create_list_delete_without_reusing_ids() {
-        let now = DateTime::parse_from_rfc3339("2026-09-02T00:00:00.000Z")
-            .unwrap()
-            .timestamp_millis();
-        let clock = FixedClock::new(now);
-        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
-        store.create(SessionHeader::new("tools")).await.unwrap();
-        let manager = ScheduleManager::with_clock(store, clock);
-        let executor = executor(Arc::clone(&manager), "tools").await;
-
-        let created = output_value(
-            executor
-                .execute(ToolRequest::new(
-                    "schedule_create",
-                    json!({"prompt": "  喝水  ", "after_seconds": 30}).to_string(),
-                ))
-                .await,
-        );
-        assert_eq!(created["id"], "schedule-1");
-        assert_eq!(created["prompt"], "喝水");
-        assert_eq!(created["kind"], "after");
-        assert_eq!(created["scheduledAt"], "2026-09-02T00:00:30.000Z");
-        assert_eq!(created["deliveryMode"], "session-local");
-
-        let listed = output_value(
-            executor
-                .execute(ToolRequest::new("schedule_list", "{}"))
-                .await,
-        );
-        assert_eq!(listed.as_array().unwrap().len(), 1);
-        assert_eq!(listed[0]["state"], "scheduled");
-
-        let deleted = output_value(
-            executor
-                .execute(ToolRequest::new(
-                    "schedule_delete",
-                    json!({"id": "schedule-1"}).to_string(),
-                ))
-                .await,
-        );
-        assert_eq!(deleted, json!({"id": "schedule-1", "deleted": true}));
-
-        let second = output_value(
-            executor
-                .execute(ToolRequest::new(
-                    "schedule_create",
-                    json!({"prompt": "再次喝水", "after_seconds": 60}).to_string(),
-                ))
-                .await,
-        );
-        assert_eq!(second["id"], "schedule-2");
-        manager.shutdown().await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn tools_return_closed_selector_and_frequency_errors_as_values() {
-        let now = DateTime::parse_from_rfc3339("2026-09-02T00:00:00.000Z")
-            .unwrap()
-            .timestamp_millis();
-        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
-        store.create(SessionHeader::new("errors")).await.unwrap();
-        let manager = ScheduleManager::with_clock(store, FixedClock::new(now));
-        let executor = executor(Arc::clone(&manager), "errors").await;
-
-        let conflict = output_value(
-            executor
-                .execute(ToolRequest::new(
-                    "schedule_create",
-                    json!({"prompt": "x", "after_seconds": 1, "every_seconds": 300}).to_string(),
-                ))
-                .await,
-        );
-        assert_eq!(conflict["code"], "invalid_selector");
-
-        let frequent = output_value(
-            executor
-                .execute(ToolRequest::new(
-                    "schedule_create",
-                    json!({"prompt": "x", "every_seconds": 299}).to_string(),
-                ))
-                .await,
-        );
-        assert_eq!(frequent["code"], "frequency_too_high");
-        manager.shutdown().await.unwrap();
     }
 
     #[test]

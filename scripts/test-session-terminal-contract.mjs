@@ -81,7 +81,7 @@ for (const item of fixture.cases) {
       assert.equal(nodes.filter(node => node.kind === 'turn-tail').length, 1)
       const tool = nodes.find(node => node.kind === 'tool-call')
       assert.ok(tool)
-      assert.equal(plugin.turnProcessPresentation(tool, tail, false).hidden, outcome !== 'unknown')
+      assert.equal(plugin.turnProcessPresentation(tool, tail, false).hidden, outcome === 'success')
       assert.equal(plugin.turnProcessPresentation(tool, tail, true).hidden, false)
       const errors = nodes.filter(node => node.kind === 'turn-error')
       assert.equal(errors.length, item.live.data.reason.kind === 'error' ? 1 : 0)

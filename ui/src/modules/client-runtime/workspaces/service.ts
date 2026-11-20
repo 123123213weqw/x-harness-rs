@@ -180,7 +180,10 @@ export class WorkspaceRuntime implements IWorkspaces {
    * @param workspaceId - explicit target Workspace for scoped actions.
    */
   startSession(workspaceId?: WorkspaceId): void {
-    if (this.environmentCreationOnly) { this.sessions.clear(); return }
+    // The unscoped action opens backend selection. An explicit Workspace
+    // already belongs to this immutable Host, so it must not be discarded or
+    // replaced by a recent Workspace on a different creation path.
+    if (this.environmentCreationOnly && workspaceId === undefined) { this.sessions.clear(); return }
     const workspace = this.list.getSnapshot()
     const current = this.sessions.list.getSnapshot().current
     const currentWorkspaceId = current === undefined

@@ -104,9 +104,9 @@ Web 和 Tauri 共用 `ui/dist`，输入区只保留模型选择按钮。点击�
 
 此前不仅没有上下文调节控件，上游 client-connection 的解析 Schema 还会丢掉
 `contextWindowTokens`、`contextWindow` 和能力来源；仅增按钮无法解决。
-`scripts/patch-model-controls.mjs` 为这两处提供失败即中止的构建适配，
-`ui/overrides/model-controls.js` 保存产品组件源码。assemble/rebuild 自动应用适配，
-生成文件、客户端图 revision 和 HTML 内联图同步更新；不维护伪装最新的 sourcemap。
+模型控件和连接协议分别由 `ui/src/modules/model-selection/` 与
+`ui/src/modules/client-connection/` 维护。统一构建直接编译自有源码，
+生成文件、客户端图 revision 和 HTML 内联图同步更新；不再依赖旧补丁注入。
 
 ### 回归入口
 

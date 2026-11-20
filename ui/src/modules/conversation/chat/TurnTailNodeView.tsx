@@ -8,29 +8,34 @@ import { IconChevronRightOutline14 } from '../primitives'
 import { formatRunDuration } from './message-chrome'
 import type { TurnLocation } from '../types/runtime'
 import type { TurnTailChatData } from '../contract/chat-nodes'
+import { formatElapsedTime } from './ElapsedTime'
+import { ToolActivitySummary } from './ToolActivitySummary'
+import type { ChatViewSlotProps } from '../contract/slots'
 
 /** Visible independently of hover, final prose, or contributed tail slots. */
-export function TurnProcessSummary({ turn, data, t, collapsed, onToggle }: {
+export function TurnProcessSummary({ turn, data, t, collapsed, onToggle, tools = 0, thoughts = 0 }: {
   turn: TurnLocation
   data: Readonly<TurnTailChatData>
   t: ChatNodeViewProps['t']
   collapsed: boolean
   onToggle: () => void
+  tools?: number; thoughts?: number
 }) {
   const runMs = turn.start === undefined || turn.end === undefined ? undefined : Math.max(0, turn.end.time - turn.start.time)
   const label = runMs === undefined ? t('message.turnFinished') : t('message.ranFor', { duration: formatRunDuration(runMs, t) })
   return <button type="button" className={css.summary} data-turn-process-summary={data.turn}
     aria-expanded={!collapsed} aria-label={`${label} · ${t(collapsed ? 'message.expandProcess' : 'message.collapseProcess')}`}
-    onClick={onToggle}><span>{label}</span><IconChevronRightOutline14 /></button>
+    onClick={onToggle}><IconChevronRightOutline14 /><span>{tools === 0 && thoughts === 0 ? (runMs === undefined ? t('message.turnFinished') : formatElapsedTime(runMs)) : t(turn.start === undefined ? 'message.loadedProcess' : 'message.processCounts', { tools, thoughts })}</span>{(tools > 0 || thoughts > 0) && <time className="xh-turn-process-time">{runMs === undefined ? '' : formatElapsedTime(runMs)}</time>}</button>
 }
 
-/** Active work folds only settled successful roots; pending/error rows stay outside. */
-export function AdaptiveToolSummary({ turn, count, t, expanded, onToggle }: {
-  turn: number; count: number; t: ChatNodeViewProps['t']; expanded: boolean; onToggle: () => void
+/** The collapsed header is the live summary; details open only on user request. */
+export function AdaptiveToolSummary({ turn, count, t, expanded, onToggle, thoughts = 0, startTime, useSession }: {
+  useSession?: ChatViewSlotProps['useSession']; turn: number; count: number; thoughts?: number; startTime?: number | undefined; t: ChatNodeViewProps['t']; expanded: boolean; onToggle: () => void
 }) {
+  const counts = t(startTime === undefined ? 'message.loadedProcess' : 'message.processCounts', { tools: count, thoughts })
   return <button type="button" className={css.summary} data-live-tool-summary={turn}
-    aria-expanded={expanded} aria-label={t(expanded ? 'message.collapseProcess' : 'message.expandProcess')}
-    onClick={onToggle}><span>{t(expanded ? 'message.expandedTools' : 'message.foldedTools', { count })}</span><IconChevronRightOutline14 /></button>
+    aria-expanded={expanded} aria-label={t(expanded ? 'message.collapseProcess' : 'message.expandProcess')} aria-description={counts}
+    onClick={onToggle}><IconChevronRightOutline14 />{useSession === undefined ? <span className="xh-live-tool-counts">{counts}</span> : <ToolActivitySummary turn={turn} enabled={!expanded} useSession={useSession} t={t} fallback={counts} />}</button>
 }
 
 type TurnTailNodeViewProps = ChatNodeViewProps<'turn-tail'>
