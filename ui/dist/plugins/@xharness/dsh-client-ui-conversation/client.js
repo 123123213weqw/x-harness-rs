@@ -6131,13 +6131,14 @@ exports.planToolFold = planToolFold;
 /** Display budget only: no request, token, Tool output or runtime policy changes. */
 exports.TOOL_FOLD_VIEWPORT_SHARE = 0.4;
 exports.NO_FOLDED_TOOLS = new Map();
-/** Fail open on active, failed, recursive pending, or unknown tool carriers. */
+/** Active compaction only summarizes successful, fully returned call trees. */
 function toolCanAutoFold(node) {
-    return toolCanFold(node);
+    return toolCanFold(node, 'live');
 }
-/** Failures remain outside the disclosure even after an authoritative turn/end. */
+/** After turn/end, a known failure is foldable, but a missing/uncertain result
+ * or Agent communication remains visible, even in a nested call. */
 function toolCanFoldAfterTurn(node) {
-    return toolCanFold(node);
+    return toolCanFold(node, 'closed');
 }
 const LIVE_SUMMARY_TOOLS = new Set(['read', 'write', 'edit', 'grep', 'glob', 'bash', 'pwsh', 'run_code', 'todolist', 'todo_write', 'web_search', 'web_fetch']);
 /** Conservative live-only subset: native/plugin privacy and interactive seats
@@ -6148,7 +6149,7 @@ function toolCanSummarizeLive(node) {
     const stack = [node.data.root];
     for (let block = stack.pop(); block !== undefined; block = stack.pop()) {
         if ('kind' in block) {
-            if (!toolCanFold({ ...node, data: { root: block } }))
+            if (!toolCanFold({ ...node, data: { root: block } }, 'live'))
                 return false;
             continue;
         }
@@ -6158,28 +6159,29 @@ function toolCanSummarizeLive(node) {
     }
     return true;
 }
-function toolCanFold(node) {
+function toolCanFold(node, phase) {
     if (node.kind !== 'tool-call' || node.data.root === undefined)
         return false;
     const stack = [node.data.root];
     for (let block = stack.pop(); block !== undefined; block = stack.pop()) {
-        // Agent communication acknowledgements must remain visible when a turn
-        // closes or its tool activity is folded. This does not pin offscreen DOM:
-        // ordinary transcript windowing still applies, including nested calls.
-        if (('kind' in block ? block.call?.name : block.name) === 'agent')
-            return false;
-        // Projection's synthetic interrupted result has no settled tool/result.
+        // turn/end closes the turn, not every observed tool. Keep an unresolved
+        // call or synthetic interrupted result visible in a partial transcript.
         if (!('kind' in block) || block.kind !== 'tool-result'
             || block.error?.code === 'OUTCOME_UNKNOWN' || block.error?.code === 'interrupted'
-            || block.isError)
+            || block.call?.name === 'agent')
             return false;
-        // Shell cards can report a nonzero exit without isError on the envelope.
-        const view = block.resultView;
-        if (typeof view === 'object' && view !== null && 'card' in view && view.card === 'terminal'
-            && (('exitCode' in view && typeof view.exitCode === 'number' && view.exitCode !== 0)
-                || ('signal' in view && typeof view.signal === 'string' && view.signal !== '')))
-            return false;
-        stack.push(...block.subCalls);
+        if (phase === 'live') {
+            if (block.isError)
+                return false;
+            // Shell cards can report a nonzero exit without isError on the envelope.
+            const view = block.resultView;
+            if (typeof view === 'object' && view !== null && 'card' in view && view.card === 'terminal'
+                && (('exitCode' in view && typeof view.exitCode === 'number' && view.exitCode !== 0)
+                    || ('signal' in view && typeof view.signal === 'string' && view.signal !== '')))
+                return false;
+        }
+        for (const child of block.subCalls)
+            stack.push(child);
     }
     return true;
 }
@@ -7825,12 +7827,9 @@ function turnProcessPresentation(node, tail, expanded, live = false, summaryAvai
         case 'assistant-step':
             return { collapsed, hidden: tail.closing === null || node.data.finalNode?.seq !== tail.closing.finalNode.seq };
         case 'tool-call':
-            // Keep failures and recursive pending/unknown outcomes visible even
-            // if a stale turn/end is present; completion is not success.
-            // Composer approvals/questions and turn failures have their own seats.
-            if (node.data.root !== undefined && !(0, adaptive_tool_fold_1.toolCanFoldAfterTurn)(node))
-                return { collapsed, hidden: false };
-            return { collapsed, hidden: true };
+            // Returned successes and known failures share one disclosure; an end
+            // marker cannot hide pending/unknown results or Agent acknowledgements.
+            return { collapsed, hidden: (0, adaptive_tool_fold_1.toolCanFoldAfterTurn)(node) };
         case 'model-retry':
         case 'context':
         case 'compaction':

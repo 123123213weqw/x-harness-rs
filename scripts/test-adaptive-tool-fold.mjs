@@ -33,18 +33,19 @@ test('recursive calls: only all-successful settled roots eligible, output never 
  assert.equal(plugin.toolCanAutoFold({kind:'unknown',data:{}}),false)
  assert.equal(JSON.stringify(root),before)
 })
-test('turn/end folds success but preserves failures/pending/unknown outcomes; expansion restores every row',()=>{
+test('turn/end folds only known results, including failures; expansion restores every row',()=>{
  const tail={turn:1,closing:null}
- for(const root of [block({isError:true}),block({subCalls:[block({isError:true})]}),block({subCalls:[{callId:'live',subCalls:[]}]}),block({isError:true,error:{name:'OutcomeUnknown',code:'OUTCOME_UNKNOWN'}}),block({subCalls:[block({isError:true,error:{name:'OutcomeUnknown',code:'OUTCOME_UNKNOWN'}})]}),block({isError:true,error:{name:'Interrupted',code:'interrupted'}}),block({subCalls:[block({isError:true,error:{name:'Interrupted',code:'interrupted'}})]})]){
-  assert.deepEqual(json(plugin.turnProcessPresentation(tool(root),tail,false)),{collapsed:true,hidden:false})
-  assert.deepEqual(json(plugin.turnProcessPresentation(tool(root),tail,true)),{collapsed:false,hidden:false})
- }
- for(const root of [block(),block({subCalls:[block()]})]){
+ const pending={callId:'p',callView:null,time:1,name:'bash',argsRaw:'{}',turn:1,step:1,subCalls:[]}
+ const unknown=block({isError:true,error:{name:'OutcomeUnknown',code:'OUTCOME_UNKNOWN'}})
+ const interrupted=block({isError:true,error:{name:'Interrupted',code:'interrupted'}})
+ const known=[block(),block({isError:true}),block({subCalls:[block({isError:true})]})]
+ const unresolved=[undefined,pending,unknown,interrupted,block({subCalls:[pending]}),block({subCalls:[unknown]}),block({subCalls:[interrupted]})]
+ for(const [roots,hidden] of [[known,true],[unresolved,false]])for(const root of roots){
   const before=JSON.stringify(root)
-  assert.deepEqual(json(plugin.turnProcessPresentation(tool(root),tail,false)),{collapsed:true,hidden:true})
+  assert.deepEqual(json(plugin.turnProcessPresentation(tool(root),tail,false)),{collapsed:true,hidden})
   assert.deepEqual(json(plugin.turnProcessPresentation(tool(root),tail,true)),{collapsed:false,hidden:false})
-  assert.equal(plugin.turnProcessPresentation(tool(root),undefined,false).hidden,false,'failure never folds before turn/end')
-  assert.equal(JSON.stringify(root),before,'folding cannot mutate failure evidence')
+  assert.equal(plugin.turnProcessPresentation(tool(root),undefined,false).hidden,false,'turn/end remains the prerequisite')
+  assert.equal(JSON.stringify(root),before,'folding cannot mutate result evidence')
  }
 })
 
@@ -84,7 +85,7 @@ test('compact mode folds earlier success even below the old budget, but newest/p
  assert.deepEqual([...plugin.planToolFold(rows,0,0.4,true)],[])
  for(const root of [block({resultView:{card:'terminal',exitCode:7}}),block({resultView:{card:'terminal',signal:'SIGTERM'}}),block({subCalls:[block({resultView:{card:'terminal',exitCode:1}})]})]){
   assert.equal(plugin.toolCanAutoFold(tool(root)),false)
-  assert.equal(plugin.turnProcessPresentation(tool(root),{turn:1,closing:null},false).hidden,false)
+  assert.equal(plugin.turnProcessPresentation(tool(root),{turn:1,closing:null},false).hidden,true)
  }
 })
 test('live reasoning renders its own Think disclosure instead of hiding; prose, images, preparing inputs, unknown blocks and interruption stay visible',()=>{

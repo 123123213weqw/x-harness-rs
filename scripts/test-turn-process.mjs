@@ -14,6 +14,7 @@ const blocks=[{kind:'reasoning',text:'reasoning'},{kind:'text',text:'answer'}]
 const answer={status:'settled',turn:1,step:1,blocks,finalNode:{kind:'assistant',turn:1,step:1,seq:20,time:2000,blocks},time:2000}
 const tail = { turn:1,seq:25,time:165000,closing:answer,branchUnavailable:false }
 const node = (kind,data={}) => ({key:kind,kind,data})
+const knownTool = node('tool-call',{root:{kind:'tool-result',callId:'completed',call:null,isError:false,subCalls:[]}})
 
 test('running status uses the accessible pixel ring in both locales, shows the elapsed clock immediately, and disappears when idle', () => {
   for (const language of ['en', 'zh']) {
@@ -75,8 +76,9 @@ test('only turn/end tail folds work; step completion and session idle do not', (
 })
 test('completed work folds, final answer and every terminal notice remain', () => {
   for (const kind of ['tool-call','model-retry','context','compaction']) {
-    assert.equal(plugin.turnProcessPresentation(node(kind),tail,false).hidden,true)
-    assert.equal(plugin.turnProcessPresentation(node(kind),tail,true).hidden,false)
+    const work = kind==='tool-call' ? knownTool : node(kind)
+    assert.equal(plugin.turnProcessPresentation(work,tail,false).hidden,true)
+    assert.equal(plugin.turnProcessPresentation(work,tail,true).hidden,false)
   }
   assert.equal(plugin.turnProcessPresentation(node('assistant-step',answer),tail,false).hidden,false)
   assert.equal(plugin.turnProcessPresentation(node('assistant-step',{...answer,finalNode:{seq:10}}),tail,false).hidden,true)
@@ -87,7 +89,7 @@ test('completed work folds, final answer and every terminal notice remain', () =
 test('reasoning/tool-only turns still fold; expanding never deletes original blocks', () => {
   const empty = {...tail,closing:null},original=JSON.stringify(empty)
   assert.equal(plugin.turnProcessPresentation(node('assistant-step',answer),empty,false).hidden,true)
-  assert.equal(plugin.turnProcessPresentation(node('tool-call'),empty,false).hidden,true)
+  assert.equal(plugin.turnProcessPresentation(knownTool,empty,false).hidden,true)
   assert.equal(plugin.turnProcessPresentation(node('turn-tail'),empty,false).hidden,false)
   assert.equal(JSON.stringify(empty),original)
 })

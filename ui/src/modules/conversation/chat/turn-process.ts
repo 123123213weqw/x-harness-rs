@@ -25,11 +25,9 @@ export function turnProcessPresentation(node: ChatNode, tail: Readonly<TurnTailC
     case 'assistant-step':
       return { collapsed, hidden: tail.closing === null || node.data.finalNode?.seq !== tail.closing.finalNode.seq }
     case 'tool-call':
-      // Keep failures and recursive pending/unknown outcomes visible even
-      // if a stale turn/end is present; completion is not success.
-      // Composer approvals/questions and turn failures have their own seats.
-      if (node.data.root !== undefined && !toolCanFoldAfterTurn(node)) return { collapsed, hidden: false }
-      return { collapsed, hidden: true }
+      // Returned successes and known failures share one disclosure; an end
+      // marker cannot hide pending/unknown results or Agent acknowledgements.
+      return { collapsed, hidden: toolCanFoldAfterTurn(node) }
     case 'model-retry':
     case 'context':
     case 'compaction':

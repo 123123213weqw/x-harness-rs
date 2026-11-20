@@ -6,14 +6,15 @@ export const TOOL_FOLD_VIEWPORT_SHARE = 0.4
 export type FoldedTools = ReadonlyMap<number, ReadonlySet<string>>
 export const NO_FOLDED_TOOLS: FoldedTools = new Map()
 
-/** Fail open on active, failed, recursive pending, or unknown tool carriers. */
+/** Active compaction only summarizes successful, fully returned call trees. */
 export function toolCanAutoFold(node: ChatNode): boolean {
-  return toolCanFold(node)
+  return toolCanFold(node, 'live')
 }
 
-/** Failures remain outside the disclosure even after an authoritative turn/end. */
+/** After turn/end, a known failure is foldable, but a missing/uncertain result
+ * or Agent communication remains visible, even in a nested call. */
 export function toolCanFoldAfterTurn(node: ChatNode): boolean {
-  return toolCanFold(node)
+  return toolCanFold(node, 'closed')
 }
 
 const LIVE_SUMMARY_TOOLS = new Set(['read', 'write', 'edit', 'grep', 'glob', 'bash', 'pwsh', 'run_code', 'todolist', 'todo_write', 'web_search', 'web_fetch'])
@@ -25,7 +26,7 @@ export function toolCanSummarizeLive(node: ChatNode): boolean {
   const stack: ToolCallBlock[] = [node.data.root]
   for (let block = stack.pop(); block !== undefined; block = stack.pop()) {
     if ('kind' in block) {
-      if (!toolCanFold({ ...node, data: { root: block } })) return false
+      if (!toolCanFold({ ...node, data: { root: block } }, 'live')) return false
       continue
     } else if (!LIVE_SUMMARY_TOOLS.has(block.name) || block.callView !== null) return false
     stack.push(...block.subCalls)
@@ -33,24 +34,24 @@ export function toolCanSummarizeLive(node: ChatNode): boolean {
   return true
 }
 
-function toolCanFold(node: ChatNode): boolean {
+function toolCanFold(node: ChatNode, phase: 'live' | 'closed'): boolean {
   if (node.kind !== 'tool-call' || node.data.root === undefined) return false
   const stack: ToolCallBlock[] = [node.data.root]
   for (let block = stack.pop(); block !== undefined; block = stack.pop()) {
-    // Agent communication acknowledgements must remain visible when a turn
-    // closes or its tool activity is folded. This does not pin offscreen DOM:
-    // ordinary transcript windowing still applies, including nested calls.
-    if (('kind' in block ? block.call?.name : block.name) === 'agent') return false
-    // Projection's synthetic interrupted result has no settled tool/result.
+    // turn/end closes the turn, not every observed tool. Keep an unresolved
+    // call or synthetic interrupted result visible in a partial transcript.
     if (!('kind' in block) || block.kind !== 'tool-result'
       || block.error?.code === 'OUTCOME_UNKNOWN' || block.error?.code === 'interrupted'
-      || block.isError) return false
-    // Shell cards can report a nonzero exit without isError on the envelope.
-    const view = block.resultView
-    if (typeof view === 'object' && view !== null && 'card' in view && view.card === 'terminal'
-      && (('exitCode' in view && typeof view.exitCode === 'number' && view.exitCode !== 0)
-        || ('signal' in view && typeof view.signal === 'string' && view.signal !== ''))) return false
-    stack.push(...block.subCalls)
+      || block.call?.name === 'agent') return false
+    if (phase === 'live') {
+      if (block.isError) return false
+      // Shell cards can report a nonzero exit without isError on the envelope.
+      const view = block.resultView
+      if (typeof view === 'object' && view !== null && 'card' in view && view.card === 'terminal'
+        && (('exitCode' in view && typeof view.exitCode === 'number' && view.exitCode !== 0)
+          || ('signal' in view && typeof view.signal === 'string' && view.signal !== ''))) return false
+    }
+    for (const child of block.subCalls) stack.push(child)
   }
   return true
 }
