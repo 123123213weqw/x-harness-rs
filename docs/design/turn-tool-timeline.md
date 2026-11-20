@@ -42,45 +42,37 @@ inherit the assistant reading tokens.
   running turn. There is no duplicate ticking header clock. Completed headers show
   logged duration in h/m/s without a visible “Ran for” prefix.
 
-## Recent-tool paging
+## Event-driven collapsed tool summary
 
-Only the collapsed, loaded, currently running turn gets a decorative **Recent**
-preview inside its existing header. It is not a second execution status: a short
-preview may outlive a fast returned tool. The real keyed cards remain mounted in
-their original seats and retain all actions, Inspect, pending controls and native
-privacy effects. Expanded/history/closed turns do not page. Neither the bottom
-pixel ring nor its single h/m/s timer is recreated or duplicated.
+The live collapsed header shows the current tool glyph, action and bounded input
+summary instead of a separate statistics + Recent carousel. A new tool identity
+slides up over 300ms; at most one latest update waits through the 800ms read
+window. Same-call input refreshes in place. Parallel roots have a count badge,
+not cyclic playback. Idle summaries own no repeating timer. Delayed callbacks
+coalesce to the latest state without animating stale backlog. Reduced motion,
+background visibility, hover, focus and selection retain the existing controls.
+A hidden/zero-size viewport restores the existing fail-open policy. Focus,
+selection, open details and the existing reader-anchor owner protect recovery
+from an error/pending row before any DOM is removed. Explicit group-close still
+outranks earlier child expansion without erasing that state.
+Statistics remain the fallback when no live summary is available and on explicit
+expansion/completed turns. Thought remains its own disclosure (#468 tail window).
 
-The presentation keeps one latest snapshot and at most two short faces, never an
-event replay queue or result bodies. Updates coalesce at a 1,000ms cadence with a
-180ms vertical flip. Parallel presentation cycles at most eight recent root calls;
-the badge counts all actual active roots, not nested parent/child calls. Scoped
-turn/step/sequence keys do not assume model-generated call IDs are globally unique.
-Only bounded input metadata is parsed for the preview; original inputs/results
-remain exact in their original cards. A large/incomplete argument keeps a neutral
-preview rather than being reparsed without a limit.
+The existing chat owner selects a primitive summary-ready turn, independently
+of per-token preview text. Only ordinary built-in tools with no native view can
+be represented by that summary while running. Plugin/native privacy carriers,
+agent communications, unknown tools, questions, approvals, failure/unknown-outcome
+barriers, stop and disconnected states retain their real seats. Completed
+successful tools retain the existing fold policy. Manual expansion always
+restores the original keyed tool rows, without replacing their data or execution
+state. The single pixel ring/timer, reader anchor and scoped expansion state are
+unchanged. This is a conservative difference from ZCode: no blanket unmount of
+native/plugin tools, whose privacy effects are owned by their rendered cards.
 
-Error/unknown-outcome/interruption/nonzero or signalled terminal results cancel
-both faces immediately until a genuinely later dispatch. Pending questions,
-approvals, a stop request or a disconnected session disable this decorative layer;
-they cannot hide the actual error/control. The preview does not dispatch anything,
-infer task completion, or change tool/execution/fold policy.
-
-Hover on a fine pointer, keyboard focus and selection hold a static face. Hidden
-documents and reduced-motion users get no paging timer; resuming selects the latest
-snapshot without replay. Expansion, virtualization and session changes dispose
-the one timeout and listeners. The duplicate short text is aria-hidden; the header
-keeps its semantic expand/collapse name and accessible counts, while original cards
-provide the full details. No animation-frame loop, new dependency, SVG package or
-second tool-card tree is introduced.
-
-The pure pacing/projection regressions cover coalescing, delayed timers, duplicate
-faces, bounded previews, scoped keys, recursive error barriers and root-only
-parallelism. The real Session/Assembler browser regression also exercises keyboard
-pause/expansion, streaming, error/recovery, waiting, stop/disconnect, reduced motion,
-session isolation, stable ring/timer identity and 320px layout in Chromium/WebKit.
-These are functional/lifecycle checks, not a claim of lower measured memory or a
-native macOS long-running profile.
+Validation covers deterministic presentation clocks, same-call refresh, bursts,
+late callbacks, no idle timers/replay, protected rows, and real assembled
+Chromium/WebKit transcript behavior including narrow screens, keyboard
+expansion, selection/hover, waits, errors, stop, disconnect and session switch.
 
 ## Tool identity
 

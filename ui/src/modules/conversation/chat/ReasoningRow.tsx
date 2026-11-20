@@ -1,14 +1,12 @@
 /** Assistant reasoning disclosure, independent of Tool-call presentation. */
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { DisclosureRow, IconChevronRightOutline14 } from '../primitives'
 import type { ChatViewSlotProps } from '../contract/slots'
-import { useThrottledVisualUpdate } from './use-throttled-visual-update'
 import a11yCss from './accessibility.styles'
 import css from './ReasoningRow.styles'
 import { useTranscriptState } from './transcript-state'
 import { useProcessMode } from './process-mode'
-import { firstReasoningLine } from './reasoning-summary'
-import { useReasoningSummary } from './use-reasoning-summary'
+import { firstReasoningLine, reasoningTailWindow } from './reasoning-summary'
 import { ToolGlyph } from '../../shared/ToolGlyph'
 
 /**
@@ -27,20 +25,15 @@ export function ReasoningRow({ text, running, t, stateKey = 0 }: { text: string;
     setAppliedMode(processMode)
     setExpanded(processMode === 'expanded')
   }, [processMode, appliedMode, setAppliedMode, setExpanded])
-  const summaryRef = useRef<HTMLSpanElement>(null)
-  const preview = useReasoningSummary(text, running && !expanded)
-  const summary = running ? preview.current : firstReasoningLine(text)
-  const scheduleSummaryScroll = useThrottledVisualUpdate(() => {
-    const element = summaryRef.current
-    if (element === null) return
-    element.scrollLeft = running && !preview.paging ? element.scrollWidth - element.clientWidth : 0
-  })
-  useEffect(() => {
-    scheduleSummaryScroll()
-  }, [running, preview.paging, scheduleSummaryScroll, summary])
+  // Streaming preview is a tail window beside the row's timeline edge: the
+  // newest reasoning fragment stays visible in place — no marquee scrolling
+  // and no paging flip. Settled rows keep the first line as the summary.
+  const summary = running && !expanded
+    ? reasoningTailWindow(text)
+    : firstReasoningLine(text)
 
   return (
-    <div className={css.root} data-variant="think" data-state={running ? 'running' : 'ok'} data-preview={preview.paging ? 'paged' : undefined}>
+    <div className={css.root} data-variant="think" data-state={running ? 'running' : 'ok'}>
       {running && <span className={a11yCss.visuallyHidden}>{t('row.running')}</span>}
       <DisclosureRow
         rowClassName={css.row}
@@ -59,14 +52,7 @@ export function ReasoningRow({ text, running, t, stateKey = 0 }: { text: string;
         collapsedContent={(
           <>
             <span className={css.separator} aria-hidden />
-            <span ref={summaryRef} className={css.summary} data-follow-end={running && !preview.paging || undefined} data-paging={preview.paging || undefined}>
-              {preview.paging ? (
-                <span key={preview.revision} className={css.page} data-flipping={preview.previous !== undefined || undefined}>
-                  {preview.previous !== undefined && <span className={css.pageOut} aria-hidden>{preview.previous}</span>}
-                  <span className={css.pageIn}>{summary}</span>
-                </span>
-              ) : summary}
-            </span>
+            <span className={css.summary}>{summary}</span>
             <span className="xh-thought-chevron" aria-hidden="true"><IconChevronRightOutline14 /></span>
           </>
         )}

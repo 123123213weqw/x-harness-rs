@@ -91,7 +91,9 @@ Plan Policy 确定性组装，并作为每轮第一个 `Role::System` 进入 Pro
 `RpcMethod::ALL` 中每个方法都必须被分发，并校验基础实现所需的 payload：
 
 - **Session（12）：** 列表、搜索、创建、事件历史、模型选择、重命名、Fork、
-  Prompt/Steer 入队、附件查询、队列修改、当前 Turn 取消。
+  Prompt/Steer 入队、附件查询、队列修改、当前 Turn 取消。`session.list` 必须按
+  `createdAt` 倒序返回（`updatedAt` 仅作同刻并列的次级排序）；后台事件（标题生成、
+  compaction、schedule 恢复等）推进的 `updatedAt` 禁止改变列表顺序。
 - **Subagent（4）：** 直接子 Session 的列表、历史、继续对话、中断。当前子节点是
   Fork Session；自主创建和并发策略留给后续 Agent 层。
 - **Host（5）：** 描述、非交互目录选择结果、有界目录列表、创建目录、支持平台上的

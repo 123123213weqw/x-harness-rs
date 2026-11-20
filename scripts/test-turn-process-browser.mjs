@@ -237,8 +237,10 @@ try {
  assert.equal(await summary.getAttribute('aria-expanded'),'false')
  assert.equal(await page.locator('[data-tool-card]').count(),0)
  assert.equal(await page.getByText('intermediate reply',{exact:true}).count(),0)
- assert.equal(await page.locator('[data-variant=think]').count(),0)
+ // A synchronous live fold shortens the viewport; wait for the real final
+ // answer's virtualized child to mount before counting its reasoning row.
  await page.getByText('final answer',{exact:true}).waitFor()
+ assert.equal(await page.locator('[data-variant=think]').count(),1)
  await page.mouse.move(900,10);assert.equal(await summary.evaluate(e=>getComputedStyle(e).opacity),'1')
  // Keyboard reopen and close: same footer retains focus and process stores are unchanged.
  const bytes=await page.evaluate(()=>JSON.stringify(snapshot.getSnapshot().chat.nodes.values()))
@@ -325,14 +327,15 @@ try {
  await summary.waitFor();assert.equal(await summary.getAttribute('aria-expanded'),'false')
  await page.getByText('final image',{exact:true}).waitFor();assert.equal(await page.locator('[data-tool-card]').count(),0)
  // Adaptive live folding is presentation only, and does not require turn/end.
- await page.evaluate(()=>{setId('adaptive');seed()})
+ await page.evaluate(()=>{setId('adaptive');seed();snapshot.set({...snapshot.getSnapshot(),running:true})})
  const live=page.locator('[data-live-tool-summary="1"]')
  await live.waitFor();await page.waitForTimeout(150)
  assert.equal(await live.getAttribute('aria-expanded'),'false')
  assert.ok(await page.locator('[data-chat-flow-kind="tool-call"]').count()<80)
  console.log('adaptive live fold:',JSON.stringify({engine,logicalTools:80,displayedToolRows:await page.locator('[data-chat-flow-kind="tool-call"]').count(),mountedHeavyCards:await page.locator('[data-tool-card]').count()}))
  assert.equal(await page.evaluate(()=>snapshot.getSnapshot().chat.nodes.values().length),84,'no tool/history content removed')
- await page.locator('[data-chat-flow-key="job79"]').waitFor({state:'attached'})
+ assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),0,'collapsed live successes are summarized synchronously, including newest')
+ await page.locator('[data-tool-activity="1"] [data-tool-activity-current]').waitFor()
  // A previously folded root becoming pending/error must reappear immediately.
  await page.evaluate(()=>toolFixture('job0',{isError:true}))
  await page.locator('[data-chat-flow-key="job0"]').waitFor({state:'attached'})

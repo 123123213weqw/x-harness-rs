@@ -146,8 +146,9 @@ function detailKey(node: HTMLDetailsElement, index: number): string {
   return node.getAttribute('data-transcript-state-key') || node.id || `${index}:${node.querySelector('summary')?.textContent?.slice(0, 120) ?? ''}`
 }
 
-export function TranscriptWindowRow({ children, keepMounted = false, estimatedHeight = 240, presentationState, ...attributes }: HTMLAttributes<HTMLDivElement> & { keepMounted?: boolean; estimatedHeight?: number; presentationState?: TranscriptValues; onToggleCapture?: (event: React.SyntheticEvent<HTMLDivElement>) => void }) {
-  const element = React.useRef<HTMLDivElement>(null), binding = React.useRef<Binding | null>(null)
+export function TranscriptWindowRow({ children, keepMounted = false, estimatedHeight = 240, presentationState, elementRef, ...attributes }: HTMLAttributes<HTMLDivElement> & { keepMounted?: boolean; estimatedHeight?: number; presentationState?: TranscriptValues; elementRef?: React.RefObject<HTMLDivElement>; onToggleCapture?: (event: React.SyntheticEvent<HTMLDivElement>) => void }) {
+  const ownElement = React.useRef<HTMLDivElement>(null), binding = React.useRef<Binding | null>(null)
+  const element = elementRef ?? ownElement
   // The keyed Node seat may outlive a folded/unmounted WindowRow. Use its
   // lightweight state when provided; standalone window rows retain their own.
   const [values] = React.useState(() => presentationState ?? new Map<string, unknown>())
