@@ -34,6 +34,7 @@ body {
   --xh-assistant-reading-family: var(--dsw-font-family);
   font-size: 14px;
   line-height: 22px;
+  font-weight: var(--dsw-weight-body, 400);
   --xh-markdown-emphasis-weight: 600;
   --dsw-font-markdown-h1: 600 22px/32px var(--dsw-font-family);
   --dsw-font-markdown-h2: 600 18px/28px var(--dsw-font-family);
