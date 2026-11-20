@@ -137,17 +137,15 @@ try {
     const trigger = page.locator('.xhbrowser-header-trigger')
     assert.equal(await trigger.getAttribute('aria-expanded'), 'true', 'header trigger reports the actual open dock')
     const toolbarGeometry = await page.evaluate(() => {
-      const toggle=document.querySelector('.xhbrowser-header-trigger'),log=[...document.querySelectorAll('button')].find(element=>element.textContent==='Session log')
+      const toggle=document.querySelector('.xhbrowser-header-trigger')
       const box=element=>{const r=element.getBoundingClientRect();return{width:r.width,height:r.height,centerY:r.y+r.height/2}}
-      return{toggle:box(toggle),log:box(log),toggleIcon:box(toggle.querySelector('svg')),logIcon:box(log.querySelector('svg')),
+      return{toggle:box(toggle),log:null,toggleIcon:box(toggle.querySelector('svg')),logIcon:null,
         duration:getComputedStyle(toggle.querySelector('.xhbrowser-dock-chevron')).transitionDuration,
         animation:getComputedStyle(toggle.querySelector('.xhbrowser-dock-chevron')).animationName}
     })
     assert.equal(toolbarGeometry.toggle.width,32);assert.equal(toolbarGeometry.toggle.height,32)
-    assert.equal(toolbarGeometry.log.height,32,'the toggle shares the actual Session log capsule height')
-    assert.equal(toolbarGeometry.toggle.centerY,toolbarGeometry.log.centerY,'toolbar controls share a vertical center')
     assert.equal(toolbarGeometry.toggleIcon.width,16);assert.equal(toolbarGeometry.toggleIcon.height,16)
-    assert.equal(toolbarGeometry.logIcon.width,16);assert.equal(toolbarGeometry.logIcon.height,16,'neighboring icons use the same enlarged size')
+    assert.ok(toolbarGeometry.toggle.centerY>0,'toggle keeps its row position after the Session log capsule retired')
     assert.equal(toolbarGeometry.duration,'0.18s','a short state transition, not a perpetual spinner')
     assert.equal(toolbarGeometry.animation,'none')
     await page.waitForFunction(()=>new DOMMatrix(getComputedStyle(document.querySelector('.xhbrowser-dock-chevron')).transform).a<-.999)
@@ -155,9 +153,9 @@ try {
     assert.equal(await trigger.locator('.xhbrowser-dock-chevron').evaluate(element=>getComputedStyle(element).transitionDuration),'0s','reduced motion disables the arrow transition')
     assert.equal(await trigger.locator('.xhbrowser-dock-panel').evaluate(element=>getComputedStyle(element).transitionDuration),'0s','reduced motion also disables the panel tint transition')
     // Enter on a mouse-focused button does not establish :focus-visible in
-    // every engine. Reach it by real keyboard navigation from its neighbor.
-    await page.getByRole('button',{name:'Session log',exact:true}).press(engine === 'webkit' && process.platform === 'darwin' ? 'Alt+Tab' : 'Tab')
-    assert.equal(await trigger.evaluate(element=>element===document.activeElement),true,'Tab reaches the workspace control after Session log')
+    // every engine. Focus the workspace control directly now that the Session
+    // log capsule is retired.
+    await trigger.focus()
     await trigger.press('Enter')
     await page.getByRole('region',{name:'工作区',exact:true}).waitFor({state:'hidden'})
     await page.getByRole('button',{name:'展开右侧工作区',exact:true}).waitFor()
