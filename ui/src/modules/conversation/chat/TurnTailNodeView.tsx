@@ -9,8 +9,6 @@ import { formatRunDuration } from './message-chrome'
 import type { TurnLocation } from '../types/runtime'
 import type { TurnTailChatData } from '../contract/chat-nodes'
 import { formatElapsedTime } from './ElapsedTime'
-import { ToolActivitySummary } from './ToolActivitySummary'
-import type { ChatViewSlotProps } from '../contract/slots'
 
 /** Visible independently of hover, final prose, or contributed tail slots. */
 export function TurnProcessSummary({ turn, data, t, collapsed, onToggle, tools = 0, thoughts = 0 }: {
@@ -29,13 +27,13 @@ export function TurnProcessSummary({ turn, data, t, collapsed, onToggle, tools =
 }
 
 /** The collapsed header is the live summary; details open only on user request. */
-export function AdaptiveToolSummary({ turn, count, t, expanded, onToggle, thoughts = 0, startTime, useSession }: {
-  useSession?: ChatViewSlotProps['useSession']; turn: number; count: number; thoughts?: number; startTime?: number | undefined; t: ChatNodeViewProps['t']; expanded: boolean; onToggle: () => void
+export function AdaptiveToolSummary({ turn, count, t, expanded, onToggle, thoughts = 0, startTime }: {
+  turn: number; count: number; thoughts?: number; startTime?: number | undefined; t: ChatNodeViewProps['t']; expanded: boolean; onToggle: () => void
 }) {
   const counts = t(startTime === undefined ? 'message.loadedProcess' : 'message.processCounts', { tools: count, thoughts })
   return <button type="button" className={css.summary} data-live-tool-summary={turn}
     aria-expanded={expanded} aria-label={t(expanded ? 'message.collapseProcess' : 'message.expandProcess')} aria-description={counts}
-    onClick={onToggle}><IconChevronRightOutline14 />{useSession === undefined ? <span className="xh-live-tool-counts">{counts}</span> : <ToolActivitySummary turn={turn} enabled={!expanded} useSession={useSession} t={t} fallback={counts} />}</button>
+    onClick={onToggle}><IconChevronRightOutline14 /><span className="xh-live-tool-counts">{counts}</span></button>
 }
 
 type TurnTailNodeViewProps = ChatNodeViewProps<'turn-tail'>

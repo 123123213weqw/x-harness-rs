@@ -335,7 +335,7 @@ try {
  console.log('adaptive live fold:',JSON.stringify({engine,logicalTools:80,displayedToolRows:await page.locator('[data-chat-flow-kind="tool-call"]').count(),mountedHeavyCards:await page.locator('[data-tool-card]').count()}))
  assert.equal(await page.evaluate(()=>snapshot.getSnapshot().chat.nodes.values().length),84,'no tool/history content removed')
  assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),0,'collapsed live successes are summarized synchronously, including newest')
- await page.locator('[data-tool-activity="1"] [data-tool-activity-current]').waitFor()
+ await live.locator('.xh-live-tool-counts').waitFor()
  // A previously folded root becoming pending/error must reappear immediately.
  await page.evaluate(()=>toolFixture('job0',{isError:true}))
  await page.locator('[data-chat-flow-key="job0"]').waitFor({state:'attached'})

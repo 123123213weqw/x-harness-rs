@@ -1,5 +1,5 @@
 {
-  "rev": "bff519d197ea0c5b",
+  "rev": "0e5f6e44ab6ce6fc",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -277,8 +277,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-conversation",
-      "url": "/plugins/@xharness/dsh-client-ui-conversation/client.js?rev=2c86d3c47bd75811",
-      "rev": "2c86d3c47bd75811",
+      "url": "/plugins/@xharness/dsh-client-ui-conversation/client.js?rev=1c523cd1550c4f61",
+      "rev": "1c523cd1550c4f61",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-client-locale",
