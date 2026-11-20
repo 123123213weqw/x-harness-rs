@@ -242,7 +242,7 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
   'chat/AssistantMarkdown': '21e87d66c7014089958318a0af382f05373ffda1081bc6284a478d8b4cd8293e',
   // Single scroll viewport: with a question card present the composer seat
   // leaves sticky and joins the flow tail (static, no gradient).
-  'skeleton/ConversationRoot': '6ded2345dd75573fc008cc1a0d0741582adf4ee07e04652359f7e41956a987ab',
+  'skeleton/ConversationRoot': 'ff90894c277e04e0f4d51849b193a8e56bc0384a68c9480b4c41149921600f90',
  };
  assert.equal(Object.hasOwn(oldCss,'@xharness/dsh-client-ui-conversation/LoadingIndicator.module.css'),false,'the frozen baseline must not acquire the new spinner sheet');
  for(const [name,sha] of Object.entries(reviewedStyles)) {

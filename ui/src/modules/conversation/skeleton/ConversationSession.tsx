@@ -1,6 +1,6 @@
 /** Strict per-session header/body content inserted into the resident conversation layout. */
 
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import clsx from '../classnames'
 import type { SessionId, SessionListState, SessionSummary } from "../types/runtime"
 import type {
@@ -103,9 +103,7 @@ export function ConversationSessionHeader({
                 {renderSlot('conversation.session.header.actions', {})}
               </div>
             </div>
-            <div className={css.headerUtilities}>
-              {renderSlot('conversation.session.header.utilities', {})}
-            </div>
+            <HeaderUtilitiesMenu css={css}>{renderSlot('conversation.session.header.utilities', {})}</HeaderUtilitiesMenu>
           </div>
           {tabs.length > 1 && (
             <div className={css.tabs} role="tablist">
@@ -169,6 +167,26 @@ export function ConversationSession({
         inspect,
         onInspectDone: () => { actions.setInspect(null) },
       }, { only: active.id })}
+    </div>
+  )
+}
+
+
+/** Collapsed "?" strip: header utilities slide out to its right on demand. */
+function HeaderUtilitiesMenu({ css, children }: { css: typeof import('./ConversationRoot.styles').default; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className={css.headerUtilities}>
+      <div className={css.utilitiesStrip} data-open={open ? '1' : '0'}>
+        <button
+          type="button"
+          className={css.utilitiesToggle}
+          aria-label="Session utilities"
+          aria-expanded={open}
+          onClick={() => { setOpen(value => !value) }}
+        >?</button>
+        <div className={css.utilitiesSide}>{children}</div>
+      </div>
     </div>
   )
 }
