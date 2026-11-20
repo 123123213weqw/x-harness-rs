@@ -32,6 +32,8 @@ body {
    The direct-child boundary excludes reasoning and tool output. */
 [data-xh-assistant-prose] > .MarkdownText_markdown {
   --xh-assistant-reading-family: var(--dsw-font-family);
+  font-size: 14px;
+  line-height: 22px;
   --xh-markdown-emphasis-weight: 600;
   --dsw-font-markdown-h1: 600 22px/32px var(--dsw-font-family);
   --dsw-font-markdown-h2: 600 18px/28px var(--dsw-font-family);

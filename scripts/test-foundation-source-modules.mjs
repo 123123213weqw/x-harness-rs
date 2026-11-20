@@ -231,7 +231,7 @@ for (const label of ['legacy', 'source']) {
     state.listener('s','export',{kind:'success'}); await new Promise(r=>setTimeout(r,1))
     const result=state.controller.store.getSnapshot().bySession.s; assert.equal(result.status,'error'); assert.match(result.error,/HTTP 403 denied/)
     const props={sessionId:'s',useSessionLogDownload:select=>select(state.controller.store.getSnapshot()),t:key=>key,request:()=>{},dismiss:()=>{}}
-    const tree=state.seat.component(props); assert.equal(tree.props.children[0].props.disabled,false)
+    const tree=state.seat.component(props); if (label==='legacy') assert.equal(tree.props.children[0].props.disabled,false); else assert.equal(tree, null, 'header capsule UI is retired; controller contract only')
     await state.controller.dispose()
   })
 }

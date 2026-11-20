@@ -8,7 +8,14 @@ import css from './HeaderAction.styles'
  * @param props - Session runtime, download controller, and localized dialog copy.
  * @returns the persistent Header action and Session-scoped dialog.
  */
-export function SessionLogDownloadHeaderAction(props: SessionLogDownloadDialogProps): ReactNode {
+export function SessionLogDownloadHeaderAction(_props: SessionLogDownloadDialogProps): ReactNode {
+  // UI retired by product decision: the header capsule was rarely used and the
+  // journal remains readable via session APIs and workspace tools. The slot
+  // registration and download controller stay intact for contracts.
+  return null
+}
+
+function __RetiredSessionLogDownloadHeaderAction(props: SessionLogDownloadDialogProps): ReactNode {
   const { sessionId, useSessionLogDownload, request } = props
   const entry = useSessionLogDownload(state => state.bySession[String(sessionId)])
   const busy = entry?.status === 'downloading'
