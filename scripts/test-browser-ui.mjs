@@ -40,10 +40,14 @@ const capability = JSON.parse(read('apps/desktop/src-tauri/capabilities/desktop-
 assert.deepEqual(capability.webviews, ['main'])
 assert.equal(capability.windows, undefined, 'window-scoped capabilities would leak into child WebViews')
 assert.ok(capability.remote.urls.every(url => url.startsWith('http://127.0.0.1:')))
-assert.match(read('apps/desktop/src-tauri/src/browser.rs'), /data_directory\(browser_data\)/)
-assert.match(read('apps/desktop/src-tauri/src/browser.rs'), /only http and https pages are supported/)
 const nativeSource=read('apps/desktop/src-tauri/src/browser.rs')
+const browserContracts=read('crates/xharness-browser/src/contracts.rs')
+assert.match(nativeSource, /data_directory\(browser_data\)/)
+assert.match(nativeSource, /use xharness_browser::web_url;/, 'desktop and standalone Host share the URL policy')
+assert.match(browserContracts, /only http and https pages are supported/)
 const navigationPolicy=nativeSource.split('.on_navigation(move |url| {')[1].split('.on_document_title_changed')[0]
+assert.match(nativeSource, /let target = web_url\(&url\)\?;/, 'explicit open uses the shared URL policy')
+assert.match(navigationPolicy, /matches!\(url\.scheme\(\), "http" \| "https"\)/, 'native navigation continues to reject other schemes')
 assert.doesNotMatch(navigationPolicy,/\.store\(|delegation\.navigate|"url"/,'frame-agnostic policy must not publish addresses or mutate top-level readiness/binding')
 assert.match(navigationPolicy,/navigation_inspector\.invalidate\(\)/,'unclassified navigations must still invalidate action refs')
 const pageLoad=nativeSource.split('.on_page_load(move |_, payload| {')[1].split('.on_new_window')[0]
