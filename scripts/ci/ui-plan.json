@@ -4496,6 +4496,50 @@
         "UI_TEST_BROWSER": "chromium"
       },
       "weight": 15
+    },
+    {
+      "id": "contract-180",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "scripts/test-project-github-status.mjs"
+      ],
+      "env": {},
+      "weight": 10
+    },
+    {
+      "id": "browser-261",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-project-github-status-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 20
+    },
+    {
+      "id": "browser-262",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-project-github-status-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 20
+    },
+    {
+      "id": "contract-181",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "scripts/test-github-webhook-refresh.mjs"
+      ],
+      "env": {},
+      "weight": 12
     }
   ]
 }

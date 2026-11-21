@@ -11,6 +11,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.inject = void 0;
 exports.apply = apply;
 const stores_1 = require("./stores");
+const project_events_1 = require("./project-events");
+const project_github_1 = require("./project-github");
 const WorkspaceBrowser_1 = require("./WorkspaceBrowser");
 const WorkspacePicker_1 = require("./WorkspacePicker");
 const locales_1 = require("./locales");
@@ -24,7 +26,7 @@ const NS = 'workspace';
  * provides a waitable service. apply therefore depends on each slot
  * declaration through `slots.inject()` instead of assuming order.
  */
-exports.inject = ['slots', 'sessions', 'workspaces', 'locale', 'connection'];
+exports.inject = ['slots', 'sessions', 'workspaces', 'locale', 'connection', 'remote'];
 /**
  * Register the browser and picker once their slot declarations are on the
  * ledger. Inject factories return plain callbacks; data reads use the
@@ -34,6 +36,15 @@ exports.inject = ['slots', 'sessions', 'workspaces', 'locale', 'connection'];
 function apply(ctx) {
     const connection = ctx.get('connection');
     const hostDescription = connection.hostDescription;
+    const projectEvents = ctx.remote ? new project_events_1.ProjectEventFeed() : undefined;
+    ctx.effect(() => {
+        if (!projectEvents || !ctx.remote)
+            return;
+        const off = ctx.remote.$on('github/project-status-invalidated', payload => { projectEvents.receive(payload, hostDescription.getSnapshot()); });
+        const reset = hostDescription.subscribe(() => projectEvents.reset());
+        return () => { off(); reset(); projectEvents.dispose(); };
+    }, 'workspace: metadata-only GitHub event subscription');
+    const readProjectStatus = connection.rpc ? (0, project_github_1.projectStatusReader)(connection.rpc) : undefined;
     ctx.effect(() => ctx.locale.register(NS, { zh: locales_1.zh, en: locales_1.en }), 'ui-workspace: dictionaries');
     const searchSessions = async (query, signal) => {
         const result = await ctx.sessions.search(query, signal);
@@ -50,6 +61,8 @@ function apply(ctx) {
     const browserFlowSource = flowSource('sidebar.workspaces.directoryFlow');
     const pickerFlowSource = flowSource('conversation.hero.workspace.directoryFlow');
     const browserInjected = () => ({
+        ...(readProjectStatus ? { readProjectStatus } : {}),
+        ...(projectEvents ? { projectEvents } : {}),
         // Explicit group actions keep their target; unscoped New Session inherits
         // the current Session Workspace before the recent-Workspace fallback.
         startSession: (workspaceId) => { ctx.workspaces.startSession(workspaceId); },
@@ -193,6 +206,173 @@ var client_1 = require("@xharness/dsh-client-runtime/client");
 Object.defineProperty(exports, "defineStore", { enumerable: true, get: function () { return client_1.defineStore; } });
 Object.defineProperty(exports, "indexSubagentDescendants", { enumerable: true, get: function () { return client_1.indexSubagentDescendants; } });
 Object.defineProperty(exports, "abbreviateHomePath", { enumerable: true, get: function () { return client_1.abbreviateHomePath; } });
+
+},
+"src/modules/workspace/project-events.js": function(module, exports, require) {
+// source: src/modules/workspace/project-events.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ProjectEventFeed = void 0;
+const runtime_types_1 = require("../shared/runtime-types");
+/** Invalidation metadata only; no cached PR result, prompt, command or model work. */
+class ProjectEventFeed {
+    constructor() {
+        this.listeners = new Set();
+        this.disposed = false;
+    }
+    current() { return this.latest; }
+    subscribe(listener) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
+    receive(raw, generation) {
+        if (this.disposed || !generation)
+            return false;
+        const v = (0, runtime_types_1.objectValue)(raw);
+        if (Object.keys(v).length !== 3 || !Array.isArray(v.repositoryIds) || v.repositoryIds.length > 128 ||
+            !v.repositoryIds.every((id) => typeof id === 'string' && /^[A-Za-z0-9_+/=-]{8,128}$/.test(id)) ||
+            new Set(v.repositoryIds).size !== v.repositoryIds.length || typeof v.reset !== 'boolean' || typeof v.connected !== 'boolean')
+            return false;
+        if (!v.connected && (v.reset || v.repositoryIds.length > 0))
+            return false;
+        const value = { generation, repositoryIds: v.repositoryIds, reset: v.reset, connected: v.connected };
+        if (!value.connected && this.latest?.generation === generation && !this.latest.connected)
+            return true;
+        // Do not replay an old invalidation when a row mounts. Its initial readonly
+        // query is already authoritative. Only connection availability is retained.
+        this.latest = { ...value, repositoryIds: [], reset: false };
+        for (const listener of [...this.listeners]) {
+            try {
+                listener(value);
+            }
+            catch {
+                console.error('[github-events] observer failed');
+            }
+        }
+        return true;
+    }
+    reset() { this.latest = undefined; }
+    dispose() { this.disposed = true; this.latest = undefined; this.listeners.clear(); }
+}
+exports.ProjectEventFeed = ProjectEventFeed;
+
+},
+"src/modules/shared/runtime-types.js": function(module, exports, require) {
+// source: src/modules/shared/runtime-types.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.isObjectRecord = isObjectRecord;
+exports.objectValue = objectValue;
+exports.errorText = errorText;
+exports.textValue = textValue;
+exports.numberValue = numberValue;
+function isObjectRecord(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function objectValue(value) {
+    return isObjectRecord(value) ? value : {};
+}
+function errorText(error) {
+    const record = objectValue(error);
+    const rpc = objectValue(record.rpcError);
+    return typeof rpc.message === 'string' ? rpc.message : typeof record.message === 'string' ? record.message : String(error);
+}
+function textValue(value, fallback = '') {
+    return typeof value === 'string' ? value : fallback;
+}
+function numberValue(value, fallback = 0) {
+    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+},
+"src/modules/workspace/project-github.js": function(module, exports, require) {
+// source: src/modules/workspace/project-github.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ProjectStatusRequest = void 0;
+exports.parseProjectGitHub = parseProjectGitHub;
+exports.projectStatusReader = projectStatusReader;
+const runtime_types_1 = require("../shared/runtime-types");
+function isCI(v) { return v === 'none' || v === 'unknown' || v === 'outdated' || v === 'pending' || v === 'passing' || v === 'failing' || v === 'neutral'; }
+function isPRState(v) { return v === 'OPEN' || v === 'CLOSED' || v === 'MERGED'; }
+function parseProjectGitHub(raw) {
+    const v = (0, runtime_types_1.objectValue)(raw);
+    if (!isCI(v.ci))
+        throw Error('Invalid project CI status');
+    if (v.repositoryId !== undefined && (typeof v.repositoryId !== 'string' || !/^[A-Za-z0-9_+/=-]{8,128}$/.test(v.repositoryId)))
+        throw Error('Invalid GitHub repository identity');
+    const repositoryId = typeof v.repositoryId === 'string' ? v.repositoryId : undefined;
+    const ci = v.ci;
+    if (v.kind === 'unsupported' || v.kind === 'ambiguous' || v.kind === 'no_pr') {
+        if (ci !== 'none' && ci !== 'unknown')
+            throw Error('Invalid absent PR status');
+        return { kind: v.kind, ci, repositoryId };
+    }
+    if (v.kind !== 'ready' || typeof v.repository !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(v.repository) ||
+        v.repository.split('/').some(s => s === '.' || s === '..') || typeof v.branch !== 'string' || !v.branch || v.branch.length > 1024 || /[\x00-\x1f\x7f]/.test(v.branch) ||
+        typeof v.localSha !== 'string' || !/^[a-f0-9]{40}$/i.test(v.localSha) || typeof v.headSha !== 'string' || !/^[a-f0-9]{40}$/i.test(v.headSha) ||
+        typeof v.number !== 'number' || !Number.isSafeInteger(v.number) || v.number < 1 || typeof v.draft !== 'boolean' ||
+        !isPRState(v.state) || typeof v.url !== 'string' || v.url !== `https://github.com/${v.repository}/pull/${v.number}` ||
+        (v.localSha !== v.headSha && ci !== 'outdated'))
+        throw Error('Invalid project GitHub status');
+    return { kind: 'ready', ci, repositoryId, repository: v.repository, branch: v.branch, localSha: v.localSha, headSha: v.headSha,
+        number: v.number, url: v.url, state: v.state, draft: v.draft };
+}
+function projectStatusReader(rpc) {
+    return async (workspaceId, signal) => {
+        const response = await rpc.call('/api', 'github/project-status', { workspaceId }, AbortSignal.any([signal, AbortSignal.timeout(50000)]));
+        if (!response.ok)
+            throw Error(response.error.message);
+        return parseProjectGitHub(response.value);
+    };
+}
+/** One mounted row/Host generation. No scheduled refreshes or persisted cache.
+ * A superseded/disposed response cannot update a different project or Host. */
+class ProjectStatusRequest {
+    constructor(read, id) {
+        this.read = read;
+        this.id = id;
+        this.disposed = false;
+        this.queued = false;
+    }
+    async refresh(publish) {
+        if (this.disposed || this.controller)
+            return;
+        const controller = new AbortController();
+        this.controller = controller;
+        publish(undefined, undefined, true);
+        try {
+            const value = await this.read(this.id, controller.signal);
+            if (!this.disposed && !controller.signal.aborted)
+                publish(value, undefined, false);
+        }
+        catch (e) {
+            if (!this.disposed && !controller.signal.aborted)
+                publish(undefined, e instanceof Error ? e.message : 'Project status failed', false);
+        }
+        finally {
+            if (this.controller === controller)
+                this.controller = undefined;
+            if (this.queued && !this.disposed) {
+                this.queued = false;
+                void this.refresh(publish);
+            }
+        }
+    }
+    invalidate(publish) {
+        if (this.disposed)
+            return;
+        if (this.controller) {
+            this.queued = true;
+            this.controller.abort();
+        }
+        else
+            void this.refresh(publish);
+    }
+    cancel() { this.queued = false; this.controller?.abort(); }
+    dispose() { this.disposed = true; this.queued = false; this.controller?.abort(); this.controller = undefined; }
+}
+exports.ProjectStatusRequest = ProjectStatusRequest;
 
 },
 "src/modules/workspace/WorkspaceBrowser.js": function(module, exports, require) {
@@ -361,7 +541,7 @@ function workspaceGroupHalf(e) {
     return e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
 }
 /** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
-function SessionTree({ useSessions, startSession, open, forkSession, workspaces, archivedSessionIds, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t, }) {
+function SessionTree({ useSessions, startSession, open, forkSession, workspaces, archivedSessionIds, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t, readProjectStatus, projectGeneration, projectEvents, }) {
     const list = useSessions(s => s);
     const current = list.current;
     const [expandedSessionGroups, setExpandedSessionGroups] = (0, react_1.useState)([]);
@@ -538,7 +718,7 @@ function SessionTree({ useSessions, startSession, open, forkSession, workspaces,
                                 : (e) => {
                                     e.preventDefault();
                                     dropWorkspace(workspaceGroupHalf(e));
-                                }, children: [(0, jsx_runtime_1.jsx)(Rows_1.ProjectRowItem, { group: group, home: home, t: t, onToggle: () => {
+                                }, children: [(0, jsx_runtime_1.jsx)(Rows_1.ProjectRowItem, { group: group, projectEvents: projectEvents, readProjectStatus: readProjectStatus, projectGeneration: projectGeneration, home: home, t: t, onToggle: () => {
                                         if (group.expanded) {
                                             setExpandedSessionGroups(keys => keys.filter(key => key !== group.key));
                                         }
@@ -694,8 +874,9 @@ function PluginOutline16({ size = 16 }) {
  * @param props - composed slot props (shell owner share + store + injected actions).
  * @returns the region element tree.
  */
-function WorkspaceBrowser({ wide, useSessions, useWorkspaces, useStore, actions, startSession, open, renameSession, forkSession, renameWorkspace, deleteWorkspace, insertWorkspaceBefore, archiveSession, insertSessionBefore, createWorkspace, useDirectoryFlow, useHostDescription, renderSlot, t, }) {
-    const home = useHostDescription(description => description?.home);
+function WorkspaceBrowser({ wide, useSessions, useWorkspaces, useStore, actions, startSession, open, renameSession, forkSession, renameWorkspace, deleteWorkspace, insertWorkspaceBefore, archiveSession, insertSessionBefore, createWorkspace, useDirectoryFlow, useHostDescription, readProjectStatus, projectEvents, renderSlot, t, }) {
+    const projectGeneration = useHostDescription(description => description);
+    const home = projectGeneration?.home;
     const workspaces = useWorkspaces(state => state.items);
     const workspacePhase = useWorkspaces(state => state.phase);
     const archivedSessionIds = useWorkspaces(state => state.archivedSessionIds);
@@ -848,7 +1029,7 @@ function WorkspaceBrowser({ wide, useSessions, useWorkspaces, useStore, actions,
                             startSession(workspaceId);
                         }, onClose: () => { setWsPickerOpen(false); } })] }), !wide && (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.search, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('plugins.open'), children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: WorkspaceBrowser_styles_1.default.searchButton, "data-xharness-plugin-nav": true, "aria-label": t('plugins.open'), "aria-current": pluginCenterOpen ? 'page' : undefined, style: pluginCenterOpen ? { background: 'var(--dsw-alias-interactive-bg-hover)' } : undefined, onClick: () => window.dispatchEvent(new Event('xharness:plugins:open')), children: (0, jsx_runtime_1.jsx)(PluginOutline16, { size: 22 }) }) }) }), !wide && (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.search, children: (0, jsx_runtime_1.jsx)(WorkClock, { wide: wide, active: workCenterOpen, buttonClassName: WorkspaceBrowser_styles_1.default.searchButton, t: t }) }), (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.listArea, children: wide && (groupBy === 'flat'
                     ? ((0, jsx_runtime_1.jsx)(FlatList, { useSessions: useSessions, open: open, forkSession: forkSession, onSessionRename: onSessionRename, onSessionArchive: onSessionArchive, archivedSessionIds: archivedSessionIds, orderBy: orderBy, sessionOrderByAccount: sessionOrderByAccount, sessionUpdatedAtByAccount: sessionUpdatedAtByAccount, syncSessionOrderAccount: actions.syncSessionOrderAccount, setSessionOrder: actions.setSessionOrder, t: t }))
-                    : ((0, jsx_runtime_1.jsx)(SessionTree, { useSessions: useSessions, onSessionRename: onSessionRename, onSessionArchive: onSessionArchive, forkSession: forkSession, workspaces: workspaces, groupExpansion: groupExpansion, setGroupExpanded: actions.setGroupExpanded, sessionOrderByAccount: sessionOrderByAccount, sessionUpdatedAtByAccount: sessionUpdatedAtByAccount, syncSessionOrderAccount: actions.syncSessionOrderAccount, setSessionOrder: actions.setSessionOrder, archivedSessionIds: archivedSessionIds, startSession: startSession, open: open, insertWorkspaceBefore: insertWorkspaceBefore, insertSessionBefore: insertSessionBefore, orderBy: orderBy, home: home, t: t, onRenameRequest: (workspaceId, currentTitle) => {
+                    : ((0, jsx_runtime_1.jsx)(SessionTree, { projectEvents: projectEvents, readProjectStatus: readProjectStatus, projectGeneration: projectGeneration, useSessions: useSessions, onSessionRename: onSessionRename, onSessionArchive: onSessionArchive, forkSession: forkSession, workspaces: workspaces, groupExpansion: groupExpansion, setGroupExpanded: actions.setGroupExpanded, sessionOrderByAccount: sessionOrderByAccount, sessionUpdatedAtByAccount: sessionUpdatedAtByAccount, syncSessionOrderAccount: actions.syncSessionOrderAccount, setSessionOrder: actions.setSessionOrder, archivedSessionIds: archivedSessionIds, startSession: startSession, open: open, insertWorkspaceBefore: insertWorkspaceBefore, insertSessionBefore: insertSessionBefore, orderBy: orderBy, home: home, t: t, onRenameRequest: (workspaceId, currentTitle) => {
                             setRenameTarget({ workspaceId, currentTitle });
                             setRenameDraft(currentTitle);
                             setRenameError(null);
@@ -1326,6 +1507,7 @@ const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives")
 const runtime_1 = require("../runtime");
 const tree_1 = require("../tree");
 const Rows_styles_1 = __importDefault(require("./Rows.styles"));
+const ProjectGitHubStatus_1 = require("../ProjectGitHubStatus");
 /** Row display title: blank rows show the localized New Session label. */
 function displayTitle(node, t) {
     return node.blank ? t('session.new') : node.title;
@@ -1375,23 +1557,24 @@ function rowHalf(e) {
  * @param props.t - the browser root's locale seat.
  * @returns the row element.
  */
-function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home, t }) {
+function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home, t, readProjectStatus, projectGeneration, projectEvents }) {
     const row = group;
     // The ungrouped bucket has no workspace title: its label is dictionary copy.
     const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label;
     const active = group.expanded && group.containsCurrent;
     const [menuOpen, setMenuOpen] = (0, react_1.useState)(false);
+    const [githubOpen, setGitHubOpen] = (0, react_1.useState)(false);
     const workspaceMenuItems = [
         { id: 'rename', label: t('rename'), icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEditOutline16, {}) },
         { id: 'delete', label: t('delete.workspace'), icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconTrashOutline16, {}), danger: true },
     ];
-    const ownRow = ((0, jsx_runtime_1.jsxs)("div", { className: (0, class_names_1.default)(Rows_styles_1.default.projectRow, menuOpen && Rows_styles_1.default.menuOpen), role: "treeitem", "aria-expanded": row.expanded, onClick: onToggle, draggable: drag !== undefined, onDragStart: drag === undefined
+    const ownRow = ((0, jsx_runtime_1.jsxs)("div", { className: (0, class_names_1.default)(Rows_styles_1.default.projectRow, (menuOpen || githubOpen) && Rows_styles_1.default.menuOpen), role: "treeitem", "aria-expanded": row.expanded, onClick: onToggle, draggable: drag !== undefined, onDragStart: drag === undefined
             ? undefined
             : (e) => {
                 e.dataTransfer.effectAllowed = 'move';
                 e.dataTransfer.setData('text/plain', row.key);
                 drag.start();
-            }, onDragEnd: drag?.end, children: [(0, jsx_runtime_1.jsx)("span", { className: (0, class_names_1.default)(Rows_styles_1.default.slot, Rows_styles_1.default.folder, active && Rows_styles_1.default.folderActive), children: row.expanded ? (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconFolderOpen16, {}) : (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconFolderClose16, {}) }), (0, jsx_runtime_1.jsx)("span", { className: (0, class_names_1.default)(Rows_styles_1.default.slot, Rows_styles_1.default.chevron), children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconTriangleRightFill14, { className: (0, class_names_1.default)(Rows_styles_1.default.arrow, row.expanded && Rows_styles_1.default.arrowOpen) }) }), (0, jsx_runtime_1.jsx)("span", { className: Rows_styles_1.default.projectText, children: (0, jsx_runtime_1.jsx)("span", { className: Rows_styles_1.default.title, children: label }) }), (0, jsx_runtime_1.jsxs)("span", { className: Rows_styles_1.default.rowActions, children: [actions !== undefined && ((0, jsx_runtime_1.jsx)(primitives_1.Menu, { open: menuOpen, onClose: () => { setMenuOpen(false); }, items: workspaceMenuItems, onSelect: (id) => {
+            }, onDragEnd: drag?.end, children: [(0, jsx_runtime_1.jsx)("span", { className: (0, class_names_1.default)(Rows_styles_1.default.slot, Rows_styles_1.default.folder, active && Rows_styles_1.default.folderActive), children: row.expanded ? (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconFolderOpen16, {}) : (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconFolderClose16, {}) }), (0, jsx_runtime_1.jsx)("span", { className: (0, class_names_1.default)(Rows_styles_1.default.slot, Rows_styles_1.default.chevron), children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconTriangleRightFill14, { className: (0, class_names_1.default)(Rows_styles_1.default.arrow, row.expanded && Rows_styles_1.default.arrowOpen) }) }), (0, jsx_runtime_1.jsx)("span", { className: Rows_styles_1.default.projectText, children: (0, jsx_runtime_1.jsx)("span", { className: Rows_styles_1.default.title, children: label }) }), row.workspaceId && readProjectStatus && (0, jsx_runtime_1.jsx)(ProjectGitHubStatus_1.ProjectGitHubStatus, { workspaceId: row.workspaceId, path: row.cwd, generation: projectGeneration, events: projectEvents, active: row.containsCurrent, expanded: row.expanded, read: readProjectStatus, t: t, onOpenChange: setGitHubOpen }), (0, jsx_runtime_1.jsxs)("span", { className: Rows_styles_1.default.rowActions, children: [actions !== undefined && ((0, jsx_runtime_1.jsx)(primitives_1.Menu, { open: menuOpen, onClose: () => { setMenuOpen(false); }, items: workspaceMenuItems, onSelect: (id) => {
                             setMenuOpen(false);
                             // Unknown ids leave before the dispatch: a future menu row must
                             // not inherit the destructive branch as an else fallback.
@@ -1406,7 +1589,7 @@ function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home, t }) {
     // The ungrouped bucket has no backing Workspace: no card to show.
     if (row.createdAt === undefined)
         return ownRow;
-    return ((0, jsx_runtime_1.jsx)(primitives_1.HoverCard, { anchor: ownRow, content: (0, jsx_runtime_1.jsx)(WorkspaceHoverContent, { label: row.label, cwd: row.cwd === undefined ? undefined : (0, runtime_1.abbreviateHomePath)(row.cwd, home), createdAt: row.createdAt, t: t }), disabled: menuOpen, copyText: row.cwd, copyLabel: t('copy'), copiedLabel: t('hover.copied') }));
+    return ((0, jsx_runtime_1.jsx)(primitives_1.HoverCard, { anchor: ownRow, content: (0, jsx_runtime_1.jsx)(WorkspaceHoverContent, { label: row.label, cwd: row.cwd === undefined ? undefined : (0, runtime_1.abbreviateHomePath)(row.cwd, home), createdAt: row.createdAt, t: t }), disabled: menuOpen || githubOpen, copyText: row.cwd, copyLabel: t('copy'), copiedLabel: t('hover.copied') }));
 }
 /* v8 ignore next 3 -- closed-union backstop; only reached if the status is forged */
 function assertNever(value) {
@@ -1617,6 +1800,131 @@ function installStyles(tagId, plugin, css) {
     tag.textContent = css;
     document.head.appendChild(tag);
 }
+
+},
+"src/modules/workspace/ProjectGitHubStatus.js": function(module, exports, require) {
+// source: src/modules/workspace/ProjectGitHubStatus.tsx
+
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ProjectGitHubStatus = ProjectGitHubStatus;
+const jsx_runtime_1 = require("react/jsx-runtime");
+const react_1 = require("react");
+const react_dom_1 = require("react-dom");
+const foundation_styles_1 = require("../shared/foundation-styles");
+const project_github_1 = require("./project-github");
+const ProjectGitHubStatus_css_1 = __importDefault(require("./ProjectGitHubStatus.css"));
+(0, foundation_styles_1.installStyles)('@xharness/dsh-client-ui-workspace/ProjectGitHubStatus.css', '@xharness/dsh-client-ui-workspace', ProjectGitHubStatus_css_1.default);
+function checkedTime(date) {
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+function ProjectGitHubStatus({ workspaceId, path, generation, active, expanded, read, t, onOpenChange, events }) {
+    const [entry, setEntry] = (0, react_1.useState)();
+    const [live, setLive] = (0, react_1.useState)();
+    const [position, setPosition] = (0, react_1.useState)();
+    const trigger = (0, react_1.useRef)(null), panel = (0, react_1.useRef)(null);
+    const refresh = (0, react_1.useRef)(), manualRefresh = (0, react_1.useRef)();
+    (0, react_1.useEffect)(() => {
+        setPosition(undefined);
+        if (!generation) {
+            setEntry(undefined);
+            return;
+        }
+        const request = new project_github_1.ProjectStatusRequest(read, workspaceId);
+        let repositoryId;
+        let dirtyWhileHidden = false;
+        const state = events?.current();
+        setLive(state?.generation === generation ? { generation, connected: state.connected } : undefined);
+        const publish = (value, error, loading) => {
+            if (value?.repositoryId)
+                repositoryId = value.repositoryId;
+            setEntry({ generation, id: workspaceId, path, value, error, loading, checkedAt: loading ? '' : checkedTime(new Date()) });
+        };
+        const run = () => {
+            if (document.hidden)
+                return;
+            if (dirtyWhileHidden) {
+                dirtyWhileHidden = false;
+                request.invalidate(publish);
+            }
+            else
+                void request.refresh(publish);
+        };
+        const unlisten = events?.subscribe(signal => {
+            if (signal.generation !== generation)
+                return;
+            setLive({ generation, connected: signal.connected });
+            if (!signal.connected) {
+                request.cancel();
+                if (repositoryId)
+                    publish(undefined, t('github.live_disconnected'), false);
+                return;
+            }
+            if (!signal.reset && (signal.repositoryIds.length === 0 || repositoryId && !signal.repositoryIds.includes(repositoryId)))
+                return;
+            if (document.hidden) {
+                dirtyWhileHidden = true;
+                return;
+            }
+            request.invalidate(publish);
+        });
+        manualRefresh.current = () => { if (!document.hidden)
+            request.invalidate(publish); };
+        refresh.current = run;
+        window.addEventListener('focus', run);
+        document.addEventListener('visibilitychange', run);
+        run();
+        return () => { unlisten?.(); request.dispose(); refresh.current = undefined; manualRefresh.current = undefined; window.removeEventListener('focus', run); document.removeEventListener('visibilitychange', run); };
+    }, [read, workspaceId, path, generation, events]);
+    (0, react_1.useEffect)(() => { if (active)
+        refresh.current?.(); }, [active]);
+    (0, react_1.useEffect)(() => { if (expanded)
+        refresh.current?.(); }, [expanded]);
+    (0, react_1.useEffect)(() => { onOpenChange(!!position); return () => onOpenChange(false); }, [position, onOpenChange]);
+    (0, react_1.useEffect)(() => {
+        if (!position)
+            return;
+        panel.current?.focus();
+        const close = (event) => { if (event.target instanceof Node && !trigger.current?.contains(event.target) && !panel.current?.contains(event.target))
+            setPosition(undefined); };
+        const key = (event) => { if (event.key === 'Escape') {
+            setPosition(undefined);
+            trigger.current?.focus();
+        } };
+        const reposition = (event) => { if (!(event.target instanceof Node) || !panel.current?.contains(event.target))
+            setPosition(undefined); };
+        document.addEventListener('pointerdown', close);
+        document.addEventListener('keydown', key);
+        window.addEventListener('resize', reposition);
+        window.addEventListener('scroll', reposition, true);
+        return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', key); window.removeEventListener('resize', reposition); window.removeEventListener('scroll', reposition, true); };
+    }, [position]);
+    const current = entry && entry.generation === generation && entry.id === workspaceId && entry.path === path ? entry : undefined;
+    const value = current?.value, ready = value?.kind === 'ready' ? value : undefined;
+    const ci = ready?.ci ?? 'unknown';
+    const state = ready ? t(ready.draft ? 'github.draft' : `github.${ready.state}`) : t(current?.loading ? 'github.loading' : current?.error ? 'github.error' : value?.kind === 'no_pr' ? 'github.no_pr' : value?.kind === 'ambiguous' ? 'github.ambiguous' : 'github.unsupported');
+    return (0, jsx_runtime_1.jsxs)("span", { className: "xhproject-github", onClick: e => e.stopPropagation(), onDragStart: e => e.stopPropagation(), children: [(0, jsx_runtime_1.jsxs)("button", { ref: trigger, type: "button", className: "xhproject-github-trigger", "aria-label": `${t('github.label')}: ${state}${ready ? ` · ${t(`github.ci.${ci}`)}` : ''}`, "aria-expanded": !!position, "aria-haspopup": "dialog", title: `${state} · ${t('github.on_demand')}`, "data-pr": ready?.state, "data-draft": ready?.draft, onClick: () => {
+                    if (position) {
+                        setPosition(undefined);
+                        return;
+                    }
+                    const rect = trigger.current?.getBoundingClientRect();
+                    if (!rect)
+                        return;
+                    setPosition({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 318)), top: Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - 280)) });
+                }, children: [(0, jsx_runtime_1.jsxs)("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: "1.4", "aria-hidden": "true", children: [(0, jsx_runtime_1.jsx)("circle", { cx: "4", cy: "3", r: "1.7" }), (0, jsx_runtime_1.jsx)("circle", { cx: "4", cy: "13", r: "1.7" }), (0, jsx_runtime_1.jsx)("circle", { cx: "12", cy: "12", r: "1.7" }), (0, jsx_runtime_1.jsx)("path", { d: "M4 5v6M9 3h1a2 2 0 0 1 2 2v5M7 5l2-2-2-2" })] }), (0, jsx_runtime_1.jsx)("span", { className: "xhproject-ci", "data-ci": ci, "aria-hidden": "true", children: current?.loading ? '…' : ready ? ci === 'passing' ? '✓' : ci === 'failing' ? '×' : ci === 'pending' ? '◷' : '·' : '?' })] }), position && (0, react_dom_1.createPortal)((0, jsx_runtime_1.jsxs)("div", { ref: panel, className: "xhproject-github-panel", tabIndex: -1, role: "dialog", "aria-label": t('github.label'), style: position, onClick: e => e.stopPropagation(), children: [(0, jsx_runtime_1.jsx)("strong", { children: ready ? `#${ready.number} · ${state}` : state }), ready && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("p", { children: [ready.repository, " \u00B7 ", ready.branch] }), (0, jsx_runtime_1.jsx)("p", { children: t(`github.ci.${ci}`) }), (0, jsx_runtime_1.jsxs)("p", { children: ["HEAD ", ready.localSha.slice(0, 8), " \u00B7 PR ", ready.headSha.slice(0, 8)] }), (0, jsx_runtime_1.jsx)("p", { children: (0, jsx_runtime_1.jsx)("a", { href: ready.url, target: "_blank", rel: "noreferrer noopener", children: t('github.open') }) })] }), current?.error && (0, jsx_runtime_1.jsx)("p", { role: "alert", children: current.error }), current?.checkedAt && (0, jsx_runtime_1.jsxs)("p", { children: [t('github.checked'), " ", current.checkedAt] }), (0, jsx_runtime_1.jsx)("p", { children: t('github.on_demand') }), live && live.generation === generation && (0, jsx_runtime_1.jsx)("p", { role: "status", children: t(live.connected ? 'github.live_connected' : 'github.live_disconnected') }), (0, jsx_runtime_1.jsx)("button", { type: "button", disabled: current?.loading || !generation, onClick: () => manualRefresh.current?.(), children: t('github.refresh') })] }), document.body)] });
+}
+
+},
+"src/modules/workspace/ProjectGitHubStatus.css": function(module, exports, require) {
+// source: src/modules/workspace/ProjectGitHubStatus.css
+
+Object.defineProperty(exports, '__esModule', { value: true });
+exports.default = ".xhproject-github{position:relative;display:inline-flex;flex:none;align-items:center}\n.xhproject-github-trigger{display:inline-flex;align-items:center;gap:3px;height:26px;min-width:28px;padding:0 4px;border:0;border-radius:5px;background:none;color:var(--dsw-alias-label-tertiary);cursor:pointer;font:inherit;font-size:11px}\n.xhproject-github-trigger:hover,.xhproject-github-trigger:focus-visible{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}\n.xhproject-github-trigger[data-pr=MERGED]{color:#8957cf}.xhproject-github-trigger[data-pr=OPEN]{color:#238636}.xhproject-github-trigger[data-pr=CLOSED]{color:#cf4545}\n.xhproject-github-trigger[data-draft=true]{color:var(--dsw-alias-label-secondary)}\n.xhproject-ci{display:inline-flex;color:var(--dsw-alias-label-tertiary)}\n.xhproject-ci[data-ci=passing]{color:#238636}.xhproject-ci[data-ci=failing]{color:#cf4545}.xhproject-ci[data-ci=pending]{color:#b78018}\n.xhproject-github-panel{position:fixed;z-index:1100;box-sizing:border-box;width:min(310px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:auto;padding:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-specific-sidebar-fill);color:var(--dsw-alias-label-primary);box-shadow:0 4px 18px #0002;font-size:12px;line-height:20px;cursor:default;user-select:text}\n.xhproject-github-panel p{margin:4px 0;overflow-wrap:anywhere}.xhproject-github-panel a{color:inherit}.xhproject-github-panel button{border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:none;color:inherit;padding:3px 8px;cursor:pointer;font:inherit}.xhproject-github-panel button:disabled{opacity:.5;cursor:default}\n";
 
 },
 "src/modules/workspace/WorkspacePicker.js": function(module, exports, require) {
@@ -1853,6 +2161,29 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.en = exports.zh = void 0;
 /** Simplified Chinese dictionary (the key-set source of truth). */
 exports.zh = {
+    "github.label": "GitHub 状态",
+    "github.loading": "正在查询",
+    "github.error": "查询失败",
+    "github.no_pr": "此分支未找到 PR",
+    "github.ambiguous": "无法唯一定位 PR",
+    "github.unsupported": "未连接 GitHub 分支",
+    "github.draft": "草稿 PR",
+    "github.OPEN": "PR 待合并",
+    "github.CLOSED": "PR 已关闭",
+    "github.MERGED": "PR 已合并",
+    "github.open": "在 GitHub 查看",
+    "github.refresh": "刷新",
+    "github.checked": "查询于",
+    "github.on_demand": "按需或收到仓库事件后查询，无定时轮询",
+    "github.live_connected": "实时事件已连接",
+    "github.live_disconnected": "实时事件连接已断开；可手动刷新",
+    "github.ci.none": "CI 尚无检查",
+    "github.ci.unknown": "CI 状态未知",
+    "github.ci.outdated": "本地与 PR 提交不一致",
+    "github.ci.pending": "CI 进行中",
+    "github.ci.passing": "CI 通过",
+    "github.ci.failing": "CI 未通过",
+    "github.ci.neutral": "CI 包含跳过／中立检查",
     'work.label': '工作',
     'work.open': '任务与自动化',
     'work.tasks': '任务',
@@ -1923,6 +2254,29 @@ exports.zh = {
 };
 /** English dictionary, checked complete against the zh key set. */
 exports.en = {
+    "github.label": "GitHub status",
+    "github.loading": "Checking…",
+    "github.error": "Query failed",
+    "github.no_pr": "No PR found for this branch",
+    "github.ambiguous": "Cannot uniquely identify PR",
+    "github.unsupported": "No supported GitHub branch",
+    "github.draft": "Draft PR",
+    "github.OPEN": "PR open",
+    "github.CLOSED": "PR closed",
+    "github.MERGED": "PR merged",
+    "github.open": "View on GitHub",
+    "github.refresh": "Refresh",
+    "github.checked": "Checked at",
+    "github.on_demand": "Refresh on demand or repository events; no periodic polling",
+    "github.live_connected": "Live events connected",
+    "github.live_disconnected": "Live events disconnected; manual refresh is available",
+    "github.ci.none": "CI has no checks",
+    "github.ci.unknown": "CI unknown",
+    "github.ci.outdated": "Local and PR commits differ",
+    "github.ci.pending": "CI pending",
+    "github.ci.passing": "CI passing",
+    "github.ci.failing": "CI failing",
+    "github.ci.neutral": "CI has skipped / neutral checks",
     'work.label': 'Work',
     'work.open': 'Tasks and automations',
     'work.tasks': 'Tasks',
@@ -1994,7 +2348,7 @@ exports.en = {
 
 }
 };
-const __dependencies = {"src/modules/workspace/index.js":{"./stores":"src/modules/workspace/stores.js","./WorkspaceBrowser":"src/modules/workspace/WorkspaceBrowser.js","./WorkspacePicker":"src/modules/workspace/WorkspacePicker.js","./locales":"src/modules/workspace/locales.js"},"src/modules/workspace/stores.js":{"./runtime":"src/modules/workspace/runtime.js"},"src/modules/workspace/runtime.js":{},"src/modules/workspace/WorkspaceBrowser.js":{"../shared/shell-route":"src/modules/shared/shell-route.js","./WorkNavigation.styles":"src/modules/workspace/WorkNavigation.styles.js","./primitives":"src/modules/workspace/primitives.js","./class-names":"src/modules/workspace/class-names.js","./tree":"src/modules/workspace/tree.js","./rows/Rows":"src/modules/workspace/rows/Rows.js","./stores":"src/modules/workspace/stores.js","./WorkspacePicker":"src/modules/workspace/WorkspacePicker.js","./WorkspaceBrowser.styles":"src/modules/workspace/WorkspaceBrowser.styles.js"},"src/modules/shared/shell-route.js":{},"src/modules/workspace/WorkNavigation.styles.js":{"./WorkNavigation.css":"src/modules/workspace/WorkNavigation.css","../views-types":"src/modules/views-types.js"},"src/modules/workspace/WorkNavigation.css":{},"src/modules/views-types.js":{},"src/modules/workspace/primitives.js":{},"src/modules/workspace/class-names.js":{},"src/modules/workspace/tree.js":{"./timestamp":"src/modules/workspace/timestamp.js","./runtime":"src/modules/workspace/runtime.js"},"src/modules/workspace/timestamp.js":{},"src/modules/workspace/rows/Rows.js":{"../timestamp":"src/modules/workspace/timestamp.js","../primitives":"src/modules/workspace/primitives.js","../class-names":"src/modules/workspace/class-names.js","../runtime":"src/modules/workspace/runtime.js","../tree":"src/modules/workspace/tree.js","./Rows.styles":"src/modules/workspace/rows/Rows.styles.js"},"src/modules/workspace/rows/Rows.styles.js":{"./Rows.css":"src/modules/workspace/rows/Rows.css","../../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/workspace/rows/Rows.css":{},"src/modules/shared/foundation-styles.js":{},"src/modules/workspace/WorkspacePicker.js":{"./primitives":"src/modules/workspace/primitives.js","./WorkspacePicker.styles":"src/modules/workspace/WorkspacePicker.styles.js"},"src/modules/workspace/WorkspacePicker.styles.js":{"./WorkspacePicker.css":"src/modules/workspace/WorkspacePicker.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/workspace/WorkspacePicker.css":{},"src/modules/workspace/WorkspaceBrowser.styles.js":{"./WorkspaceBrowser.css":"src/modules/workspace/WorkspaceBrowser.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/workspace/WorkspaceBrowser.css":{},"src/modules/workspace/locales.js":{}};
+const __dependencies = {"src/modules/workspace/index.js":{"./stores":"src/modules/workspace/stores.js","./project-events":"src/modules/workspace/project-events.js","./project-github":"src/modules/workspace/project-github.js","./WorkspaceBrowser":"src/modules/workspace/WorkspaceBrowser.js","./WorkspacePicker":"src/modules/workspace/WorkspacePicker.js","./locales":"src/modules/workspace/locales.js"},"src/modules/workspace/stores.js":{"./runtime":"src/modules/workspace/runtime.js"},"src/modules/workspace/runtime.js":{},"src/modules/workspace/project-events.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/runtime-types.js":{},"src/modules/workspace/project-github.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/workspace/WorkspaceBrowser.js":{"../shared/shell-route":"src/modules/shared/shell-route.js","./WorkNavigation.styles":"src/modules/workspace/WorkNavigation.styles.js","./primitives":"src/modules/workspace/primitives.js","./class-names":"src/modules/workspace/class-names.js","./tree":"src/modules/workspace/tree.js","./rows/Rows":"src/modules/workspace/rows/Rows.js","./stores":"src/modules/workspace/stores.js","./WorkspacePicker":"src/modules/workspace/WorkspacePicker.js","./WorkspaceBrowser.styles":"src/modules/workspace/WorkspaceBrowser.styles.js"},"src/modules/shared/shell-route.js":{},"src/modules/workspace/WorkNavigation.styles.js":{"./WorkNavigation.css":"src/modules/workspace/WorkNavigation.css","../views-types":"src/modules/views-types.js"},"src/modules/workspace/WorkNavigation.css":{},"src/modules/views-types.js":{},"src/modules/workspace/primitives.js":{},"src/modules/workspace/class-names.js":{},"src/modules/workspace/tree.js":{"./timestamp":"src/modules/workspace/timestamp.js","./runtime":"src/modules/workspace/runtime.js"},"src/modules/workspace/timestamp.js":{},"src/modules/workspace/rows/Rows.js":{"../timestamp":"src/modules/workspace/timestamp.js","../primitives":"src/modules/workspace/primitives.js","../class-names":"src/modules/workspace/class-names.js","../runtime":"src/modules/workspace/runtime.js","../tree":"src/modules/workspace/tree.js","./Rows.styles":"src/modules/workspace/rows/Rows.styles.js","../ProjectGitHubStatus":"src/modules/workspace/ProjectGitHubStatus.js"},"src/modules/workspace/rows/Rows.styles.js":{"./Rows.css":"src/modules/workspace/rows/Rows.css","../../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/workspace/rows/Rows.css":{},"src/modules/shared/foundation-styles.js":{},"src/modules/workspace/ProjectGitHubStatus.js":{"../shared/foundation-styles":"src/modules/shared/foundation-styles.js","./project-github":"src/modules/workspace/project-github.js","./ProjectGitHubStatus.css":"src/modules/workspace/ProjectGitHubStatus.css"},"src/modules/workspace/ProjectGitHubStatus.css":{},"src/modules/workspace/WorkspacePicker.js":{"./primitives":"src/modules/workspace/primitives.js","./WorkspacePicker.styles":"src/modules/workspace/WorkspacePicker.styles.js"},"src/modules/workspace/WorkspacePicker.styles.js":{"./WorkspacePicker.css":"src/modules/workspace/WorkspacePicker.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/workspace/WorkspacePicker.css":{},"src/modules/workspace/WorkspaceBrowser.styles.js":{"./WorkspaceBrowser.css":"src/modules/workspace/WorkspaceBrowser.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/workspace/WorkspaceBrowser.css":{},"src/modules/workspace/locales.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

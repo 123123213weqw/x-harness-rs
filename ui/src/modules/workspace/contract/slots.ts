@@ -79,6 +79,8 @@ export type DirectoryPickingHooks = PropsHooks<DirectoryPickingInjected['hooks']
  * browsing region drives.
  */
 export type WorkspaceBrowserInjected = {
+  projectEvents?: import('../project-events').ProjectEvents | undefined
+  readProjectStatus?: import('../project-github').ReadProjectStatus | undefined
   hooks: DirectoryPickingInjected['hooks'] & {
     /** Current generation's Host description, bound by the slot renderer. */
     hostDescription: HostDescriptionSource

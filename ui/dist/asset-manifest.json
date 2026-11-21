@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "files": {
     ".xharness-ui-output.json": {
-      "sha256": "441d92afd8c60262acc2288587b4642530765a91da412e5e4d1eea6628051406",
-      "bytes": 41452
+      "sha256": "0d0e0f602e4b60684950e905feae0f5883faf97e9c2215ced998e785be72a17d",
+      "bytes": 41670
     },
     "app-icon-512.png": {
       "sha256": "c83d3f2d9d3fcb981793fa6e29d7ff7608bd791d015a87fdf517a7549de5ba8f",
@@ -650,8 +650,8 @@
       "bytes": 93
     },
     "client-graph.json": {
-      "sha256": "6febf75a2f3b46cd7ad26200269eb4d630fb41458b4f3e139cca55a0a54c4e4a",
-      "bytes": 28332
+      "sha256": "01b84b2d34499d0410d7c0dafa4ce72c22d775fe264aa5432c1267504b7f082d",
+      "bytes": 28353
     },
     "desktop-bootstrap.js": {
       "sha256": "b527515f7efcab99857e3d194baf4172f53f9be3c1fe0799b79d71a572e905dd",
@@ -678,8 +678,8 @@
       "bytes": 4729
     },
     "index.html": {
-      "sha256": "2e0474ec4ede4de9c48c2a655ca6bedc64950058f1d052e9620204674d04b1c2",
-      "bytes": 27936
+      "sha256": "7346e86ef0ab8fcb98fb8ffe223c28d6e52638f54d38148837340538fff1a46e",
+      "bytes": 27948
     },
     "logo-motion.css": {
       "sha256": "2d34fc5ec1473d3513e1968dd686116d402b10efb4d0cf51e9a2966ca7b7e8a7",
@@ -754,8 +754,8 @@
       "bytes": 84888
     },
     "plugins/@xharness/dsh-client-connection/client.js": {
-      "sha256": "756ab5f0592df56039640ba52aa974f3be7247e428c64f1f20a2f606529e5455",
-      "bytes": 136609
+      "sha256": "2e7e7baf788f1c23968da8e194f412edac6c2beed50023447d516e929957185e",
+      "bytes": 136803
     },
     "plugins/@xharness/dsh-client-hmr/client.js": {
       "sha256": "c8348588a17097f5ff0a9798febbca83b76dea7c65fc050f8eec40446180ca28",
@@ -898,8 +898,8 @@
       "bytes": 32263
     },
     "plugins/@xharness/dsh-client-ui-workspace/client.js": {
-      "sha256": "b04267682fcdac5cb0b96aede67cd1b3cf2837e4bc944cf40dd216f73ae032d2",
-      "bytes": 136037
+      "sha256": "0d402da6189eb2078059c3e2ec9854fec4b2cb0270442733036c93b7cd5d5e53",
+      "bytes": 159375
     },
     "plugins/@xharness/dsh-cordis-client-runner/client.js": {
       "sha256": "cb911a6d42ad106c337b462047eaab703379608a1bca49d3603fbd08125aaad6",

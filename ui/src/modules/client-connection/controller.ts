@@ -125,8 +125,8 @@ export class ConnectionController {
           if (gen === this.generation && !ac.signal.aborted) ac.abort()
           resolve()
         }
-        void this.pumpStream(this.api.events.mux({}, ac.signal, muxOpened), this.sinks.onMuxEnvelope, settle)
-        void this.pumpStream(this.api.events.host({}, ac.signal, hostOpened), this.sinks.onHostEnvelope, settle)
+        void this.pumpStream(this.api.events.mux({}, ac.signal, muxOpened), this.sinks.onMuxEnvelope, settle, () => this.isGenerationActive(ac) && gen === this.generation)
+        void this.pumpStream(this.api.events.host({}, ac.signal, hostOpened), this.sinks.onHostEnvelope, settle, () => this.isGenerationActive(ac) && gen === this.generation)
       })
 
       try {
@@ -179,9 +179,11 @@ export class ConnectionController {
     stream: AsyncIterable<RpcRequest<F>, void, unknown>,
     sink: ((envelope: RpcRequest<F>) => void) | undefined,
     onEnd: () => void,
+    isActive: () => boolean,
   ): Promise<void> {
     try {
       for await (const envelope of stream) {
+        if (!isActive()) break
         if (envelope.payload.type === 'stream/error') break
         if (sink !== undefined) this.callSink(() => { sink(envelope) })
       }

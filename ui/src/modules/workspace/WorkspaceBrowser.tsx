@@ -211,10 +211,11 @@ function workspaceGroupHalf(e: { clientY: number; currentTarget: HTMLElement }):
 type SessionTreeProps = Pick<
   WorkspaceBrowserProps,
   'useSessions' | 'startSession' | 'open' | 'forkSession'
-  | 'insertWorkspaceBefore' | 'insertSessionBefore' | 't'
+  | 'insertWorkspaceBefore' | 'insertSessionBefore' | 't' | 'readProjectStatus' | 'projectEvents'
 > & {
   /** Host account home for POSIX hover-path abbreviation. */
   home?: string | undefined
+  projectGeneration?: object | undefined
   workspaces: readonly WorkspaceView[]
   /** Explicit persisted zero-or-five-session state by Workspace group. */
   groupExpansion: Readonly<Record<string, boolean>>
@@ -248,7 +249,7 @@ function SessionTree({
   onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive,
   insertWorkspaceBefore, insertSessionBefore, orderBy,
   groupExpansion, setGroupExpanded,
-  sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t,
+  sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t, readProjectStatus, projectGeneration, projectEvents,
 }: SessionTreeProps) {
   const list = useSessions(s => s)
   const current = list.current
@@ -447,6 +448,9 @@ function SessionTree({
             >
               <ProjectRowItem
                 group={group}
+                projectEvents={projectEvents}
+                readProjectStatus={readProjectStatus}
+                projectGeneration={projectGeneration}
                 home={home}
                 t={t}
                 onToggle={() => {
@@ -705,10 +709,13 @@ export function WorkspaceBrowser({
   createWorkspace,
   useDirectoryFlow,
   useHostDescription,
+  readProjectStatus,
+  projectEvents,
   renderSlot,
   t,
 }: WorkspaceBrowserProps) {
-  const home = useHostDescription(description => description?.home)
+  const projectGeneration = useHostDescription(description => description)
+  const home = projectGeneration?.home
   const workspaces = useWorkspaces(state => state.items)
   const workspacePhase = useWorkspaces(state => state.phase)
   const archivedSessionIds = useWorkspaces(state => state.archivedSessionIds)
@@ -945,6 +952,9 @@ export function WorkspaceBrowser({
             )
             : (
               <SessionTree
+                projectEvents={projectEvents}
+                readProjectStatus={readProjectStatus}
+                projectGeneration={projectGeneration}
                 useSessions={useSessions}
                 onSessionRename={onSessionRename}
                 onSessionArchive={onSessionArchive}

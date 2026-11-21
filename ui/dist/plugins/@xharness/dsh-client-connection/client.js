@@ -200,8 +200,8 @@ class ConnectionController {
                         ac.abort();
                     resolve();
                 };
-                void this.pumpStream(this.api.events.mux({}, ac.signal, muxOpened), this.sinks.onMuxEnvelope, settle);
-                void this.pumpStream(this.api.events.host({}, ac.signal, hostOpened), this.sinks.onHostEnvelope, settle);
+                void this.pumpStream(this.api.events.mux({}, ac.signal, muxOpened), this.sinks.onMuxEnvelope, settle, () => this.isGenerationActive(ac) && gen === this.generation);
+                void this.pumpStream(this.api.events.host({}, ac.signal, hostOpened), this.sinks.onHostEnvelope, settle, () => this.isGenerationActive(ac) && gen === this.generation);
             });
             try {
                 // Strict readiness handshake: describe proves unary reachability, onOpen
@@ -251,9 +251,11 @@ class ConnectionController {
         this.lastState = state;
         this.callSink(() => this.sinks.onStateChange?.(state));
     }
-    async pumpStream(stream, sink, onEnd) {
+    async pumpStream(stream, sink, onEnd, isActive) {
         try {
             for await (const envelope of stream) {
+                if (!isActive())
+                    break;
                 if (envelope.payload.type === 'stream/error')
                     break;
                 if (sink !== undefined)

@@ -7,3 +7,9 @@ export {WorkspacePicker, WorkspacePickFlow} from './WorkspacePicker'
 
 export {xhEpochMs} from './timestamp'
 export {createdLabel, WorkspaceHoverContent} from './rows/Rows'
+
+export {ProjectGitHubStatus} from './ProjectGitHubStatus'
+export {ProjectRowItem} from './rows/Rows'
+export {projectStatusReader} from './project-github'
+export {zh, en} from './locales'
+export {ProjectEventFeed} from './project-events'
