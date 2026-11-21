@@ -3,6 +3,7 @@ members = [
     "crates/xharness-attachments",
     "crates/xharness-agent",
     "crates/xharness-api",
+    "crates/xharness-browser",
     "crates/xharness-cloud",
     "crates/xharness-channel-telegram",
     "crates/xharness-channel-weixin",

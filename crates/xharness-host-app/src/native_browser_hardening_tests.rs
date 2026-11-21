@@ -62,10 +62,12 @@ async fn fixture(
 ) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let native = Arc::new(NativeBrowser {
-        address: listener.local_addr().unwrap(),
-        token: "a".repeat(64),
         headless: false,
         images: Default::default(),
+        transport: Transport::Desktop {
+            address: listener.local_addr().unwrap(),
+            token: "a".repeat(64),
+        },
     });
     let count = Arc::new(AtomicUsize::new(0));
     let seen = count.clone();

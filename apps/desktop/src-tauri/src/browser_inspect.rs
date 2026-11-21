@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{collections::HashSet, sync::Mutex as StdMutex};
 
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{State, Webview};
 use tokio::sync::{oneshot, Mutex};
@@ -20,44 +19,11 @@ mod observation_error;
 #[path = "browser_evaluate.rs"]
 pub(crate) mod execution;
 
-pub(super) const SCRIPT: &str = include_str!("browser_observe.js");
-pub(super) const MAX_CALLBACK_BYTES: usize = 32 * 1024;
-const MAX_OBSERVATION_BYTES: usize = 8 * 1024;
+pub use xharness_browser::InspectRequest;
+pub(super) use xharness_browser::{
+    decode_callback, MAX_CALLBACK_BYTES, MAX_OBSERVATION_BYTES, OBSERVE_SCRIPT as SCRIPT,
+};
 pub(super) const TIMEOUT: Duration = Duration::from_secs(6);
-
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Scope {
-    #[default]
-    Page,
-    Main,
-    Dialog,
-}
-
-#[derive(Debug, Default, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct InspectRequest {
-    #[serde(default)]
-    scope: Scope,
-    #[serde(default)]
-    text_offset: usize,
-    #[serde(default)]
-    node_offset: usize,
-    #[serde(default)]
-    option_offset: usize,
-}
-
-impl InspectRequest {
-    pub(super) fn validate(&self) -> Result<(), String> {
-        if self.text_offset > 1_000_000
-            || self.node_offset > 1_000_000
-            || self.option_offset > 1_000_000
-        {
-            return Err("observation offset exceeds inspection limits".into());
-        }
-        Ok(())
-    }
-}
 
 #[derive(Default)]
 pub(super) struct Inspector {
@@ -187,20 +153,6 @@ fn script(request: &InspectRequest, frame: &str) -> Result<String, String> {
     let mut arguments = serde_json::to_value(request).map_err(|error| error.to_string())?;
     arguments["frame_id"] = Value::String(frame.to_owned());
     Ok(format!("({SCRIPT})({arguments})"))
-}
-
-pub(super) fn decode_callback(raw: &str) -> Result<Value, String> {
-    if raw.len() > MAX_CALLBACK_BYTES {
-        return Err("native observation callback is too large".into());
-    }
-    // Tauri's native callback JSON-serializes the returned JS string. It is not
-    // a guest-origin network callback and never accepts a page-supplied command.
-    let serialized: String =
-        serde_json::from_str(raw).map_err(|_| "invalid native observation callback".to_owned())?;
-    if serialized.len() > MAX_OBSERVATION_BYTES {
-        return Err("native observation is too large".into());
-    }
-    serde_json::from_str(&serialized).map_err(|_| "invalid guest-page evidence".to_owned())
 }
 
 fn decode(raw: &str, frame: &str) -> Result<Value, String> {

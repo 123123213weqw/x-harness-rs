@@ -200,6 +200,44 @@ async fn exchange(
     Err("browser connection closed".into())
 }
 
+/// Discovery starts from Chrome's own private profile receipt. Both sockets
+/// use numeric loopback only; neither the page nor the caller chooses a target.
+async fn page_endpoint(port_file: &str) -> Result<Option<String>, String> {
+    let Some((port, browser)) = parse_port_file(port_file) else {
+        return Ok(None);
+    };
+    let mut browser = Cdp::new(format!("ws://127.0.0.1:{port}/devtools/browser/{browser}"));
+    let targets = match browser.call("Target.getTargets", json!({})).await {
+        Ok(result) => result,
+        // Chrome can publish its port just before accepting connections.
+        Err(_) => return Ok(None),
+    };
+    let targets = targets["targetInfos"]
+        .as_array()
+        .ok_or("invalid browser discovery")?;
+    for target in targets {
+        if target["type"] == "page" && target["url"] == "about:blank" {
+            let id = target["targetId"]
+                .as_str()
+                .filter(|id| valid_target_id(id))
+                .ok_or("invalid browser target")?;
+            return Ok(Some(format!("ws://127.0.0.1:{port}/devtools/page/{id}")));
+        }
+    }
+    Ok(None)
+}
+
+fn valid_target_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 128 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
+pub(super) fn parse_port_file(contents: &str) -> Option<(u16, &str)> {
+    let mut lines = contents.lines();
+    let port = lines.next()?.parse::<u16>().ok().filter(|p| *p != 0)?;
+    let id = lines.next()?.strip_prefix("/devtools/browser/")?;
+    valid_target_id(id).then_some((port, id))
+}
+
 pub struct Process {
     child: Option<Child>,
     // The helper holds the browser lifetime; dropping its stdin revokes the lease.
@@ -216,6 +254,11 @@ impl Process {
             .map_err(|_| "browser profile creation failed")?;
         let executable = std::env::current_exe().map_err(|_| "owned browser helper unavailable")?;
         let mut command = Command::new(executable);
+        // The same binary runs as a dedicated subprocess, not a second Host.
+        // The helper does not need the Host's model, UI or plugin credentials.
+        let mut environment = std::env::vars_os().collect();
+        xharness_process::scrub_secret_env(&mut environment);
+        command.env_clear().envs(environment);
         command
             .arg(super::helper::FLAG)
             .arg(binary)
@@ -234,13 +277,6 @@ impl Process {
             cdp: Cdp::new(String::new()),
             preview_cdp: std::sync::Arc::new(tokio::sync::Mutex::new(Cdp::new(String::new()))),
         };
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::Client::builder()
-            .no_proxy()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(Duration::from_secs(2))
-            .build()
-            .map_err(|_| "browser bootstrap unavailable")?;
         let ready = async {
             loop {
                 if process
@@ -263,46 +299,8 @@ impl Process {
                 )
                 .await;
                 if let Ok(file) = file {
-                    if let Some(port) = file
-                        .lines()
-                        .next()
-                        .and_then(|line| line.parse::<u16>().ok())
-                        .filter(|port| *port != 0)
-                    {
-                        if let Ok(mut response) = client
-                            .get(format!("http://127.0.0.1:{port}/json/list"))
-                            .send()
-                            .await
-                        {
-                            let mut body = Vec::new();
-                            while let Some(chunk) = response
-                                .chunk()
-                                .await
-                                .map_err(|_| "browser discovery interrupted")?
-                            {
-                                if body.len().saturating_add(chunk.len()) > 64 * 1024 {
-                                    return Err("browser discovery exceeds budget".into());
-                                }
-                                body.extend_from_slice(&chunk);
-                            }
-                            let tabs: Vec<Value> = serde_json::from_slice(&body)
-                                .map_err(|_| "invalid browser discovery")?;
-                            if let Some(tab) = tabs
-                                .iter()
-                                .find(|tab| tab["type"] == "page" && tab["url"] == "about:blank")
-                            {
-                                let id = tab["id"]
-                                    .as_str()
-                                    .filter(|id| {
-                                        id.len() <= 128
-                                            && id
-                                                .bytes()
-                                                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
-                                    })
-                                    .ok_or("invalid browser target")?;
-                                return Ok(format!("ws://127.0.0.1:{port}/devtools/page/{id}"));
-                            }
-                        }
+                    if let Some(endpoint) = page_endpoint(&file).await? {
+                        return Ok(endpoint);
                     }
                 }
                 tokio::time::sleep(Duration::from_millis(50)).await;
@@ -331,7 +329,8 @@ impl Process {
         let child = self.child.as_mut().ok_or("browser process unavailable")?;
         child.stdin.take(); // Revoke the helper lease even if Browser.close failed.
         match tokio::time::timeout(Duration::from_secs(3), child.wait()).await {
-            Ok(Ok(_)) => {}
+            Ok(Ok(status)) if status.success() => {}
+            Ok(Ok(_)) => return Err("owned browser helper reported a cleanup failure".into()),
             Ok(Err(_)) => return Err("browser exit unavailable".into()),
             // Do not kill the helper: it must finish reaping Chrome. Drop keeps
             // its profile if exit cannot yet be confirmed, rather than orphaning
@@ -359,8 +358,8 @@ impl Drop for Process {
             std::thread::spawn(move || {
                 let deadline = std::time::Instant::now() + Duration::from_secs(3);
                 let reaped = loop {
-                    if let Ok(Some(_)) = child.try_wait() {
-                        break true;
+                    if let Ok(Some(status)) = child.try_wait() {
+                        break status.success();
                     }
                     if std::time::Instant::now() >= deadline {
                         break false;

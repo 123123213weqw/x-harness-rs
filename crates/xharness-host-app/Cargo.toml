@@ -20,6 +20,7 @@ name = "xharness-environment-gateway"
 path = "src/environment_gateway_main.rs"
 
 [dependencies]
+xharness-browser = { path = "../xharness-browser" }
 futures.workspace = true
 tokio-tungstenite.workspace = true
 axum.workspace = true

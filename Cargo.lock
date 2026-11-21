@@ -3766,6 +3766,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "xharness-browser"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "futures-util",
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "xharness-process",
+]
+
+[[package]]
 name = "xharness-channel-telegram"
 version = "0.1.0"
 dependencies = [
@@ -4072,6 +4088,7 @@ dependencies = [
  "xharness-agent",
  "xharness-api",
  "xharness-attachments",
+ "xharness-browser",
  "xharness-channel-telegram",
  "xharness-cloud",
  "xharness-cloud-app",

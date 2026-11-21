@@ -50,12 +50,25 @@ pub(super) fn specs(
     owner: String,
     media: Option<Arc<dyn xharness_computer::ComputerMediaSink>>,
 ) -> Vec<ToolSpec> {
-    native_browser::tools()
+    let webview = native.supports_webview();
+    let definitions = if webview {
+        native_browser::tools()
+    } else {
+        native_browser::headless_tools()
+    };
+    definitions
         .into_iter()
         .map(|d| {
             let tool = d["name"].as_str().unwrap_or_default().to_owned();
             let webview_only = matches!(tool.as_str(), "request" | "read_response");
-            let description = if webview_only {
+            let backends: &[&str] = if webview_only {
+                &[native_browser::SERVER]
+            } else if webview {
+                &[native_browser::HEADLESS_SERVER, native_browser::SERVER]
+            } else {
+                &[native_browser::HEADLESS_SERVER]
+            };
+            let description = if webview_only || !webview {
                 d["description"].as_str().unwrap_or_default().to_owned()
             } else {
                 native_browser::headless_tools()
@@ -68,7 +81,7 @@ pub(super) fn specs(
             let definition = ToolDefinition::new(
                 format!("browser_{tool}"),
                 format!("Typed native browser tool; no discovery required. {description}"),
-                super::contract::direct_schema(&d["inputSchema"], webview_only),
+                super::contract::direct_schema(&d["inputSchema"], backends),
             );
             let native = native.clone();
             let owner = owner.clone();
@@ -90,7 +103,7 @@ pub(super) fn specs(
                         let headless =
                             match backend.as_str() {
                                 Some(native_browser::HEADLESS_SERVER) if !webview_only => true,
-                                Some(native_browser::SERVER) => false,
+                                Some(native_browser::SERVER) if webview => false,
                                 _ => return Err(super::error(
                                     "invalid browser backend; no backend was selected or changed",
                                 )),

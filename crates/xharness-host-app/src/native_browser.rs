@@ -1,5 +1,5 @@
-//! Deployment adapter for the optional desktop bridge. Host/Core stay unaware
-//! of Tauri. Owner comes from SessionToolFactory, never model parameters.
+//! Selects exactly one browser deployment: the desktop bridge or an owned
+//! Chromium runtime. Owner comes from SessionToolFactory, never model arguments.
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use serde_json::{json, Map, Value};
@@ -24,9 +24,14 @@ mod hardening_tests;
 #[path = "native_browser_model_tests.rs"]
 mod model_tests;
 
+#[derive(Clone)]
+enum Transport {
+    Desktop { address: SocketAddr, token: String },
+    Local(Arc<xharness_browser::Browsers>),
+}
+
 pub struct NativeBrowser {
-    address: SocketAddr,
-    token: String,
+    transport: Transport,
     headless: bool,
     images: Arc<tokio::sync::Mutex<image_projection::Projections>>,
 }
@@ -55,8 +60,7 @@ impl NativeBrowser {
                     return Err("invalid native browser configuration".into());
                 }
                 Ok(Some(Self {
-                    address,
-                    token,
+                    transport: Transport::Desktop { address, token },
                     headless: false,
                     images: Default::default(),
                 }))
@@ -64,6 +68,33 @@ impl NativeBrowser {
             _ => Err("incomplete native browser configuration".into()),
         }
     }
+    pub fn standalone() -> Self {
+        Self {
+            transport: Transport::Local(Arc::default()),
+            headless: true,
+            images: Default::default(),
+        }
+    }
+
+    pub(crate) fn supports_webview(&self) -> bool {
+        matches!(self.transport, Transport::Desktop { .. })
+    }
+
+    pub(crate) async fn release_local(&self, owner: &str) -> Result<(), String> {
+        if let Transport::Local(browsers) = &self.transport {
+            self.images.lock().await.forget(true, owner);
+            browsers.close(owner).await?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn shutdown_local(&self) -> Result<(), String> {
+        match &self.transport {
+            Transport::Local(browsers) => browsers.shutdown().await,
+            Transport::Desktop { .. } => Ok(()),
+        }
+    }
+
     async fn request(
         &self,
         owner: &str,
@@ -79,10 +110,26 @@ impl NativeBrowser {
             14
         };
         let call = async {
+            let (address, token) = match &self.transport {
+                Transport::Local(browsers) if self.headless => {
+                    if arguments.to_string().len() > 31 * 1024 {
+                        return Err("native browser request exceeds byte limit".into());
+                    }
+                    let opening = op == "control" && arguments["action"] == "open";
+                    let mut result = browsers.dispatch(owner, op, arguments).await?;
+                    if opening && result["ok"] == true {
+                        result["preview_optional"] = json!(false);
+                    }
+                    return Ok(result);
+                }
+                Transport::Local(_) => {
+                    return Err("WebView requires the desktop browser bridge".into())
+                }
+                Transport::Desktop { address, token } => (*address, token),
+            };
             // Preserve the old WebView wire shape: older desktop bridges deny
             // unknown fields. Only the newly discovered server adds a selector.
-            let mut packet =
-                json!({"token":self.token,"owner":owner,"op":op,"arguments":arguments});
+            let mut packet = json!({"token":token,"owner":owner,"op":op,"arguments":arguments});
             if self.headless {
                 packet["backend"] = json!(HEADLESS_SERVER);
             }
@@ -91,7 +138,7 @@ impl NativeBrowser {
             if bytes.len() > 32 * 1024 {
                 return Err("native browser request exceeds byte limit".into());
             }
-            let mut stream = TcpStream::connect(self.address)
+            let mut stream = TcpStream::connect(address)
                 .await
                 .map_err(|_| "native browser bridge unavailable")?;
             stream
@@ -156,6 +203,9 @@ impl NativeBrowser {
         owner: &str,
         cancelled: &CancellationToken,
     ) -> (bool, bool) {
+        if !self.supports_webview() {
+            return (false, self.available(owner, cancelled).await);
+        }
         match self.request(owner, "list", json!({}), cancelled).await {
             Ok(reply) => (
                 reply["available"] == true,
@@ -166,8 +216,7 @@ impl NativeBrowser {
     }
     pub(crate) fn headless(&self) -> Self {
         Self {
-            address: self.address,
-            token: self.token.clone(),
+            transport: self.transport.clone(),
             headless: true,
             images: self.images.clone(),
         }
@@ -412,8 +461,11 @@ mod tests {
             let browser = Arc::new(NativeBrowser {
                 headless: false,
                 images: Default::default(),
-                address: listener.local_addr().unwrap(),
-                token: "a".repeat(64),
+
+                transport: Transport::Desktop {
+                    address: listener.local_addr().unwrap(),
+                    token: "a".repeat(64),
+                },
             });
             let server = tokio::spawn(async move {
                 let (mut stream, _) = listener.accept().await.unwrap();
@@ -519,8 +571,11 @@ mod tests {
         let browser = Arc::new(NativeBrowser {
             headless: false,
             images: Default::default(),
-            address: listener.local_addr().unwrap(),
-            token: "a".repeat(64),
+
+            transport: Transport::Desktop {
+                address: listener.local_addr().unwrap(),
+                token: "a".repeat(64),
+            },
         });
         let server = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
@@ -562,8 +617,11 @@ mod tests {
         let browser = NativeBrowser {
             headless: false,
             images: Default::default(),
-            address: "127.0.0.1:1".parse().unwrap(),
-            token: "a".repeat(64),
+
+            transport: Transport::Desktop {
+                address: "127.0.0.1:1".parse().unwrap(),
+                token: "a".repeat(64),
+            },
         };
         let error = browser
             .screenshot(
@@ -605,8 +663,11 @@ mod tests {
         let browser = NativeBrowser {
             headless: false,
             images: Default::default(),
-            address: listener.local_addr().unwrap(),
-            token: "a".repeat(64),
+
+            transport: Transport::Desktop {
+                address: listener.local_addr().unwrap(),
+                token: "a".repeat(64),
+            },
         };
         let server = tokio::spawn(async move {
             for op in ["request", "read_response", "request"] {
@@ -694,8 +755,11 @@ mod tests {
         let browser = NativeBrowser {
             headless: false,
             images: Default::default(),
-            address: listener.local_addr().unwrap(),
-            token: "a".repeat(64),
+
+            transport: Transport::Desktop {
+                address: listener.local_addr().unwrap(),
+                token: "a".repeat(64),
+            },
         };
         let server = tokio::spawn(async move {
             for op in ["list", "control"] {
@@ -750,8 +814,11 @@ mod tests {
         let browser = NativeBrowser {
             headless: false,
             images: Default::default(),
-            address: listener.local_addr().unwrap(),
-            token: "a".repeat(64),
+
+            transport: Transport::Desktop {
+                address: listener.local_addr().unwrap(),
+                token: "a".repeat(64),
+            },
         };
         let server = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
@@ -853,8 +920,11 @@ mod tests {
         let browser = Arc::new(NativeBrowser {
             headless: false,
             images: Default::default(),
-            address: listener.local_addr().unwrap(),
-            token: "a".repeat(64),
+
+            transport: Transport::Desktop {
+                address: listener.local_addr().unwrap(),
+                token: "a".repeat(64),
+            },
         });
         let server = tokio::spawn(async move {
             for index in 0..4 {
@@ -950,8 +1020,11 @@ mod tests {
             let browser = Arc::new(NativeBrowser {
                 headless: false,
                 images: Default::default(),
-                address: listener.local_addr().unwrap(),
-                token: "a".repeat(64),
+
+                transport: Transport::Desktop {
+                    address: listener.local_addr().unwrap(),
+                    token: "a".repeat(64),
+                },
             });
             let server = tokio::spawn(async move {
                 let (mut stream, _) = listener.accept().await.unwrap();
@@ -994,10 +1067,12 @@ mod tests {
         use xharness_tools::{ToolExecutor, ToolRegistry, ToolRequest};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let browser = Arc::new(NativeBrowser {
-            address: listener.local_addr().unwrap(),
-            token: "b".repeat(64),
             headless: false,
             images: Default::default(),
+            transport: Transport::Desktop {
+                address: listener.local_addr().unwrap(),
+                token: "b".repeat(64),
+            },
         });
         let server = tokio::spawn(async move {
             for index in 0..3 {
@@ -1074,8 +1149,11 @@ mod tests {
         let browser = NativeBrowser {
             headless: false,
             images: Default::default(),
-            address: listener.local_addr().unwrap(),
-            token: "d".repeat(64),
+
+            transport: Transport::Desktop {
+                address: listener.local_addr().unwrap(),
+                token: "d".repeat(64),
+            },
         };
         let server = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
@@ -1166,10 +1244,12 @@ mod tests {
     async fn image_pixel_input_is_converted_only_from_successfully_projected_final_png() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let browser = NativeBrowser {
-            address: listener.local_addr().unwrap(),
-            token: "a".repeat(64),
             headless: false,
             images: Default::default(),
+            transport: Transport::Desktop {
+                address: listener.local_addr().unwrap(),
+                token: "a".repeat(64),
+            },
         };
         let server = tokio::spawn(async move {
             for step in 0..2 {

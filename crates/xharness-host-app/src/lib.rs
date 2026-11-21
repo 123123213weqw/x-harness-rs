@@ -305,6 +305,9 @@ impl SessionToolFactory for NativeToolFactory {
             mcp.disconnect_owner(session_id).await;
         }
         if let Some(browser) = self.native_browser.get() {
+            if !browser.supports_webview() {
+                return browser.release_local(session_id).await;
+            }
             // Session retirement owns browser lifetime, not renderer visibility.
             let _ = browser
                 .headless()
@@ -670,6 +673,11 @@ impl SessionToolFactory for NativeToolFactory {
 
     async fn shutdown(&self) -> Result<(), String> {
         let mut errors = Vec::new();
+        if let Some(browser) = self.native_browser.get() {
+            if let Err(error) = browser.shutdown_local().await {
+                errors.push(error);
+            }
+        }
         if let Some(controller) = self.job_continuations.get() {
             if let Err(error) = controller.shutdown().await {
                 errors.push(error);

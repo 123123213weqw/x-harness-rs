@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 const require = createRequire(resolve(process.env.UI_TEST_DEPS ?? "/tmp/xharness-ui-deps", "package.json"));
 const { chromium, webkit } = require("playwright");
-const script = readFileSync(new URL("../../apps/desktop/src-tauri/src/browser_observe.js", import.meta.url), "utf8");
+const script = readFileSync(new URL("../../crates/xharness-browser/src/browser_observe.js", import.meta.url), "utf8");
 const capability = JSON.parse(readFileSync(new URL("../../apps/desktop/src-tauri/capabilities/desktop-main.json", import.meta.url)));
 assert.deepEqual(capability.webviews, ["main"]);
 assert.ok(capability.permissions.includes("allow-desktop-browser-inspect"));

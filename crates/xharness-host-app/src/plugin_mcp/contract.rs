@@ -194,11 +194,11 @@ pub(super) fn validate_native(
     Ok(())
 }
 
-pub(super) fn direct_schema(schema: &Value, webview_only: bool) -> Value {
+pub(super) fn direct_schema(schema: &Value, backends: &[&str]) -> Value {
     if let Some(branches) = schema["oneOf"].as_array() {
         let branches = branches
             .iter()
-            .map(|b| direct_schema(b, webview_only))
+            .map(|b| direct_schema(b, backends))
             .collect::<Vec<_>>();
         let mut props = Map::new();
         let mut actions = Vec::new();
@@ -233,7 +233,7 @@ pub(super) fn direct_schema(schema: &Value, webview_only: bool) -> Value {
         return json!({"type":"object","additionalProperties":false,"properties":props,"required":required,"oneOf":choices});
     }
     let mut s = portable(schema);
-    s["properties"]["backend"] = json!({"type":"string","enum":if webview_only {vec![SERVER]} else {vec![HEADLESS_SERVER,SERVER]},"description":"browser: background (preferred). webview: explicit visible page/login. Frames and login are separate; never silently switch."});
+    s["properties"]["backend"] = json!({"type":"string","enum":backends,"description":if backends == [HEADLESS_SERVER] {"browser: independently owned background Chrome/Edge. No WebView or existing profile."} else {"browser: background (preferred). webview: explicit visible page/login. Frames and login are separate; never silently switch."}});
     let mut required = s["required"].as_array().cloned().unwrap_or_default();
     required.push(json!("backend"));
     s["required"] = json!(required);
@@ -249,7 +249,11 @@ mod tests {
         for tool in definitions(false) {
             let projected = direct_schema(
                 &tool["inputSchema"],
-                matches!(tool["name"].as_str(), Some("request" | "read_response")),
+                if matches!(tool["name"].as_str(), Some("request" | "read_response")) {
+                    &[SERVER]
+                } else {
+                    &[HEADLESS_SERVER, SERVER]
+                },
             );
             xharness_tools::validate_tool_schema(&projected).unwrap();
             assert_eq!(projected["additionalProperties"], false);

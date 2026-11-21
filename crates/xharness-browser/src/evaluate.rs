@@ -1,7 +1,7 @@
 //! Same page-world execution contract as the embedded WebView.
 #![forbid(unsafe_code)]
 use super::Instance;
-use crate::browser_inspect::execution;
+use crate::execution;
 use serde_json::{json, Value};
 use std::time::Duration;
 

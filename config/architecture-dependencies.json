@@ -5,6 +5,9 @@
     "xharness-session"
   ],
   "xharness-api": [],
+  "xharness-browser": [
+    "xharness-process"
+  ],
   "xharness-cloud": [],
   "xharness-attachments": [
     "xharness-session"
@@ -78,6 +81,7 @@
     "xharness-win32"
   ],
   "xharness-host-app": [
+    "xharness-browser",
     "xharness-agent",
     "xharness-api",
     "xharness-attachments",

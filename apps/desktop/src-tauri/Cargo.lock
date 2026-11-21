@@ -5618,6 +5618,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "xharness-browser"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "futures-util",
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "xharness-process",
+]
+
+[[package]]
 name = "xharness-debug"
 version = "0.1.0"
 dependencies = [
@@ -5638,7 +5654,6 @@ dependencies = [
  "base64 0.22.1",
  "block2",
  "cairo-rs",
- "futures-util",
  "getrandom 0.3.4",
  "gtk",
  "hmac",
@@ -5660,13 +5675,13 @@ dependencies = [
  "tauri-plugin-updater",
  "tempfile",
  "tokio",
- "tokio-tungstenite",
  "url",
  "webkit2gtk",
  "webview2-com",
  "windows",
  "wry",
  "x11-dl",
+ "xharness-browser",
  "xharness-diagnostics",
  "xharness-installation",
  "xharness-process",

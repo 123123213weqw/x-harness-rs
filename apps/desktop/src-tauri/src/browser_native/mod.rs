@@ -6,7 +6,6 @@ use crate::{
     browser_inspect::{self, Inspector},
 };
 use base64::Engine;
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     sync::{atomic::Ordering, Arc},
@@ -32,103 +31,8 @@ use windows as platform;
 const TIMEOUT: Duration = Duration::from_secs(8);
 pub const MAX_PNG: usize = 8 * 1024 * 1024;
 
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(tag = "action", rename_all = "lowercase", deny_unknown_fields)]
-pub enum InputRequest {
-    Click {
-        frame_id: String,
-        x: f64,
-        y: f64,
-    },
-    Move {
-        frame_id: String,
-        x: f64,
-        y: f64,
-    },
-    Key {
-        frame_id: String,
-        key: String,
-        #[serde(default)]
-        modifiers: Vec<String>,
-    },
-}
-impl InputRequest {
-    pub(super) fn frame(&self) -> &str {
-        match self {
-            Self::Click { frame_id, .. }
-            | Self::Move { frame_id, .. }
-            | Self::Key { frame_id, .. } => frame_id,
-        }
-    }
-    pub(super) fn validate(&self) -> Result<(), String> {
-        if self.frame().len() != 32 || !self.frame().bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err("invalid frame_id".into());
-        }
-        match self {
-            Self::Click { x, y, .. } | Self::Move { x, y, .. }
-                if !x.is_finite()
-                    || !y.is_finite()
-                    || *x < 0.0
-                    || *y < 0.0
-                    || *x > 8192.0
-                    || *y > 8192.0 =>
-            {
-                Err("invalid CSS viewport point".into())
-            }
-            Self::Key { key, modifiers, .. } => {
-                key_spec(key)?;
-                if modifiers.len() > 4
-                    || modifiers
-                        .iter()
-                        .any(|m| !["Shift", "Control", "Alt", "Meta"].contains(&m.as_str()))
-                    || modifiers
-                        .iter()
-                        .enumerate()
-                        .any(|(i, m)| modifiers[..i].contains(m))
-                {
-                    return Err("invalid key modifiers".into());
-                }
-                Ok(())
-            }
-            _ => Ok(()),
-        }
-    }
-}
-// Explicit portable subset, not layout-dependent arbitrary keycode input.
-// Text entry stays in DOM fill; native keys cover navigation/shortcuts.
-pub(super) struct KeySpec {
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-    pub text: String,
-    #[cfg_attr(not(windows), allow(dead_code))]
-    pub windows: u32,
-    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
-    pub mac: u16,
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    pub gdk: u32,
-}
-pub(super) fn key_spec(key: &str) -> Result<KeySpec, String> {
-    let (text,windows,mac,gdk) = match key {
-        "Enter" => ("\r",13,36,0xff0d), "Tab" => ("\t",9,48,0xff09),
-        "Escape" => ("\u{1b}",27,53,0xff1b), "Backspace" => ("\u{8}",8,51,0xff08),
-        "Delete" => ("\u{f728}",46,117,0xffff), "Space" => (" ",32,49,32),
-        "ArrowLeft" => ("\u{f702}",37,123,0xff51), "ArrowRight" => ("\u{f703}",39,124,0xff53),
-        "ArrowUp" => ("\u{f700}",38,126,0xff52), "ArrowDown" => ("\u{f701}",40,125,0xff54),
-        "Home" => ("\u{f729}",36,115,0xff50), "End" => ("\u{f72b}",35,119,0xff57),
-        "PageUp" => ("\u{f72c}",33,116,0xff55), "PageDown" => ("\u{f72d}",34,121,0xff56),
-        _ if key.len()==1 && key.as_bytes()[0].is_ascii_lowercase() => {
-            let c=key.as_bytes()[0];
-            const MAC:[u16;26]=[0,11,8,2,14,3,5,4,34,38,40,37,46,45,31,35,12,15,1,17,32,9,13,7,16,6];
-            return Ok(KeySpec{text:key.into(),windows:u32::from(c.to_ascii_uppercase()),mac:MAC[usize::from(c-b'a')],gdk:u32::from(c)});
-        }
-        _=>return Err("unsupported browser key; use Enter/Tab/Escape/Backspace/Delete/Space, arrows, Home/End/PageUp/PageDown or a-z".into()),
-    };
-    Ok(KeySpec {
-        text: text.into(),
-        windows,
-        mac,
-        gdk,
-    })
-}
+pub(super) use xharness_browser::key_spec;
+pub use xharness_browser::InputRequest;
 
 async fn dispatch<T: Send + 'static>(
     view: &Webview,
