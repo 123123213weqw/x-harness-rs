@@ -560,6 +560,21 @@ impl NativeGitHub {
 
 #[async_trait]
 impl GitHubBackend for NativeGitHub {
+    async fn project_status(
+        &self,
+        cwd: &str,
+        cancel: CancellationToken,
+    ) -> Result<Value, RpcError> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
+        let _permit = tokio::select! {
+            _ = cancel.cancelled() => return Err(failure("cancelled", "Project status cancelled")),
+            permit = tokio::time::timeout_at(deadline, self.limit.acquire()) => permit
+                .map_err(|_| failure("timeout", "Project status timed out"))?
+                .map_err(|_| invalid())?,
+        };
+        crate::project_github_status::read(cwd, cancel, deadline).await
+    }
+
     async fn save_review(&self, target: &Value, run: &Value) -> Result<(), RpcError> {
         self.persist_review(target, run).await
     }

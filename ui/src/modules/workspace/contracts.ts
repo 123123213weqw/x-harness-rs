@@ -15,7 +15,7 @@ export interface HostObservable<T> {getSnapshot(): T; subscribe(listener: () => 
 export type SnapshotSelectorHook<T> = <S>(select: (value: T) => S, equal?: (a: S, b: S) => boolean) => S
 export interface HostDescription {home?: string}
 export type HostDescriptionSource = HostObservable<HostDescription | undefined>
-export interface ConnectionHandle {hostDescription: HostDescriptionSource}
+export interface ConnectionHandle {hostDescription: HostDescriptionSource; rpc?: import('../client-connection/rpc-contracts').ClientConnectionRpc}
 export type PropsHooks<Hooks> = {[Key in keyof Hooks as Key extends string ? `use${Capitalize<Key>}` : never]: Hooks[Key] extends HostObservable<infer State> ? SnapshotSelectorHook<State> : never}
 export type PropsLocale<_NS extends string> = {t: Translation}
 export interface EngineStoreHandle<T, A> {readonly spec: {init(): T; actions: A; persist?: string}}

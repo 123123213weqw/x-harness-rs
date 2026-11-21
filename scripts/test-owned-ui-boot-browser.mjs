@@ -102,7 +102,23 @@ try{
   assert.equal(createHash('sha256').update(geometry.paths).digest('hex'),'9e9451a2aebc02847fb4ed4bbe62b4faf3303c614b3e3414c7a6775303f61685','reviewed product orbital glyph, not an arbitrary replacement')
  }
 
+ // The two fixed fixture workspaces gain one reviewed GitHub badge each.
+ // Assert the exact additive surface before projecting only its own copy/count
+ // out of legacy parity. Conversation pixels and the frozen reference stay intact.
+ const projectBadges=page.locator('.xhproject-github')
+ assert.equal(await projectBadges.count(),implementation==='source'?2:0,'one new badge per registered fixture workspace, none on legacy/unaccounted rows')
+ if(implementation==='source'){
+  const locations=await projectBadges.evaluateAll(nodes=>nodes.map(node=>({
+   title:node.closest('[role="treeitem"]')?.querySelector('.PT4Uyq_title')?.textContent,
+   inConversation:!!node.closest('._84hhiq_centerCol'),buttons:node.querySelectorAll('button').length,
+   hasDialog:!!node.querySelector('[role="dialog"]'),ci:node.querySelector('[data-ci]')?.getAttribute('data-ci'),
+   aria:node.querySelector('button')?.getAttribute('aria-label'),
+  })))
+  assert.deepEqual(locations.map(row=>row.title),['fixture','project'],'only the two registered workspace headers gain a badge')
+  for(const row of locations){assert.equal(row.inConversation,false);assert.equal(row.buttons,1);assert.equal(row.hasDialog,false);assert.equal(row.ci,'unknown','old fixture Host never fabricates green checks');assert.match(row.aria,/^GitHub status:/)}
+ }
  const early=await page.evaluate(()=>{
+  const projectBadges=document.querySelectorAll('.xhproject-github > button.xhproject-github-trigger')
   const navigation=document.querySelectorAll('[data-xharness-work-nav],.xhtask-trigger')
   const sidebarSearch=document.querySelectorAll('button[aria-label="Search sessions"]')
   const sidebarSearchInput=document.querySelectorAll('input[placeholder="Search sessions..."]')
@@ -117,6 +133,8 @@ try{
   // conversation pixels continue to use the untouched frozen reference.
   const shellNavigation=document.querySelectorAll('button[data-shell-navigation-back],button[data-shell-navigation-forward]')
   const copy=document.body.cloneNode(true)
+  // Exact badge count/location asserted above; no other copy is removed.
+  copy.querySelectorAll('.xhproject-github').forEach(node=>node.remove())
   // Only the reviewed sidebar entry changes from a gear to account chrome.
   // Keep its button count and all unrelated copy/pixels in frozen parity.
   copy.querySelectorAll('button[data-xh-account-trigger]').forEach(node=>{node.textContent='Settings'})
@@ -124,7 +142,7 @@ try{
   copy.querySelectorAll('button[data-xh-model-control="effort"]').forEach(node=>node.remove())
   copy.querySelectorAll('button[data-xh-runtime-environment][aria-label="Choose execution environment"]').forEach(node=>node.remove())
   copy.querySelectorAll('[data-xharness-work-nav],.xhtask-trigger,button[aria-label="Search sessions"],button[data-xharness-review-nav][aria-label="Code Review"],button[data-xharness-assistant-nav][aria-label="Little X"],button[data-shell-navigation-back],button[data-shell-navigation-forward]').forEach(node=>node.remove())
-  return {environmentEntryCount:environmentEntry.length,effortEntryCount:effortEntry.length,modelEntryCount:modelEntry.length,accountEntryCount:accountEntry.length,text:document.body.innerText,stableText:copy.textContent.replace(/\s+/g,' ').trim(),buttons:document.querySelectorAll('button').length,shellNavigationCount:shellNavigation.length,stableButtons:document.querySelectorAll('button').length-shellNavigation.length-navigation.length-sidebarSearch.length-codeReviewEntry.length-assistantEntry.length-effortEntry.length-environmentEntry.length,assistantEntryCount:assistantEntry.length,codeReviewEntryCount:codeReviewEntry.length,navigationCount:navigation.length,sidebarSearchEntryCount:sidebarSearch.length,sidebarSearchInputCount:sidebarSearchInput.length,inputs:document.querySelectorAll('textarea,[contenteditable="true"]').length}
+  return {environmentEntryCount:environmentEntry.length,effortEntryCount:effortEntry.length,modelEntryCount:modelEntry.length,accountEntryCount:accountEntry.length,text:document.body.innerText,stableText:copy.textContent.replace(/\s+/g,' ').trim(),buttons:document.querySelectorAll('button').length,shellNavigationCount:shellNavigation.length,projectBadgeCount:projectBadges.length,stableButtons:document.querySelectorAll('button').length-projectBadges.length-shellNavigation.length-navigation.length-sidebarSearch.length-codeReviewEntry.length-assistantEntry.length-effortEntry.length-environmentEntry.length,assistantEntryCount:assistantEntry.length,codeReviewEntryCount:codeReviewEntry.length,navigationCount:navigation.length,sidebarSearchEntryCount:sidebarSearch.length,sidebarSearchInputCount:sidebarSearchInput.length,inputs:document.querySelectorAll('textarea,[contenteditable="true"]').length}
  })
  // Interaction acceptance resumes naturally advancing timers; only the settled,
  // phase-bound boot receipt above is frozen. Navigation needs no manual ticks.
@@ -196,5 +214,5 @@ try{
  assert.ok(!requests.some(path=>path.includes('/@xlang/xharness-client-ui-code-review/')),'retired module must not load or prefetch in the full product graph')
 
  assert.deepEqual(errors,[],'navigation on the genuine full graph must not throw')
- console.log(JSON.stringify({engine,implementation,fullGraph:true,fixtureTransport:true,settingsProviders:true,modelEffortAndContextControls:true,effortChange:true,environmentEntryCount:early.environmentEntryCount,effortEntryCount:early.effortEntryCount,modelEntryCount:early.modelEntryCount,shellNavigationCount:early.shellNavigationCount,workCenterNavigation:implementation==='source',assistantEntryCount:early.assistantEntryCount,codeReviewEntryCount:early.codeReviewEntryCount,accountEntryCount:early.accountEntryCount,buttons:early.buttons,stableButtons:early.stableButtons,stableText:early.stableText,navigationCount:early.navigationCount,sidebarSearchEntryCount:early.sidebarSearchEntryCount,sidebarSearchInputCount:early.sidebarSearchInputCount,inputs:early.inputs,errors,staticFailures,fixtureHmrDisconnects:failed.filter(row=>new URL(row.url).pathname==='/plugins/events').length,text:early.text.slice(0,1000),loadedPluginPaths:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).sort(),loadedPlugins:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).length}))
+ console.log(JSON.stringify({engine,implementation,fullGraph:true,fixtureTransport:true,settingsProviders:true,modelEffortAndContextControls:true,effortChange:true,environmentEntryCount:early.environmentEntryCount,effortEntryCount:early.effortEntryCount,modelEntryCount:early.modelEntryCount,shellNavigationCount:early.shellNavigationCount,workCenterNavigation:implementation==='source',assistantEntryCount:early.assistantEntryCount,codeReviewEntryCount:early.codeReviewEntryCount,accountEntryCount:early.accountEntryCount,buttons:early.buttons,projectBadgeCount:early.projectBadgeCount,stableButtons:early.stableButtons,stableText:early.stableText,navigationCount:early.navigationCount,sidebarSearchEntryCount:early.sidebarSearchEntryCount,sidebarSearchInputCount:early.sidebarSearchInputCount,inputs:early.inputs,errors,staticFailures,fixtureHmrDisconnects:failed.filter(row=>new URL(row.url).pathname==='/plugins/events').length,text:early.text.slice(0,1000),loadedPluginPaths:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).sort(),loadedPlugins:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).length}))
 }finally{await browser.close()}

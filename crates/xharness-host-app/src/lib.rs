@@ -21,6 +21,7 @@ pub mod ownership;
 mod plugin_mcp;
 pub mod plugin_panels;
 mod plugin_service;
+mod project_github_status;
 mod read_media;
 pub mod remote_admin;
 pub mod remote_control;

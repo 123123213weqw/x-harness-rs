@@ -235,6 +235,14 @@ impl ApiBackend for BasicHost {
                     json!([]),
                 )));
             }
+            if endpoint == "github/project-status" {
+                return Some(
+                    match self.project_github_status(&payload, _cancellation).await {
+                        Ok(value) => RpcResult::success(value),
+                        Err(error) => RpcResult::failure(error),
+                    },
+                );
+            }
             if endpoint.starts_with("github/") {
                 let result = match self.github.get() {
                     Some(backend) => backend.read(endpoint, &payload, _cancellation).await,
