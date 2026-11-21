@@ -4530,6 +4530,16 @@
         "UI_TEST_BROWSER": "webkit"
       },
       "weight": 20
+    },
+    {
+      "id": "contract-181",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "scripts/test-github-webhook-refresh.mjs"
+      ],
+      "env": {},
+      "weight": 12
     }
   ]
 }

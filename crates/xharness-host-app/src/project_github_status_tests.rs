@@ -55,9 +55,15 @@ impl Fixture {
     fn list(&self, value: Value) {
         self.push(
             "gh",
-            args(&["repo", "view", "alice/project", "--json", "nameWithOwner"]),
+            args(&[
+                "repo",
+                "view",
+                "alice/project",
+                "--json",
+                "id,nameWithOwner",
+            ]),
             true,
-            json!({"nameWithOwner":"alice/project"}).to_string(),
+            json!({"id":"R_project7","nameWithOwner":"alice/project"}).to_string(),
         );
         self.push(
             "gh",
@@ -129,7 +135,7 @@ fn run(status: &str, conclusion: Value) -> Value {
     json!({"__typename":"CheckRun","status":status,"conclusion":conclusion})
 }
 fn pr() -> Value {
-    json!({"number":7,"state":"OPEN","isDraft":false,"headRefName":"feature/test","headRefOid":SHA,"headRepository":{"nameWithOwner":"alice/project"},"commits":{"nodes":[{"commit":{"oid":SHA,"statusCheckRollup":rollup(json!([run("COMPLETED",json!("SUCCESS"))]))}}]}})
+    json!({"number":7,"state":"OPEN","isDraft":false,"headRefName":"feature/test","headRefOid":SHA,"headRepository":{"id":"R_project7","nameWithOwner":"alice/project"},"commits":{"nodes":[{"commit":{"oid":SHA,"statusCheckRollup":rollup(json!([run("COMPLETED",json!("SUCCESS"))]))}}]}})
 }
 #[test]
 fn remotes_are_allowlisted_without_credentials_or_host_confusion() {
@@ -432,9 +438,15 @@ async fn repository_rename_resolution_is_verified_and_not_a_fork_guess() {
         let f = Fixture::new();
         f.push(
             "gh",
-            args(&["repo", "view", "alice/project", "--json", "nameWithOwner"]),
+            args(&[
+                "repo",
+                "view",
+                "alice/project",
+                "--json",
+                "id,nameWithOwner",
+            ]),
             true,
-            json!({"nameWithOwner":name}).to_string(),
+            json!({"id":"R_project7","nameWithOwner":name}).to_string(),
         );
         let result = canonical_repository(&f, "alice/project").await;
         assert_eq!(result.is_ok(), accepted);

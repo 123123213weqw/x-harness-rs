@@ -24,6 +24,8 @@ export type PropsRuntime<Seat extends string> = {useWorkspaces: SnapshotSelector
 export type PropsRenderSlots<Key extends string> = {renderSlot(key: Key, owner: DirectoryFlowOwnerProps): React.ReactNode}
 type Result<T> = {ok: true; value: T} | {ok: false; error: {message: string}}
 export interface ClientContext {
+  remote?: {$on(name: 'github/project-status-invalidated', listener: (payload: unknown) => void): () => void}
+
   get(name: 'connection'): ConnectionHandle
   effect(effect: () => void | (() => void), label: string): unknown
   locale: {register(ns: string, dictionaries: {zh: Readonly<Record<string, string>>; en: Readonly<Record<string, string>>}): () => void}

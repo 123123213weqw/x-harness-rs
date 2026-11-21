@@ -250,3 +250,70 @@ mod project_race_tests {
         }
     }
 }
+
+impl BasicHost {
+    /// Presentation invalidation only. No session recovery, task admission,
+    /// durable chat mutation, Provider call or Agent continuation is reachable.
+    pub fn publish_github_project_signal(
+        &self,
+        repository_ids: &[String],
+        reset: bool,
+        connected: bool,
+    ) -> Result<(), RpcError> {
+        if (!connected && (reset || !repository_ids.is_empty()))
+            || repository_ids
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                != repository_ids.len()
+            || repository_ids.len() > 128
+            || repository_ids.iter().any(|id| {
+                !(8..=128).contains(&id.len())
+                    || !id.bytes().all(|b| {
+                        b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'+' | b'/' | b'=')
+                    })
+            })
+        {
+            return Err(RpcError::bad_request(
+                "Invalid GitHub invalidation metadata",
+                serde_json::json!([]),
+            ));
+        }
+        self.push_host(serde_json::json!({"type":"host/remote-event","event":"github/project-status-invalidated","args":[{"repositoryIds":repository_ids,"reset":reset,"connected":connected}]}));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod signal_tests {
+    use super::*;
+    use futures::StreamExt;
+    use xharness_api::ApiBackend;
+    #[tokio::test]
+    async fn invalidation_has_a_closed_metadata_shape_and_never_creates_a_session() {
+        let host = BasicHost::new(
+            crate::HostConfig::new(std::env::temp_dir()),
+            None,
+            Arc::new(crate::NoTools),
+        );
+        let mut events = host.host_events();
+        assert!(host
+            .publish_github_project_signal(&["bad".into()], false, true)
+            .is_err());
+        assert!(host
+            .publish_github_project_signal(&["R_project7".into(), "R_project7".into()], false, true)
+            .is_err());
+        assert!(host
+            .publish_github_project_signal(&[], true, false)
+            .is_err());
+        host.publish_github_project_signal(&["R_project7".into()], false, true)
+            .unwrap();
+        let event = events.next().await.unwrap();
+        assert_eq!(event.payload["event"], "github/project-status-invalidated");
+        assert_eq!(
+            event.payload["args"][0],
+            serde_json::json!({"repositoryIds":["R_project7"],"reset":false,"connected":true})
+        );
+        assert!(host.state.read().await.sessions.is_empty());
+    }
+}

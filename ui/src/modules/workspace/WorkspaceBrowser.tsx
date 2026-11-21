@@ -211,7 +211,7 @@ function workspaceGroupHalf(e: { clientY: number; currentTarget: HTMLElement }):
 type SessionTreeProps = Pick<
   WorkspaceBrowserProps,
   'useSessions' | 'startSession' | 'open' | 'forkSession'
-  | 'insertWorkspaceBefore' | 'insertSessionBefore' | 't' | 'readProjectStatus'
+  | 'insertWorkspaceBefore' | 'insertSessionBefore' | 't' | 'readProjectStatus' | 'projectEvents'
 > & {
   /** Host account home for POSIX hover-path abbreviation. */
   home?: string | undefined
@@ -249,7 +249,7 @@ function SessionTree({
   onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive,
   insertWorkspaceBefore, insertSessionBefore, orderBy,
   groupExpansion, setGroupExpanded,
-  sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t, readProjectStatus, projectGeneration,
+  sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t, readProjectStatus, projectGeneration, projectEvents,
 }: SessionTreeProps) {
   const list = useSessions(s => s)
   const current = list.current
@@ -448,6 +448,7 @@ function SessionTree({
             >
               <ProjectRowItem
                 group={group}
+                projectEvents={projectEvents}
                 readProjectStatus={readProjectStatus}
                 projectGeneration={projectGeneration}
                 home={home}
@@ -709,6 +710,7 @@ export function WorkspaceBrowser({
   useDirectoryFlow,
   useHostDescription,
   readProjectStatus,
+  projectEvents,
   renderSlot,
   t,
 }: WorkspaceBrowserProps) {
@@ -950,6 +952,7 @@ export function WorkspaceBrowser({
             )
             : (
               <SessionTree
+                projectEvents={projectEvents}
                 readProjectStatus={readProjectStatus}
                 projectGeneration={projectGeneration}
                 useSessions={useSessions}

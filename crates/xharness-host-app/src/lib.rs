@@ -11,6 +11,7 @@ mod computer_media;
 pub mod environment_gateway;
 mod file_display;
 mod git_display;
+pub mod github_events;
 mod github_http;
 pub mod github_service;
 pub mod hosted;
