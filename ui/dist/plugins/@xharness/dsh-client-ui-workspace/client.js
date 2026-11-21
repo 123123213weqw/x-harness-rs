@@ -351,11 +351,14 @@ class ProjectStatusRequest {
                 publish(undefined, e instanceof Error ? e.message : 'Project status failed', false);
         }
         finally {
-            if (this.controller === controller)
+            // A cancelled transport can settle after a manual retry has taken over.
+            // Only its current owner may release the slot or consume queued work.
+            if (this.controller === controller) {
                 this.controller = undefined;
-            if (this.queued && !this.disposed) {
-                this.queued = false;
-                void this.refresh(publish);
+                if (this.queued && !this.disposed) {
+                    this.queued = false;
+                    void this.refresh(publish);
+                }
             }
         }
     }
@@ -369,7 +372,13 @@ class ProjectStatusRequest {
         else
             void this.refresh(publish);
     }
-    cancel() { this.queued = false; this.controller?.abort(); }
+    cancel() {
+        const controller = this.controller;
+        this.queued = false;
+        this.controller = undefined;
+        controller?.abort();
+        return controller !== undefined;
+    }
     dispose() { this.disposed = true; this.queued = false; this.controller?.abort(); this.controller = undefined; }
 }
 exports.ProjectStatusRequest = ProjectStatusRequest;
@@ -1859,8 +1868,10 @@ function ProjectGitHubStatus({ workspaceId, path, generation, active, expanded, 
                 return;
             setLive({ generation, connected: signal.connected });
             if (!signal.connected) {
-                request.cancel();
-                if (repositoryId)
+                const cancelled = request.cancel();
+                // The first read may not know its repository yet. Abort suppresses its
+                // result, so explicitly end loading and keep manual refresh available.
+                if (cancelled || repositoryId)
                     publish(undefined, t('github.live_disconnected'), false);
                 return;
             }

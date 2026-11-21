@@ -135,6 +135,11 @@ OAuth/GitHub App flow, permission escalation or promise of one-click deployment.
   badges; manual gh refresh remains available. Connection generation fences
   drop late Host/mux frames, and old row requests cannot overwrite a new Host.
   Live availability is shown separately in the details panel.
+  Cancelling an initial lookup also ends its loading state before repository
+  identity is known. A manual retry does not wait for the cancelled transport
+  to settle; that old request cannot publish a late result or consume the new
+  owner's pending invalidation. An idle unsupported/unknown-identity row is
+  not replaced with an unrelated connection error.
 - **Not an exactly-once event-delivery guarantee.** GitHub-to-receiver delivery
   can fail without the receiver/Host connection dropping, and GitHub does not
   automatically redeliver every failed webhook. Manual/focus refresh or an

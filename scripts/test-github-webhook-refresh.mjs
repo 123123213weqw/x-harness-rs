@@ -31,6 +31,44 @@ test('disconnect and row disposal cancel pending work without stale result or hi
   let done,calls=0;const rows=[];const request=new ProjectStatusRequest(async()=>{calls++;return await new Promise(resolve=>done=resolve)},'w');const first=request.refresh((...v)=>rows.push(v));request.invalidate((...v)=>rows.push(v));request[stop]();done(good);await first;await flush();assert.equal(calls,1);assert.equal(rows.filter(v=>v[0]).length,0);request.dispose()
  }
 })
+test('cancel releases the query slot immediately and reports whether it cancelled work',async()=>{
+ let calls=0;const resolves=[],rows=[];const request=new ProjectStatusRequest(async()=>{calls++;return await new Promise(done=>resolves.push(done))},'w')
+ const publish=(...v)=>rows.push(v)
+ assert.equal(request.cancel(),false,'an idle unsupported row need not become an error')
+ const old=request.refresh(publish)
+ assert.equal(request.cancel(),true)
+ const manual=request.refresh(publish)
+ assert.equal(calls,2,'manual refresh must not wait for the cancelled transport to settle')
+ resolves[1](good);await manual
+ resolves[0]({...good,repositoryId:'R_stale999'});await old
+ assert.deepEqual(rows.filter(v=>v[0]).map(v=>v[0].repositoryId),['R_project7'])
+ assert.equal(request.cancel(),false)
+ request.dispose()
+})
+test('a cancelled query finally cannot consume a newer query queued invalidation',async()=>{
+ let calls=0;const resolves=[],rows=[];const request=new ProjectStatusRequest(async()=>{calls++;return await new Promise(done=>resolves.push(done))},'w')
+ const publish=(...v)=>rows.push(v)
+ const old=request.refresh(publish);request.cancel()
+ const manual=request.refresh(publish)
+ assert.equal(calls,2)
+ for(let i=0;i<100;i++)request.invalidate(publish)
+ resolves[0](good);await old
+ assert.equal(calls,2,'old completion cannot start or consume newer queued work')
+ resolves[1](good);await manual
+ assert.equal(calls,3,'the newer owner must still start its one coalesced follow-up')
+ resolves[2](good);await flush()
+ assert.equal(rows.filter(v=>v[0]).length,1)
+ request.dispose()
+})
+test('late cancelled query rejection cannot erase a successful manual refresh',async()=>{
+ let rejectOld;let calls=0;const rows=[];const request=new ProjectStatusRequest(async()=>++calls===1?await new Promise((_done,reject)=>rejectOld=reject):good,'w')
+ const publish=(...v)=>rows.push(v)
+ const old=request.refresh(publish);request.cancel();await request.refresh(publish)
+ rejectOld(Error('late cancelled transport failure'));await old
+ assert.equal(calls,2);assert.equal(rows.at(-1)[0].repositoryId,'R_project7');assert.equal(rows.at(-1)[2],false)
+ assert.equal(rows.filter(v=>v[1]).length,0)
+ request.dispose()
+})
 function channel(){const queued=[];let wait,closed=false;return{push:value=>{if(wait){const done=wait;wait=undefined;done({done:false,value})}else queued.push(value)},end:()=>{closed=true;wait?.({done:true});wait=undefined},[Symbol.asyncIterator](){return this},next(){if(queued.length)return Promise.resolve({done:false,value:queued.shift()});if(closed)return Promise.resolve({done:true});return new Promise(resolve=>wait=resolve)},return(){closed=true;return Promise.resolve({done:true})}}}
 async function until(fn){for(let i=0;i<200;i++){if(fn())return;await new Promise(resolve=>setTimeout(resolve,2))}assert.fail('controlled connection did not converge')}
 test('late Host and mux frames from an aborted generation never reach the new consumer',async()=>{
