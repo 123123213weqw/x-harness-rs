@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import vm from 'node:vm'
 
-const source=readFileSync(new URL('../apps/desktop/src-tauri/src/browser_evaluate.js',import.meta.url),'utf8')
+const source=readFileSync(new URL('../crates/xharness-browser/src/browser_evaluate.js',import.meta.url),'utf8')
 let next=0
 function fixture(){
   const timers=new Set(),nativeLogs=[]

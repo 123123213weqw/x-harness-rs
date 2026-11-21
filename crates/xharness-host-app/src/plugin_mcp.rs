@@ -262,7 +262,7 @@ fn scoped_spec(
                         let (visible_ready,headless_ready)=native.availability(&owner,&context.cancellation).await;
                         if headless_ready {
                             plugins.push(crate::native_browser::PLUGIN.into());
-                            capabilities.push(json!({"plugin":crate::native_browser::PLUGIN,"server":crate::native_browser::HEADLESS_SERVER,"backend":"owned-headless","visibility":"optional-sidebar-preview","session":"chat-owned-independent-profile","description":"Preferred built-in browser. Reuses installed Chrome/Edge in a new isolated instance; sidebar may be collapsed. No existing login inherited. Describe control to open."}));
+                            capabilities.push(json!({"plugin":crate::native_browser::PLUGIN,"server":crate::native_browser::HEADLESS_SERVER,"backend":"owned-headless","visibility":if native.supports_webview() {"optional-sidebar-preview"} else {"headless"},"session":"chat-owned-independent-profile","description":"Preferred built-in browser. Reuses installed Chrome/Edge in a new isolated instance; sidebar may be collapsed. No existing login inherited. Describe control to open."}));
                         }
                         if visible_ready {
                             if !plugins.iter().any(|plugin|plugin==crate::native_browser::PLUGIN){plugins.push(crate::native_browser::PLUGIN.into());}
@@ -329,6 +329,9 @@ fn scoped_spec(
                     }
                     let headless=args.get("server").and_then(Value::as_str)==Some(crate::native_browser::HEADLESS_SERVER);
                     if !headless&&args.get("server").and_then(Value::as_str) != Some(crate::native_browser::SERVER) { return Err(contract::failure("unknown_browser_backend","Use an exact discovered server: browser (background) or webview (explicit visible page/login). No backend was selected or switched.",json!({"action":"list","plugin":crate::native_browser::PLUGIN}))); }
+                    if !headless && !native.supports_webview() {
+                        return Err(contract::failure("webview_unavailable", "This Host only owns a background browser. No WebView is attached; no backend was switched.", json!({"action":"list","plugin":crate::native_browser::PLUGIN})));
+                    }
                     let native=if headless {Arc::new(native.headless())}else{native};
                     if action == "call" {
                         let tool = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;

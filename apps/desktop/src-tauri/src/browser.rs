@@ -414,19 +414,7 @@ fn valid_tab_id(tab_id: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b':' | b'-' | b'_'))
 }
 
-pub(super) fn web_url(raw: &str) -> Result<Url, String> {
-    if raw.len() > 4096 {
-        return Err("URL is too long".into());
-    }
-    let url = Url::parse(raw).map_err(|_| "invalid URL".to_owned())?;
-    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
-        return Err("only http and https pages are supported".into());
-    }
-    if !url.username().is_empty() || url.password().is_some() {
-        return Err("credentials in browser URLs are not supported".into());
-    }
-    Ok(url)
-}
+pub(super) use xharness_browser::web_url;
 
 fn safe_download_name(url: &Url) -> String {
     let raw = url

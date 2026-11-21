@@ -20,6 +20,7 @@ use xharness_host_app::config::{self, ModelDeployment, SingleModelDeployment};
 use xharness_host_app::hosted::{HostedBackend, HostedExecution};
 use xharness_host_app::hosted_bootstrap::HostedGoalBootstrap;
 use xharness_host_app::model_settings::{NativeCredentialStore, NativeModelSettings};
+use xharness_host_app::native_browser::NativeBrowser;
 use xharness_host_app::{NativePluginBackend, NativeToolFactory};
 use xharness_provider_openai::OpenAiProtocol;
 use xharness_schedule::ScheduleManager;
@@ -30,6 +31,9 @@ use xharness_terminal::TerminalRegistry;
 use xharness_web_terminal::terminal_routes;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if xharness_browser::run_helper() {
+        return Ok(());
+    }
     if env::args_os()
         .nth(1)
         .is_some_and(|arg| arg == "--authorize-local-keychain")
@@ -85,6 +89,15 @@ async fn main_inner(
     failure_code: &mut Option<StartupFailureCode>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse()?;
+    let desktop_browser = NativeBrowser::from_env()?;
+    let browser = if args.local_browser {
+        if desktop_browser.is_some() {
+            return Err("standalone browser and desktop bridge cannot be combined".into());
+        }
+        Some(NativeBrowser::standalone())
+    } else {
+        desktop_browser
+    };
     let startup_progress = StartupProgress::start(args.startup_progress_file.clone());
     startup_progress.stage(StartupStage::BasicInitialization);
     *failure_code = Some(StartupFailureCode::ProcessOwnership);
@@ -165,11 +178,19 @@ async fn main_inner(
     }
     let result = if let Some(execution) = &hosted {
         tokio::select! {
-            result = run(args,debug.clone(),failure_code,&startup_progress,hosted.clone()) => result,
+            result = run(args,browser,debug.clone(),failure_code,&startup_progress,hosted.clone()) => result,
             failure = execution.boot_revoked() => failure.map_err(|error|error.into()),
         }
     } else {
-        run(args, debug.clone(), failure_code, &startup_progress, None).await
+        run(
+            args,
+            browser,
+            debug.clone(),
+            failure_code,
+            &startup_progress,
+            None,
+        )
+        .await
     };
     let outcome = match &result {
         Ok(()) => serde_json::json!({"outcome": "success"}),
@@ -184,6 +205,7 @@ async fn main_inner(
 
 async fn run(
     args: Args,
+    browser: Option<NativeBrowser>,
     debug: DebugRecorder,
     failure_code: &mut Option<StartupFailureCode>,
     startup_progress: &StartupProgress,
@@ -282,7 +304,7 @@ async fn run(
     }
     let mcp = xharness_mcp::McpRuntime::new();
     tools.bind_mcp(Arc::clone(&mcp))?;
-    if let Some(browser) = xharness_host_app::native_browser::NativeBrowser::from_env()? {
+    if let Some(browser) = browser {
         tools.bind_native_browser(browser)?;
     }
     let plugins =
@@ -857,6 +879,7 @@ struct Args {
     debug_dir: PathBuf,
     desktop_token: Option<String>,
     remote_control: bool,
+    local_browser: bool,
     shutdown_file: Option<PathBuf>,
     ready_file: Option<PathBuf>,
     startup_progress_file: Option<PathBuf>,
@@ -911,6 +934,7 @@ impl Args {
         let mut startup_progress_file =
             env::var_os("XHARNESS_STARTUP_PROGRESS_FILE").map(PathBuf::from);
         let mut desktop_start_file = None;
+        let mut local_browser = false;
         let mut tool_allowlist = None;
         let mut hosted_bootstrap_file =
             env::var_os("XHARNESS_HOSTED_BOOTSTRAP_FILE").map(PathBuf::from);
@@ -962,6 +986,13 @@ impl Args {
                 "--debug-dir" => debug_dir = Some(PathBuf::from(value)),
                 "--desktop-token" => desktop_token = Some(value),
                 "--remote-control" => remote_control = parse_remote_control(&value)?,
+                "--local-browser" => {
+                    local_browser = match value.as_str() {
+                        "enabled" => true,
+                        "disabled" => false,
+                        _ => return Err("--local-browser expects enabled or disabled".into()),
+                    }
+                }
                 "--shutdown-file" => shutdown_file = Some(PathBuf::from(value)),
                 "--ready-file" => ready_file = Some(PathBuf::from(value)),
                 "--startup-progress-file" => startup_progress_file = Some(PathBuf::from(value)),
@@ -984,6 +1015,14 @@ impl Args {
             .transpose()?
             .unwrap_or_default();
         validate_desktop_boundary(bind, desktop_token.as_deref())?;
+        if local_browser
+            && (desktop_token.is_none()
+                || hosted_permit_dir.is_some()
+                || desktop_start_file.is_some()
+                || remote_control)
+        {
+            return Err("--local-browser enabled requires a standalone authenticated loopback Host, without hosted mode or remote control; configure XHARNESS_DESKTOP_TOKEN".into());
+        }
         if hosted_bootstrap_file.is_some()
             && (hosted_permit_dir.is_none() || providers_file.is_some())
         {
@@ -1014,6 +1053,7 @@ impl Args {
             debug_dir,
             desktop_token,
             remote_control,
+            local_browser,
             shutdown_file,
             ready_file,
             startup_progress_file,

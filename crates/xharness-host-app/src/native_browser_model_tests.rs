@@ -154,10 +154,12 @@ async fn native_flat_results_reach_actual_http_in_both_protocols_and_restored_hi
     for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let native = Arc::new(NativeBrowser {
-            address: listener.local_addr().unwrap(),
-            token: "a".repeat(64),
             headless: false,
             images: Default::default(),
+            transport: Transport::Desktop {
+                address: listener.local_addr().unwrap(),
+                token: "a".repeat(64),
+            },
         });
         let dispatched = Arc::new(Mutex::new(Vec::new()));
         let seen = dispatched.clone();

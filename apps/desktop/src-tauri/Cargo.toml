@@ -15,6 +15,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
+xharness-browser = { path = "../../../crates/xharness-browser" }
 xharness-process = { path = "../../../crates/xharness-process" }
 xharness-installation = { path = "../../../crates/xharness-installation" }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
@@ -24,8 +25,6 @@ getrandom = "0.3"
 base64 = "0.22"
 sha2 = "0.10"
 hmac = "0.12.1"
-futures-util = { version = "0.3", features = ["sink"] }
-tokio-tungstenite = "0.29"
 minisign-verify = "0.2.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

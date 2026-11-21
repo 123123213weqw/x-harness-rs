@@ -59,6 +59,48 @@ cover execution, console/async results, output limits, partial effects, timeouts
 stale refs, malformed code and session/Host boundaries. These do not claim a
 specific LLM task-success rate or that an installed app has been upgraded.
 
+## Standalone Host browser
+
+`xharness-browser` owns Chrome/Edge discovery, isolated profiles, CDP, page
+scripts and process-tree lifetime without any Tauri dependency. The desktop
+shell still hosts the same controller for its existing preview and desktop
+bridge; its system WebView, login and delegation paths are unchanged.
+`--local-browser enabled` selects the controller in the independent
+`xharness-host` process instead, without starting any window or bridge. It is
+off by default; it requires a loopback bind and existing Host authentication
+(`XHARNESS_DESKTOP_TOKEN`, or `--desktop-token`). Hosted, remote-control, and
+desktop-bridge combinations are rejected at startup, not silently switched.
+
+With a model route already configured, run locally:
+
+```sh
+export XHARNESS_DESKTOP_TOKEN="$(openssl rand -hex 32)"
+xharness-host --bind 127.0.0.1:3080 --local-browser enabled --static-dir /absolute/path/to/ui/dist
+```
+
+Use the existing authenticated Host API (the `x-xharness-desktop-token`
+header) or the local UI bootstrap at
+`http://127.0.0.1:3080/desktop/bootstrap?token=<your-local-token>`.
+Treat that bootstrap URL as private; do not share or log it. Use a separate
+Host state directory if the desktop app already owns the same state. Chrome or
+Edge must already be installed; the Host does not install or attach to a
+personal browser profile. Browser launch happens lazily on `browser_control`
+`action=open`. Only `backend=browser` is advertised in this mode; selecting
+WebView is rejected. Existing tool approvals continue to apply.
+
+`browser_evaluate` executes against the chat's real page without a frame,
+screenshot, vision-capable model, or active desktop. It retains the same
+structured result, per-execution console, page origin constraints and
+no-automatic-replay behavior. Close or retire the owning chat to stop its
+browser and discard its temporary profile; Host shutdown does the same for all
+owned browsers. This mode has no sidebar preview, and does not add continuous
+Console/Network events or debugger sessions.
+
+The Linux CI acceptance launches the actual standalone Host and an installed
+Chrome/Edge against a localhost fixture with an OpenAI-compatible scripted
+provider. It checks the received model HTTP JSON, page execution and cleanup;
+it does not call a live model or exercise a personal browser profile.
+
 ## Flat native model results
 
 The eight direct `browser_*` tools and `plugin_mcp` requests explicitly targeting

@@ -4,97 +4,14 @@
 //! refs are only untrusted identity evidence. No arbitrary JS/selector is accepted.
 
 use std::sync::{atomic::Ordering, Arc};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tauri::{State, Webview};
 
 use crate::browser::{ensure_main, BrowserState};
-use crate::browser_inspect::{decode_callback, evaluate, SCRIPT, TIMEOUT};
+use crate::browser_inspect::{decode_callback, evaluate, TIMEOUT};
 
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(tag = "action", rename_all = "lowercase", deny_unknown_fields)]
-pub enum PerformRequest {
-    Click {
-        frame_id: String,
-        r#ref: String,
-    },
-    Fill {
-        frame_id: String,
-        r#ref: String,
-        text: String,
-    },
-    Select {
-        frame_id: String,
-        r#ref: String,
-        value: String,
-    },
-    Scroll {
-        frame_id: String,
-        delta_y: i32,
-    },
-}
-
-impl PerformRequest {
-    pub(super) fn frame(&self) -> &str {
-        match self {
-            Self::Click { frame_id, .. }
-            | Self::Fill { frame_id, .. }
-            | Self::Select { frame_id, .. }
-            | Self::Scroll { frame_id, .. } => frame_id,
-        }
-    }
-
-    fn reference(&self) -> Option<&str> {
-        match self {
-            Self::Click { r#ref, .. } | Self::Fill { r#ref, .. } | Self::Select { r#ref, .. } => {
-                Some(r#ref)
-            }
-            Self::Scroll { .. } => None,
-        }
-    }
-
-    pub(super) fn validate(&self) -> Result<(), String> {
-        if self.frame().len() != 32 || !self.frame().bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            return Err("invalid frame_id".into());
-        }
-        if self.reference().is_some_and(|reference| {
-            !reference.starts_with('n')
-                || reference.len() > 8
-                || reference[1..].is_empty()
-                || !reference[1..].bytes().all(|byte| byte.is_ascii_digit())
-        }) {
-            return Err("invalid observed ref".into());
-        }
-        match self {
-            Self::Fill { text, .. } if text.len() > 16000 => {
-                Err("fill text exceeds byte limit".into())
-            }
-            Self::Select { value, .. } if value.len() > 500 => {
-                Err("select value exceeds byte limit".into())
-            }
-            Self::Scroll { delta_y, .. } if *delta_y == 0 || delta_y.unsigned_abs() > 5000 => {
-                Err("invalid scroll delta".into())
-            }
-            _ => Ok(()),
-        }
-    }
-
-    fn script(&self) -> Result<String, String> {
-        let mut arguments = serde_json::to_value(self).map_err(|_| "invalid DOM action")?;
-        // Expire queued script work before the callback deadline. A stalled
-        // renderer must not execute a forgotten action arbitrarily later.
-        arguments["deadline_epoch_ms"] = Value::from(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|_| "clock unavailable")?
-                .as_millis() as u64
-                + 5000,
-        );
-        Ok(format!("({SCRIPT})({arguments})"))
-    }
-}
+pub use xharness_browser::PerformRequest;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

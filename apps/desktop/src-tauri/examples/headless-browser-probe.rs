@@ -56,6 +56,6 @@ fn main() {
                 break;
             }
         }
-        browsers.shutdown().await;
+        browsers.shutdown().await.expect("owned browser shutdown");
     });
 }
