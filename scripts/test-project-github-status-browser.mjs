@@ -89,6 +89,36 @@ try {
  await page.evaluate(()=>{delay=false;response={...response,ci:'pending'};resolveOld({ok:true,value:{...response,ci:'passing'}})})
  await page.waitForFunction(()=>document.querySelector('[data-ci=pending]'))
  assert.equal(await page.evaluate(()=>calls.length),burstStart+2,'one coalesced follow-up observes latest state')
+ // Disconnect before the first repository identity is known. The old RPC
+ // deliberately ignores abort so recovery cannot rely on transport timing.
+ const initialDisconnectCalls=await page.evaluate(()=>calls.length)
+ await page.evaluate(()=>{delay=true;resolveOld=undefined;renderBadge({generation:{home:'/initial-offline'},workspaceId:'initial-offline',path:'/initial-offline',active:false,expanded:false})})
+ await page.waitForFunction(()=>typeof resolveOld==='function')
+ await page.evaluate(()=>{signal({repositoryIds:['R_project7'],reset:false,connected:true});signal({repositoryIds:[],reset:false,connected:false})})
+ await trigger.click();await panel.waitFor()
+ assert.equal(await panel.getByRole('button',{name:'刷新',exact:true}).isDisabled(),false,'initial disconnect releases manual refresh before the old RPC settles')
+ assert.ok(!(await trigger.getAttribute('aria-label')).includes('正在查询'),'cancelled initial query exits loading')
+ await page.evaluate(()=>{delay=false;response={kind:'ready',ci:'failing',repository:'alice/project',branch:'feature',localSha:'a'.repeat(40),headSha:'a'.repeat(40),number:9,url:'https://github.com/alice/project/pull/9',state:'OPEN',draft:false,repositoryId:'R_project7'}})
+ await panel.getByRole('button',{name:'刷新',exact:true}).click()
+ await page.waitForFunction(()=>document.querySelector('[data-ci=failing]'))
+ assert.equal(await page.evaluate(()=>calls.length),initialDisconnectCalls+2,'manual gh read starts while the cancelled read is still pending')
+ assert.ok((await panel.innerText()).includes('实时事件连接已断开'),'manual gh status does not claim the webhook reconnected')
+ await page.evaluate(()=>resolveOld({ok:true,value:{...response,ci:'passing'}}))
+ await page.waitForTimeout(100)
+ assert.equal(await page.locator('[data-ci=passing]').count(),0,'late cancelled initial success never turns the new result green')
+ assert.equal(await page.locator('[data-ci=failing]').count(),1)
+ assert.equal(await page.evaluate(()=>calls.length),initialDisconnectCalls+2,'cancelled queued work never launches a hidden extra query')
+ await page.keyboard.press('Escape')
+ // A settled row without a known GitHub identity was not cancelled; do not
+ // replace unsupported/ambiguous/old-Host no-PR results with a global error.
+ for(const kind of ['unsupported','ambiguous','no_pr']){
+  await page.evaluate(kind=>{response={kind,ci:'none'};renderBadge({generation:{home:'/settled-'+kind},workspaceId:'settled-'+kind,path:'/settled-'+kind})},kind)
+  const label=({unsupported:'未连接 GitHub 分支',ambiguous:'无法唯一定位 PR',no_pr:'此分支未找到 PR'})[kind]
+  await page.waitForFunction(label=>document.querySelector('.xhproject-github-trigger').getAttribute('aria-label').includes(label),label)
+  await page.evaluate(()=>signal({repositoryIds:[],reset:false,connected:false}))
+  await page.waitForTimeout(50)
+  assert.ok((await trigger.getAttribute('aria-label')).includes(label),'idle unknown-identity state survives unrelated live disconnect')
+ }
  await page.evaluate(()=>root.unmount());await panel.waitFor({state:'hidden'});const last=await page.evaluate(()=>calls.length);await page.evaluate(()=>{window.dispatchEvent(new Event('focus'));signal({repositoryIds:[],reset:true,connected:true})});await page.waitForTimeout(100);assert.equal(await page.evaluate(()=>calls.length),last,'unmount removes all refresh listeners');assert.deepEqual(errors,[])
- const result={engine,actualProductionRow:true,noPolling:true,manualRefresh:true,focusVisibilityRefresh:true,projectOpenRefresh:true,lateHostResponseIgnored:true,unknownNeverGreen:true,narrowAndDarkLayout:true,unmountCleanup:true,webhookAutoRefresh:true,repositoryFiltering:true,noPrToNewPr:true,offlineReconnect:true,hiddenEventCoalescing:true,oldHostSignalIgnored:true,eventBurstCoalesced:true,pageErrors:errors};writeFileSync(`${out}/${engine}.json`,JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result))
+ const result={engine,actualProductionRow:true,noPolling:true,manualRefresh:true,focusVisibilityRefresh:true,projectOpenRefresh:true,lateHostResponseIgnored:true,unknownNeverGreen:true,narrowAndDarkLayout:true,unmountCleanup:true,webhookAutoRefresh:true,repositoryFiltering:true,noPrToNewPr:true,offlineReconnect:true,hiddenEventCoalescing:true,oldHostSignalIgnored:true,eventBurstCoalesced:true,initialDisconnectManualRecovery:true,cancelledInitialResultIgnored:true,idleUnknownIdentityPreserved:true,pageErrors:errors};writeFileSync(`${out}/${engine}.json`,JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result))
 } finally {await browser.close()}

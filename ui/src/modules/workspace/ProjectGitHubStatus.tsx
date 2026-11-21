@@ -42,8 +42,10 @@ export function ProjectGitHubStatus({workspaceId, path, generation, active, expa
       if (signal.generation !== generation) return
       setLive({generation, connected: signal.connected})
       if (!signal.connected) {
-        request.cancel()
-        if (repositoryId) publish(undefined, t('github.live_disconnected'), false)
+        const cancelled = request.cancel()
+        // The first read may not know its repository yet. Abort suppresses its
+        // result, so explicitly end loading and keep manual refresh available.
+        if (cancelled || repositoryId) publish(undefined, t('github.live_disconnected'), false)
         return
       }
       if (!signal.reset && (signal.repositoryIds.length === 0 || repositoryId && !signal.repositoryIds.includes(repositoryId))) return

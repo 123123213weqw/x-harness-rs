@@ -51,8 +51,12 @@ export class ProjectStatusRequest {
     } catch (e: unknown) {
       if (!this.disposed && !controller.signal.aborted) publish(undefined, e instanceof Error ? e.message : 'Project status failed', false)
     } finally {
-      if (this.controller === controller) this.controller = undefined
-      if (this.queued && !this.disposed) {this.queued = false; void this.refresh(publish)}
+      // A cancelled transport can settle after a manual retry has taken over.
+      // Only its current owner may release the slot or consume queued work.
+      if (this.controller === controller) {
+        this.controller = undefined
+        if (this.queued && !this.disposed) {this.queued = false; void this.refresh(publish)}
+      }
     }
   }
   invalidate(publish: (value: ProjectGitHub|undefined, error: string|undefined, loading: boolean) => void): void {
@@ -60,6 +64,11 @@ export class ProjectStatusRequest {
     if (this.controller) {this.queued = true; this.controller.abort()}
     else void this.refresh(publish)
   }
-  cancel(): void {this.queued = false; this.controller?.abort()}
+  cancel(): boolean {
+    const controller = this.controller
+    this.queued = false; this.controller = undefined
+    controller?.abort()
+    return controller !== undefined
+  }
   dispose(): void {this.disposed = true; this.queued = false; this.controller?.abort(); this.controller = undefined}
 }
