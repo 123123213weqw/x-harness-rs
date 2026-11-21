@@ -68,13 +68,13 @@ function sourceModule(name, globals = {}, externals = {}, entry = 'index') {
 
 const jsx = { jsx: (type, props) => ({type, props}), jsxs: (type, props) => ({type, props}), Fragment: 'fragment' }
 const zod = require('zod')
-const primitives = {Modal: 'Modal', Button: 'Button', IconDownloadOutline16: 'download', IconChevronDownOutline14: 'chevron', Menu: 'Menu'}
+const primitives = {Modal: 'Modal', Button: 'Button', IconDownloadOutline16: 'download', IconBrowseOutline16: 'browse', IconListPenOutline16: 'pen', IconQuestionOutline14: 'help', IconChevronDownOutline14: 'chevron', Menu: 'Menu'}
 function snapshot(initial) {
   let state = structuredClone(initial); const listeners = new Set()
   return {getSnapshot: () => state, subscribe: fn => {listeners.add(fn); return () => listeners.delete(fn)}, update: edit => {state = {...state}; edit(state); for (const fn of listeners) fn()}}
 }
 const runtime = {createSnapshotStore: snapshot, defineStore: definition => definition}
-const viewExternals = {'@xharness/dsh-client-runtime/client': runtime, 'react/jsx-runtime': jsx, 'react': {useState: initial => [initial, () => {}]}, '@xharness/dsh-client-ui-primitives': primitives}
+const viewExternals = {'@xharness/dsh-client-runtime/client': runtime, 'react/jsx-runtime': jsx, 'react': {useState: initial => [initial, () => {}], useId: () => 'menu-id', useRef: current => ({current}), useCallback: callback => callback, useEffect: () => {}}, '@xharness/dsh-client-ui-primitives': primitives}
 const current = sourceModule('client-modules')
 const old = legacy('client-modules')
 const row = (id, external = []) => ({ id, url: `/${id}.js`, rev: id, external })
@@ -231,7 +231,16 @@ for (const label of ['legacy', 'source']) {
     state.listener('s','export',{kind:'success'}); await new Promise(r=>setTimeout(r,1))
     const result=state.controller.store.getSnapshot().bySession.s; assert.equal(result.status,'error'); assert.match(result.error,/HTTP 403 denied/)
     const props={sessionId:'s',useSessionLogDownload:select=>select(state.controller.store.getSnapshot()),t:key=>key,request:()=>{},dismiss:()=>{}}
-    const tree=state.seat.component(props); assert.equal(tree.props.children[0].props.disabled,false)
+    const tree=state.seat.component(props)
+    if (label==='legacy') assert.equal(tree.props.children[0].props.disabled,false)
+    else {
+      const [menuSeat,dialog]=tree.type(tree.props).props.children
+      assert.equal(menuSeat.props.children.props.anchor.props['aria-haspopup'],'menu')
+      const resultModal=dialog.type(dialog.props)
+      assert.equal(resultModal.props.open,true,'the help menu still mounts the slash-command result modal')
+      assert.equal(resultModal.props.title,'dialog.errorTitle')
+      assert.match(resultModal.props.description,/HTTP 403 denied/)
+    }
     await state.controller.dispose()
   })
 }

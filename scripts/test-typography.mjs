@@ -69,7 +69,10 @@ test('assistant prose and table cells use the ordinary system UI font',()=>{
  assert.doesNotMatch(tokens,/Georgia|"Songti SC"|"Noto Serif CJK SC"|"Source Han Serif SC"|,\s*serif\b/)
  assert.match(prose,/--xh-markdown-emphasis-weight: 600;/)
  assert.match(prose,/font-family: var\(--xh-assistant-reading-family\);/)
- assert.doesNotMatch(prose,/font-size:|line-height:|font-weight:|color:|background:/)
+ assert.match(prose,/font-size: 14px;/,'prose rhythm: 14px compact body')
+ assert.match(prose,/line-height: 22px;/)
+ assert.match(prose,/font-weight: var\(--dsw-weight-body, 400\);/,'dark-mode weight compensation via token')
+ assert.doesNotMatch(prose,/color:|background:/)
  assert.match(tokens,/\[data-xh-assistant-prose\] > \.MarkdownText_markdown td\s*\{\s*font-family: var\(--xh-assistant-reading-family\);\s*\}/)
  const global=tokens.match(/body\s*\{([^}]+)\}/)?.[1]
  assert.doesNotMatch(global,/--xh-assistant-reading-family|font-family:|--dsw-font-family:/)

@@ -5,6 +5,7 @@ import {ownedViewModuleTestInput} from './owned-view-module-test-input.mjs'
 import assert from 'node:assert/strict'
 import {createHash} from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 
@@ -13,14 +14,47 @@ const require = createRequire(resolve(deps, 'package.json'))
 const { chromium, webkit } = require('playwright')
 const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
 const browser = await ({ chromium, webkit })[engine].launch({ headless: true })
+// GTK WebKit hands native downloads to a separate network path. A mocked
+// route on a .test hostname is not evidence of an actual downloaded file.
+const logRequests = []
+let exportStatus = 403
+const archiveName = 'dsh-session-toolbar-test.zip'
+const fixtureZip = Buffer.from('504b0506000000000000000000000000000000000000', 'hex')
+const exportServer = createServer((request, response) => {
+  const url = new URL(request.url, 'http://127.0.0.1')
+  if (url.pathname !== '/api/session.export' || !['HEAD', 'GET'].includes(request.method)) {
+    response.writeHead(404).end()
+    return
+  }
+  logRequests.push({method: request.method, query: url.searchParams.toString()})
+  if (exportStatus !== 200) {
+    response.writeHead(exportStatus, {'content-length': 0}).end()
+    return
+  }
+  response.writeHead(200, {'content-type': 'application/zip', 'content-length': fixtureZip.length,
+    'content-disposition': `attachment; filename="${archiveName}"`})
+  response.end(request.method === 'HEAD' ? undefined : fixtureZip)
+})
 try {
+  await new Promise((resolve, reject) => {
+    exportServer.once('error', reject)
+    exportServer.listen(0, '127.0.0.1', resolve)
+  })
+  const exportOrigin = `http://127.0.0.1:${exportServer.address().port}`
+
   const layoutSource=ownedViewModuleTestInput('@xharness/dsh-client-ui-layout')
   const page = await browser.newPage({ viewport: { width: 1280, height: 780 } })
   const errors = []
   page.on('pageerror', error => {if(error.message!=='owned feature fixture: stop Host boot')errors.push(error.message)})
   // Host boot is intercepted before theme activation. The platform's global
   // keyboard-focus rule needs the same primary-label token as the real shell.
-  await installOwnedViewHtml(page,process.env.UI_TEST_IMPL??'canonical','<html><head></head><body style="margin:0;--dsw-alias-label-primary:#0f1115"><div id="root" style="position:fixed;inset:0"></div></body></html>')
+  await installOwnedViewHtml(page,process.env.UI_TEST_IMPL??'canonical','<html><head></head><body style="margin:0;--dsw-alias-label-primary:#0f1115"><div id="root" style="position:fixed;inset:0"></div></body></html>',
+    process.env.UI_TEST_IMPL === 'legacy' ? undefined : {origin: exportOrigin})
+  if (process.env.UI_TEST_IMPL !== 'legacy') {
+    // Bypass the platform asset route for this same-origin HTTP endpoint only.
+    // Keep both the preflight and native attachment response real.
+    await page.route(url => url.origin === exportOrigin && url.pathname === '/api/session.export', route => route.continue())
+  }
   await page.addScriptTag({ content: 'window.__ModuleLoader__={load:x=>{window.registrations??={};registrations[x.id]=x}}' })
   await page.addScriptTag({ content: layoutSource })
   await page.addScriptTag({ content: ownedViewModuleTestInput('@xlang/xharness-client-ui-browser') })
@@ -33,11 +67,21 @@ try {
     const layout = registrations['@xharness/dsh-client-ui-layout'].factory(runtime)
     const browser = registrations['@xlang/xharness-client-ui-browser'].factory(runtime)
     browser.apply({ get:()=>undefined,remote:{$on:()=>()=>{}},effect: fn => fn(), slots: { inject: (_, fn) => fn(), register: () => {} } })
-    let SessionLogHeader
+    let SessionLogHeader, logBinding, logCopy
     if (includeSessionLog) {
       const sessionLog = registrations['@xharness/dsh-session-log-export'].factory(runtime)
-      sessionLog.apply({provide:()=>{},effect:fn=>fn(),on:()=>{},locale:{register:()=>()=>{}},
-        slots:{inject:(_,fn)=>fn(),register:(_,component)=>{SessionLogHeader=component}}})
+      sessionLog.apply({provide:()=>{},effect:fn=>fn(),on:(event,fn)=>{
+        if(event==='command/executed') window.runLogExportCommand = () => fn('toolbar-test','export',{kind:'success'})
+      },locale:{register:(_,dict)=>{logCopy=dict.zh;return()=>{}}},
+        slots:{inject:(_,fn)=>fn(),register:(spec,component)=>{SessionLogHeader=component;logBinding=spec.inject()}}})
+      // Record only the two fixed support links. Other native anchors,
+      // including the real session archive download, still click normally.
+      const nativeClick=HTMLAnchorElement.prototype.click
+      window.helpLinks = []
+      HTMLAnchorElement.prototype.click=function(){
+        if (this.origin==='https://github.com') window.helpLinks.push({href:this.href,target:this.target,rel:this.rel})
+        else nativeClick.call(this)
+      }
     }
     const shellSessions=createShellSessionsFixture()
     let AppFrame,rootDefinition
@@ -52,7 +96,9 @@ try {
       if (name === 'shell.overlay') return null
       if (name === 'workspace.item') return React.createElement(browser.BrowserPane, props)
       if (name === 'conversation') return React.createElement('div', { style: { position: 'absolute', top: 8, right: 8, display:'flex', alignItems:'center', gap:8 } },
-        SessionLogHeader?React.createElement(SessionLogHeader,{sessionId:'toolbar-test',useSessionLogDownload:select=>select({bySession:{}}),request:async()=>{},dismiss:()=>{},t:key=>key}):null,
+        SessionLogHeader?React.createElement(SessionLogHeader,{sessionId:'toolbar-test',
+          useSessionLogDownload:select=>select(React.useSyncExternalStore(logBinding.hooks.sessionLogDownload.subscribe,logBinding.hooks.sessionLogDownload.getSnapshot)),
+          request:logBinding.request,dismiss:logBinding.dismiss,t:key=>logCopy[key]}):null,
         React.createElement(browser.BrowserToggle))
       return React.createElement('div', null, name)
     }
@@ -136,28 +182,67 @@ try {
   if (process.env.UI_TEST_IMPL !== 'legacy') {
     const trigger = page.locator('.xhbrowser-header-trigger')
     assert.equal(await trigger.getAttribute('aria-expanded'), 'true', 'header trigger reports the actual open dock')
+    const help = page.getByRole('button',{name:'帮助与诊断',exact:true})
     const toolbarGeometry = await page.evaluate(() => {
-      const toggle=document.querySelector('.xhbrowser-header-trigger'),log=[...document.querySelectorAll('button')].find(element=>element.textContent==='Session log')
+      const toggle=document.querySelector('.xhbrowser-header-trigger'), help=document.querySelector('.SPhQuq_helpButton')
       const box=element=>{const r=element.getBoundingClientRect();return{width:r.width,height:r.height,centerY:r.y+r.height/2}}
-      return{toggle:box(toggle),log:box(log),toggleIcon:box(toggle.querySelector('svg')),logIcon:box(log.querySelector('svg')),
+      return{toggle:box(toggle),help:box(help),toggleIcon:box(toggle.querySelector('svg')),helpIcon:box(help.querySelector('svg')),
         duration:getComputedStyle(toggle.querySelector('.xhbrowser-dock-chevron')).transitionDuration,
         animation:getComputedStyle(toggle.querySelector('.xhbrowser-dock-chevron')).animationName}
     })
     assert.equal(toolbarGeometry.toggle.width,32);assert.equal(toolbarGeometry.toggle.height,32)
-    assert.equal(toolbarGeometry.log.height,32,'the toggle shares the actual Session log capsule height')
-    assert.equal(toolbarGeometry.toggle.centerY,toolbarGeometry.log.centerY,'toolbar controls share a vertical center')
     assert.equal(toolbarGeometry.toggleIcon.width,16);assert.equal(toolbarGeometry.toggleIcon.height,16)
-    assert.equal(toolbarGeometry.logIcon.width,16);assert.equal(toolbarGeometry.logIcon.height,16,'neighboring icons use the same enlarged size')
+    assert.equal(toolbarGeometry.help.width,32,'a single help icon replaces the old wide capsule')
+    assert.equal(toolbarGeometry.help.height,32)
+    assert.equal(toolbarGeometry.help.centerY,toolbarGeometry.toggle.centerY,'the help icon and workspace control share a row')
+    assert.equal(toolbarGeometry.helpIcon.width,16);assert.equal(toolbarGeometry.helpIcon.height,16)
+    assert.equal(await page.getByRole('button',{name:'Session log',exact:true}).count(),0)
+    await help.press('ArrowDown')
+    const helpMenu=page.getByRole('menu',{name:'帮助与诊断'})
+    const docs=helpMenu.getByRole('menuitem',{name:'产品文档'}),issue=helpMenu.getByRole('menuitem',{name:'反馈问题'}),exportLogs=helpMenu.getByRole('menuitem',{name:'导出当前对话日志'})
+    await page.waitForFunction(()=>document.activeElement?.textContent==='产品文档')
+    assert.equal(await helpMenu.getByRole('separator').count(),1,'support and diagnostic items are separated')
+    await docs.press('ArrowDown');assert.equal(await issue.evaluate(el=>el===document.activeElement),true)
+    await issue.press('Enter')
+    assert.deepEqual(await page.evaluate(()=>helpLinks),[{href:'https://github.com/123123213weqw/XHarness/issues/new/choose',target:'_blank',rel:'noopener noreferrer'}])
+    assert.equal(await helpMenu.count(),0)
+    assert.equal(logRequests.length,0,'opening the issue form does not attach or fetch logs')
+    await help.click(); await docs.click()
+    assert.equal(await page.evaluate(()=>helpLinks.at(-1).href),'https://github.com/123123213weqw/XHarness#readme')
+    await help.press('ArrowUp');await page.waitForFunction(()=>document.activeElement?.textContent==='导出当前对话日志')
+    await exportLogs.press('Escape')
+    assert.equal(await help.evaluate(el=>el===document.activeElement),true,'closing the portal restores the trigger focus')
+    await help.click();await exportLogs.click()
+    const failed=page.getByRole('dialog',{name:'对话日志导出失败',exact:true})
+    await failed.getByText(/HTTP 403/).waitFor()
+    assert.deepEqual(logRequests,[{method:'HEAD',query:'sessionId=toolbar-test&includeDescendants=true'}])
+    await page.keyboard.press('Escape')
+    await failed.waitFor({state:'detached'})
+    await page.evaluate(()=>window.runLogExportCommand())
+    await failed.waitFor()
+    assert.equal(logRequests.length,2,'/export shares the same explicit failure UI')
+    await page.keyboard.press('Escape')
+    await failed.waitFor({state:'detached'})
+    exportStatus=200
+    await help.click()
+    const [archive]=await Promise.all([page.waitForEvent('download'),exportLogs.click()])
+    assert.equal(archive.suggestedFilename(),archiveName)
+    assert.deepEqual(readFileSync(await archive.path()),fixtureZip,'the downloaded attachment has exact ZIP bytes')
+    const query = 'sessionId=toolbar-test&includeDescendants=true'
+    assert.deepEqual(logRequests, ['HEAD','HEAD','HEAD','GET'].map(method=>({method,query})),
+      'only a successful explicit export hands the scoped archive to the browser')
+    await page.getByRole('dialog',{name:'对话日志已开始下载',exact:true}).waitFor()
+    await page.keyboard.press('Escape')
+    await page.getByRole('dialog').waitFor({state:'detached'})
     assert.equal(toolbarGeometry.duration,'0.18s','a short state transition, not a perpetual spinner')
     assert.equal(toolbarGeometry.animation,'none')
     await page.waitForFunction(()=>new DOMMatrix(getComputedStyle(document.querySelector('.xhbrowser-dock-chevron')).transform).a<-.999)
     await page.emulateMedia({reducedMotion:'reduce'})
     assert.equal(await trigger.locator('.xhbrowser-dock-chevron').evaluate(element=>getComputedStyle(element).transitionDuration),'0s','reduced motion disables the arrow transition')
     assert.equal(await trigger.locator('.xhbrowser-dock-panel').evaluate(element=>getComputedStyle(element).transitionDuration),'0s','reduced motion also disables the panel tint transition')
-    // Enter on a mouse-focused button does not establish :focus-visible in
-    // every engine. Reach it by real keyboard navigation from its neighbor.
-    await page.getByRole('button',{name:'Session log',exact:true}).press(engine === 'webkit' && process.platform === 'darwin' ? 'Alt+Tab' : 'Tab')
-    assert.equal(await trigger.evaluate(element=>element===document.activeElement),true,'Tab reaches the workspace control after Session log')
+    // Navigate from the new Help trigger, not by programmatic dock focus.
+    await help.press(engine === 'webkit' && process.platform === 'darwin' ? 'Alt+Tab' : 'Tab')
+    assert.equal(await trigger.evaluate(element=>element===document.activeElement),true,'Tab reaches the workspace control after Help')
     await trigger.press('Enter')
     await page.getByRole('region',{name:'工作区',exact:true}).waitFor({state:'hidden'})
     await page.getByRole('button',{name:'展开右侧工作区',exact:true}).waitFor()
@@ -284,4 +369,7 @@ try {
   assert.deepEqual(errors, [])
   console.log(JSON.stringify({engine,implementation:process.env.UI_TEST_IMPL??'canonical',actualPlatform:true,actualRuntimeEngine:true,initialPixelsSha256,pageErrors:errors}))
   console.log(`${engine}: browser layout fallback passed`)
-} finally { await browser.close() }
+} finally {
+  await browser.close()
+  if (exportServer.listening) await new Promise(resolve=>exportServer.close(resolve))
+}

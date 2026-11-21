@@ -1,5 +1,5 @@
 {
-  "rev": "b4848277ec14cea2",
+  "rev": "3f94137aea3294f9",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -43,8 +43,8 @@
     },
     {
       "id": "@xharness/dsh-session-log-export",
-      "url": "/plugins/@xharness/dsh-session-log-export/client.js?rev=8ebf1ef6d8ab5fb9",
-      "rev": "8ebf1ef6d8ab5fb9",
+      "url": "/plugins/@xharness/dsh-session-log-export/client.js?rev=09f46b0512e208be",
+      "rev": "09f46b0512e208be",
       "inject": [
         "@xharness/dsh-client-locale",
         "@xharness/dsh-client-runtime",
@@ -54,6 +54,7 @@
       "external": [
         "@xharness/dsh-client-runtime/client",
         "@xharness/dsh-client-ui-primitives",
+        "react",
         "react/jsx-runtime"
       ]
     },
@@ -113,8 +114,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-theme",
-      "url": "/plugins/@xharness/dsh-client-ui-theme/client.js?rev=17671c048de062b2",
-      "rev": "17671c048de062b2",
+      "url": "/plugins/@xharness/dsh-client-ui-theme/client.js?rev=ef1ebb8568d2de26",
+      "rev": "ef1ebb8568d2de26",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-client-runtime",
@@ -428,8 +429,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-workspace",
-      "url": "/plugins/@xharness/dsh-client-ui-workspace/client.js?rev=237a5bfa20008a6e",
-      "rev": "237a5bfa20008a6e",
+      "url": "/plugins/@xharness/dsh-client-ui-workspace/client.js?rev=0d402da6189eb207",
+      "rev": "0d402da6189eb207",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-client-locale",
@@ -562,8 +563,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-message-feedback",
-      "url": "/plugins/@xharness/dsh-client-ui-message-feedback/client.js?rev=2d6f961ab42edb15",
-      "rev": "2d6f961ab42edb15",
+      "url": "/plugins/@xharness/dsh-client-ui-message-feedback/client.js?rev=eb91a28bbe350f88",
+      "rev": "eb91a28bbe350f88",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-api-remotes",

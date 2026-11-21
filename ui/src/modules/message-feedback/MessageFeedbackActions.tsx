@@ -43,7 +43,14 @@ const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
  * @returns the rating buttons and the note trigger, with the note editor
  * portal-open beneath the trigger while it is open.
  */
-export function MessageFeedbackActions({ messageId, ensure, rate, toggle, clearNote, useFeedback, t }: MessageFeedbackActionProps) {
+export function MessageFeedbackActions(_props: MessageFeedbackActionProps) {
+  // UI retired by product decision: the Like/Dislike row never rendered usefully
+  // (no feedback backend wired in this deployment). The slot registration and
+  // injected rating API stay intact for contracts; this component renders null.
+  return null
+}
+
+function __RetiredMessageFeedbackActions({ messageId, ensure, rate, toggle, clearNote, useFeedback, t }: MessageFeedbackActionProps) {
   const item = useFeedback(view => view.items.get(messageId))
   const loadFailed = useFeedback(view => view.status === 'error')
   const rating = item?.rating
